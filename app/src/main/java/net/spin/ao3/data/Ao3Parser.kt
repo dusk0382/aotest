@@ -245,7 +245,6 @@ object Ao3Parser {
      */
     private fun extractChapterContent(doc: Document): String? {
         doc.selectFirst("div#chapters div.chapter[id] > div.userstuff")?.let { return it.html() }
-        doc.selectFirst("div#chapters div.chapter[id] > div.userstuff.module")?.let { return it.html() }
         return doc.select("div#chapters div.userstuff").firstOrNull { el ->
             el.parents().none { p -> p.hasClass("preface") || p.hasClass("afterword") }
         }?.html()

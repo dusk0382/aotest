@@ -57,6 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,7 +110,7 @@ fun ReaderScreen(
     var showChapters by remember { mutableStateOf(false) }
 
     // Tap on the text toggles the bars + full screen; scrolls and links are left alone.
-    var chromeVisible by remember { mutableStateOf(true) }
+    var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var showHint by remember { mutableStateOf(false) }
     val toggleChrome: () -> Unit = { chromeVisible = !chromeVisible }
 
@@ -699,10 +700,8 @@ private fun buildChapterHtml(workTitle: String, chapterIndex: Int, chapterTitle:
         <style>$css</style>
         <script>
         (function(){
-          var sx = 0, sy = 0, moved = false;
-          document.addEventListener('touchstart', function(e){
-            var t = e.touches[0];
-            if (t) { sx = t.clientX; sy = t.clientY; }
+          var moved = false;
+          document.addEventListener('touchstart', function(){
             moved = false;
           }, true);
           document.addEventListener('touchmove', function(){ moved = true; }, true);

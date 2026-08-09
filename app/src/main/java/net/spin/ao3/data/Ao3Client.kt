@@ -116,7 +116,7 @@ class Ao3Client {
     }
 
     // Cache of tag name -> canonical tag_id (avoids a page fetch per pagination).
-    private val canonicalTagCache = HashMap<String, String?>()
+    private val canonicalTagCache = java.util.concurrent.ConcurrentHashMap<String, String?>()
 
     /**
      * Searches works.

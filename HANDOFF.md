@@ -313,3 +313,63 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
 - `ModalBottomSheet` se cierra con un swipe hacia abajo que empiece dentro de la
   zona de drag; para scrollear el sheet usa swipes cortos en la parte baja.
 - El sheet de filtros es largo; "Aplicar filtros" queda debajo del fold.
+---
+
+## 13. Ronda de fixes (ago 2026): búsqueda real, capítulos, lector fullscreen + CI
+
+### Bugs encontrados y corregidos (verificados en vivo + tests JVM)
+1. **Chips de fandom de Home daban error**: `resolveCanonicalTag` usaba
+   `URLEncoder.encode()` que convierte espacios en `+` — `+` solo vale en query
+   strings, en la *ruta* de la URL AO3 devuelve 404 (`/tags/Harry+Potter/works`
+   → 404). Ahora se construye con `HttpUrl.Builder.addPathSegment` (`%20`).
+   Verificado: chips Naruto/Harry Potter/Marvel/DCU/MHA/One Piece resuelven y
+   muestran resultados.
+2. **Sin descripción en los resultados**: el resumen del blurb está en
+   `<blockquote class="userstuff summary">` (no `div.userstuff.summary`).
+   Mismo bug en el detalle (`div.summary.module div.userstuff` → ahora
+   `div.summary.module .userstuff`).
+3. **Solo se veían un par de tags en resultados**: los tags del blurb viven en
+   `<ul class="tags commas"><li class="relationships|characters|freeforms">`.
+   `WorkSummary` ahora tiene `relationships` y `characters`, y `WorkCard` los
+   muestra como chips (además de fandoms/categorías/warnings).
+4. **Solo se accedía al capítulo 1**: el template nuevo de AO3 indexa los
+   capítulos en `<select id="selected_id">` con `<option value="<chapterId>">N. Title</option>`
+   (ya NO hay `<ol class="chapter">`). `parseChapters` ahora lee el select y
+   construye la URL `/works/{id}/chapters/{chapterId}`. Verificado: obra de 29
+   capítulos → los 29 listados y el capítulo 2 carga (la página de capítulo usa
+   `div#chapters div.chapter[id] > div.userstuff` como contenido, saltándose
+   notes/preface/afterword).
+5. **Conteo de capítulos roto**: en el detalle la stat mostraba solo el número
+   actual; ahora muestra `29/29` (y `N+` si es incompleta).
+6. **Lector**: ahora el indicador de capítulo/barras **se ocultan con un toque**
+   en el texto (JS `touchend` + `JavascriptInterface` → `chromeVisible`), lo que
+   además activa **pantalla completa** (esconde las system bars vía
+   `WindowInsetsControllerCompat`). El scroll NO alterna las barras (flag
+   `moved` en touchmove) y los links se excluyen (`closest('a,...')`). Al salir
+   se restauran las barras. Se muestra un hint "Toca el texto para mostrar los
+   controles" unos segundos.
+
+### Tests unitarios (JVM, se ejecutan en CI)
+- `app/src/test/java/net/spin/ao3/data/Ao3ParserTest.kt` + snapshots de HTML
+  real en `app/src/test/resources/ao3/` (`blurb.html`, `work.html`, `chap.html`).
+- Cubren: resumen+tags del blurb, los 36 capítulos del select, contenido del
+  capítulo sin notes, y `sanitize`.
+- `./gradlew :app:testDebugUnitTest` (4/4 verdes).
+
+### CI / GitHub Actions
+- Repo: `github.com/dusk0382/aotest` (rama `main`).
+- `.github/workflows/build.yml`: dispara en push a main/master + PR +
+  workflow_dispatch. Corre `testDebugUnitTest` y `assembleDebug` con JDK 17
+  (Temurin) y `gradle/actions/setup-gradle@v4`, y sube el APK como artefacto
+  (`ao3-reader-debug`).
+- El repo local `/home/spin/Documentos/AO3` está conectado a `origin`.
+
+### Notas del dispositivo de prueba actual
+- Redmi Note 9 (M2006C3LG), Android 10, MIUI.
+- `uiautomator dump` da "null root node" (MIUI bloquea el bridge de accesibilidad
+  sin "USB debugging (Security settings)"). Para verificar la UI se usa
+  `screencap` + OCR (`rapidocr_onnxruntime` en `/tmp/ocrvenv`) y taps por
+  coordenadas. La pantalla se duerme rápido: despertar con KEYCODE_POWER y
+  verificar `mWakefulness=Awake` antes de screencap.
+- Se detectó `com.bur.odaru.voicetouchlock` (overlay) robando el foco; si vuelve
+  a pasar: `adb shell am force-stop com.bur.odaru.voicetouchlock`.
