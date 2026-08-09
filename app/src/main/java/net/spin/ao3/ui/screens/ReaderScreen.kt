@@ -106,6 +106,8 @@ fun ReaderScreen(
     var theme by remember { mutableStateOf(store.prefs.theme) }
     var fontSize by remember { mutableIntStateOf(store.prefs.fontSizeSp) }
     var serif by remember { mutableStateOf(store.prefs.serif) }
+    var lineHeight by remember { mutableFloatStateOf(store.prefs.lineHeight) }
+    var margins by remember { mutableIntStateOf(store.prefs.margins) }
 
     var retryTick by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
@@ -161,8 +163,7 @@ fun ReaderScreen(
     fun currentHistory(): Store.HistoryEntry? =
         store.history().firstOrNull { it.id == workId }
 
-    // 1) Load work metadata + chapter list (skip when already loaded so a
-    //    chapter retry does not re-hit the network for metadata)
+    // 1) Load work metadata + chapter list
     LaunchedEffect(workId, retryTick) {
         if (chapters.isNotEmpty()) return@LaunchedEffect
         val downloaded = store.download(workId)
@@ -254,7 +255,7 @@ fun ReaderScreen(
     BackHandler { saveProgressNow(); onBack() }
 
     // 3) Render chapter into the WebView whenever content/css changes
-    val css = remember(theme, fontSize, serif) { readerCss(theme, fontSize, serif) }
+    val css = remember(theme, fontSize, serif, lineHeight, margins) { readerCss(theme, fontSize, serif, lineHeight, margins) }
     val html = remember(content, workTitle, currentIndex, chapterTitle, css) {
         buildChapterHtml(workTitle, currentIndex, chapterTitle, content ?: "", css)
     }
@@ -455,6 +456,9 @@ fun ReaderScreen(
     // ---- Settings sheet ----
     if (showSettings) {
         val sheetState = rememberModalBottomSheetState()
+        var draftFont by remember { mutableIntStateOf(fontSize) }
+        var draftLineHeight by remember { mutableFloatStateOf(lineHeight) }
+        var draftMargins by remember { mutableIntStateOf(margins) }
         ModalBottomSheet(
             onDismissRequest = { showSettings = false },
             sheetState = sheetState,
@@ -473,23 +477,52 @@ fun ReaderScreen(
                 }
                 Spacer(Modifier.height(20.dp))
                 Text("Tamaño de letra", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                var draftSize by remember { mutableIntStateOf(fontSize) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("A", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(
-                        value = draftSize.toFloat(),
-                        onValueChange = { draftSize = it.toInt() },
+                        value = draftFont.toFloat(),
+                        onValueChange = { draftFont = it.toInt() },
                         valueRange = 13f..28f,
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
                     Text("A", fontSize = 22.sp)
                 }
                 Text(
-                    "${draftSize} sp",
+                    "${draftFont} sp",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
+                Spacer(Modifier.height(20.dp))
+                Text("Interlineado", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("1.2", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = draftLineHeight,
+                        onValueChange = { draftLineHeight = it },
+                        valueRange = 1.2f..2.4f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                    Text("2.4", style = MaterialTheme.typography.labelSmall)
+                }
+                Text(
+                    "%.2f".format(draftLineHeight),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                Spacer(Modifier.height(20.dp))
+                Text("Márgenes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0 to "Estrechos", 1 to "Normales", 2 to "Amplios").forEach { (value, label) ->
+                        FilterChip(
+                            selected = draftMargins == value,
+                            onClick = { draftMargins = value },
+                            label = { Text(label) },
+                        )
+                    }
+                }
                 Spacer(Modifier.height(20.dp))
                 Text("Tipografía", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
@@ -500,11 +533,15 @@ fun ReaderScreen(
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        store.prefs.fontSizeSp = draftSize
+                        store.prefs.fontSizeSp = draftFont
+                        store.prefs.lineHeight = draftLineHeight
+                        store.prefs.margins = draftMargins
                         store.prefs.theme = theme
                         store.prefs.serif = serif
                         store.savePrefs()
-                        fontSize = draftSize
+                        fontSize = draftFont
+                        lineHeight = draftLineHeight
+                        margins = draftMargins
                         showSettings = false
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -690,19 +727,26 @@ private fun readerPalette(theme: Store.ReaderTheme): Triple<String, String, Stri
     Store.ReaderTheme.LIGHT -> Triple("#ffffff", "#1c1c1e", "#8a5a00")
     Store.ReaderTheme.SEPIA -> Triple("#f6edd9", "#433422", "#8a5a00")
     Store.ReaderTheme.DARK -> Triple("#1b1b1f", "#d6d3d0", "#e0b06a")
-    Store.ReaderTheme.BLACK -> Triple("#000000", "#a8a8a8", "#b98a4a")
+    Store.ReaderTheme.BLACK -> Triple("#000000", "#d4d4d4", "#b98a4a")
 }
 
 private fun readerBgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).first))
 
 private fun readerFgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).second))
 
-private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean): String {
+private fun marginPadding(margins: Int): Pair<String, String> = when (margins) {
+    0 -> "12px 14px 48px" to "22px 26px 58px"
+    2 -> "30px 36px 80px" to "44px 52px 96px"
+    else -> "18px 22px 60px" to "28px 34px 72px"
+}
+
+private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lineHeight: Float, margins: Int): String {
     val (bg, fg, accent) = readerPalette(theme)
     val subtle = if (theme == Store.ReaderTheme.SEPIA) "#7a6a50" else "#9a9a9a"
     val divider = if (theme == Store.ReaderTheme.LIGHT) "#e0e0e0" else "#3a3a3f"
     val family = if (serif) "Georgia, 'Times New Roman', serif" else "Roboto, 'Helvetica Neue', sans-serif"
     val colorScheme = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "light" else "dark"
+    val (padMobile, padTablet) = marginPadding(margins)
     return """
         :root { color-scheme: $colorScheme; }
         * { box-sizing: border-box; }
@@ -712,9 +756,9 @@ private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean): St
             color: $fg;
             font-family: $family;
             font-size: ${sizeSp}px;
-            line-height: 1.75;
+            line-height: $lineHeight;
             overflow-wrap: break-word;
-            padding: 18px 22px 60px;
+            padding: $padMobile;
         }
         .meta { text-align: center; margin-bottom: 26px; }
         .meta .work { font-size: 0.8em; color: $subtle; letter-spacing: 0.02em; }
@@ -737,7 +781,7 @@ private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean): St
         .content .userstuff, .content div { line-height: inherit; }
         blockquote.notes { margin-left: 0; }
         pre { white-space: pre-wrap; }
-        @media (min-width: 720px) { body { padding: 28px 48px 70px; } }
+        @media (min-width: 720px) { body { padding: $padTablet; } }
     """.trimIndent()
 }
 

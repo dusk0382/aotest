@@ -456,3 +456,39 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
   minificado R8) + artefactos en la pestaña Actions.
 - Dispositivo: el APK release firmado se instaló limpio y arranca; búsqueda con el
   nuevo card (tags, descripción, stats) y Home rediseñada verificadas por OCR.
+---
+
+## 15. Ronda v0.3.0: restructura con bottom nav, descargas selectivas + export .txt, comentarios, ajustes avanzados del lector y rediseño UI
+
+### Restructura de navegación (barra inferior)
+- `MainActivity.kt`: ahora hay 3 pestañas raíz con `NavigationBar` — **Inicio** (búsqueda + tendencias + continuar leyendo), **Biblioteca** y **Ajustes**. El stack (`AppNav`) se usa solo para Search/Detail/Reader (pantallas completas, la barra se oculta cuando `nav.stack.size > 1`). `BackHandler`: si hay stack → pop; si no y no estás en Inicio → vuelve a Inicio.
+- `HomeScreen.kt` ya NO tiene secciones Favoritos/Descargas (movidas a Biblioteca).
+- `LibraryScreen.kt` (nuevo): tabs **Favoritos / Historial / Descargas**. En Descargas cada obra se expande y cada capítulo tiene: abrir, **exportar .txt**, eliminar. Historial tiene "Borrar historial".
+- `SettingsScreen.kt` (nuevo): **tema de la app** (Sistema/Claro/Oscuro → `AppThemeMode` en `Theme.kt`), **defaults del lector** (tema, tamaño, interlineado, márgenes, tipografía) e **identidad para comentarios** (nombre + email, guardados en prefs).
+
+### Tema / UI (investigación de UI/UX aplicada)
+- `Theme.kt`: `AppThemeMode` (SISTEMA/CLARO/OSCURO), `SemanticColors` (success/favorite/warning/info) expuesto por `LocalSemanticColors` para eliminar hexes sueltos (estrella dorada, checks verdes, etc. ahora vienen del token), y `Ao3Typography` con jerarquía ajustada (line-heights 1.4-1.5, títulos SemiBold).
+- Se mantiene el acento único terracota (`#B03A2E`), fondos cálidos sin blanco puro, y los chips neutros con punto de color por categoría (fandom/personaje/relación).
+
+### Descargas selectivas + export .txt
+- `Store.kt`: `addDownloadedChapter(workId, title, chapter)` (fusiona con la descarga existente), `removeDownloadedChapter(workId, index)` (borra el registro si era el último). `ChapterInfo` ahora persiste `chapterId`.
+- `WorkDetailScreen.kt`: cada fila de capítulo tiene **icono de descarga** (descarga SOLO ese capítulo; al estar descargado muestra check verde y tocarlo pregunta "¿Quitar de descargas?") e **icono de exportar .txt**. Botón principal "Descargar todo" (con %); si ya hay descargas muestra "Descargado (X)" y borra todo.
+- `util/ChapterExporter.kt`: exporta `Capitulo_<N>_<Título>.txt` (título sanitizado, hasta 40 chars) con cabecera + texto plano + pie. **Estrategia**: API 30+ → `MediaStore.Downloads`; API 23-29 → pide `WRITE_EXTERNAL_STORAGE` y escribe directo a `Download/` (`requestLegacyExternalStorage="true"` en el manifest, permiso con `maxSdkVersion="29"`).
+- ⚠️ **MIUI/Android 10**: `MediaStore.Downloads` rechaza los inserts con `MediaProvider: Ignoring mutation` (¡pero el archivo sí se crea!). Por eso en API 29 se intenta MediaStore y si devuelve null se cae al modo legacy con permiso. En el Redmi de prueba el export funciona (vía MediaStore y vía legacy).
+- El contenido para exportar usa `Ao3Parser.htmlToPlainText` (walker de nodos que conserva párrafos y evita espacios antes de puntuación).
+
+### Comentarios de AO3 (ver + publicar como invitado)
+- **Importante (cambio de AO3 2023)**: `/works/{id}/comments` redirige a login, y la página de obra carga los comentarios por **AJAX** por capítulo: `/comments/show_comments?chapter_id=<id>` devuelve un fragmento JS cuyo HTML está en `$j("#comments_placeholder").append("...")`.
+- `Ao3Parser.parseComments(js)`: extrae el HTML del `append("...")` (desescapa `\"` `\/` `\n`), parsea `ol.thread > li.comment.group` recursivo (`h4.heading.byline` → autor/fecha, `blockquote.userstuff` → contenido, hijos en `ol.comment.children`), devuelve lista plana con `depth`.
+- `Ao3Client.getComments(chapterId)` y `postComment(workId, chapterId, name, email, content, replyTo)`: el POST de invitado usa el `authenticity_token` de la página + `comment[name]`, `comment[email]`, `comment[comment_content]` (los campos del formulario guest real de AO3). Devuelve el mensaje de error de AO3 si lo rechaza, o null en éxito.
+- `WorkDetailScreen.kt`: sección **"Comentarios (N)"** al final del detalle con **selector de capítulo** (solo funciona si el capítulo tiene `chapterId`, es decir, template moderno con `select#selected_id`; en obras single-chapter antiguas muestra "no disponibles"), hilos con autor/fecha/contenido, botón **Responder** por comentario y formulario "Deja un comentario" (nombre/email precargados de Ajustes).
+- Verificado en dispositivo con Evitative (29 caps, 9120 comentarios): hilos reales con fecha "Tue 11 Feb 2020 06:26PM UTC" y Responder + IDs. **No se probó publicar un comentario real** (para no ensuciar obras ajenas); el envío quedó implementado y listo para probar con datos propios.
+
+### Lector: ajustes avanzados + AMOLED
+- El tema **"Negro" ahora se llama "AMOLED"** (mismo `#000000` — ya era AMOLED de facto).
+- Nuevos ajustes en el panel del lector y en Ajustes: **Interlineado** (1.2–2.4, default 1.75) y **Márgenes** (Estrechos/Normales/Amplios), además de tamaño de letra y Serif/Sans existentes. Se persisten en `Store.Prefs` (lineHeight, margins).
+
+### Estado verificado (2026-08-09, Redmi/Android 10 + OCR)
+- Tests 7/7 (Ao3ParserTest 4 + Ao3CommentsTest 3, con snapshot real `comments.js`).
+- En dispositivo: barra inferior Inicio/Biblioteca/Ajustes ✓, Biblioteca con 3 tabs ✓, Ajustes completo ✓, descarga selectiva del capítulo 1 ✓ (aparece en Descargas "1 capítulo · sin conexión"), export `Capitulo_1_Oh, Naruto, Naruto.txt` con contenido correcto ✓, comentarios de Evitative cargados ✓, panel del lector con Interlineado/Márgenes/AMOLED ✓.
+- Nota de pruebas: el teclado de MIUI tapa la barra inferior (cerrar con BACK antes de tocar la barra). Los iconos de las filas se localizan por píxeles (el OCR no ve iconos).

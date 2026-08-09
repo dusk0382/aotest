@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
@@ -12,9 +13,11 @@ import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -27,8 +30,7 @@ import java.util.concurrent.TimeUnit
  *  - Cloudflare error/challenge pages served with HTTP 200 are detected and
  *    treated as retryable failures;
  *  - the "Adult Content Warning" interstitial (served to visitors without the
- *    `view_adult` cookie) is followed like a browser would, by requesting the
- *    same URL with `view_adult=true`.
+ *    `view_adult` cookie) is followed like a browser would.
  */
 class Ao3Client {
 
@@ -45,44 +47,73 @@ class Ao3Client {
     private val gate = Mutex()
 
     /** Fetches one URL, returning the response body or throwing. */
-    private suspend fun fetch(url: String): String = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(url)
-            .header(
+    private suspend fun fetch(url: String, headers: Map<String, String> = emptyMap()): String =
+        withContext(Dispatchers.IO) {
+            val b = Request.Builder().url(url).header(
                 "User-Agent",
                 "AO3-Lector/0.1 (personal reader app; okhttp)",
-            )
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Accept-Language", "en-US,en;q=0.9,es;q=0.8")
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} al cargar $url")
+            ).header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            headers.forEach { (k, v) -> b.header(k, v) }
+            client.newCall(b.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("HTTP ${response.code} al cargar $url")
+                }
+                val body = response.body?.string()
+                    ?: throw IOException("Respuesta vacía de AO3")
+                if (isCloudflareErrorPage(body)) {
+                    throw IOException("AO3 respondió con un error temporal (Cloudflare)")
+                }
+                body
             }
-            val body = response.body?.string()
-                ?: throw IOException("Respuesta vacía de AO3")
-            if (isCloudflareErrorPage(body)) {
-                throw IOException("AO3 respondió con un error temporal (Cloudflare)")
-            }
-            body
         }
-    }
 
-    private suspend fun get(url: String): String = gate.withLock {
+    private suspend fun get(url: String, headers: Map<String, String> = emptyMap()): String = gate.withLock {
         var lastError: Exception? = null
         repeat(5) { attempt ->
             delay(if (attempt == 0) 400 else 1200L * attempt)
             try {
-                val body = fetch(url)
+                val body = fetch(url, headers)
                 // AO3 shows an age gate to visitors without the view_adult cookie.
                 if (isAdultGate(body)) {
                     val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
-                    return fetch(adultUrl)
+                    return fetch(adultUrl, headers)
                 }
                 return body
             } catch (e: Exception) {
                 lastError = e
-                // Retry transient failures (Cloudflare 5xx / timeouts)
+            }
+        }
+        throw lastError ?: IOException("Error de red")
+    }
+
+    /** POSTs a form and returns the final response body (after redirects). */
+    private suspend fun post(url: String, fields: Map<String, String>): String = gate.withLock {
+        var lastError: Exception? = null
+        repeat(5) { attempt ->
+            delay(if (attempt == 0) 400 else 1200L * attempt)
+            try {
+                val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
+                val body = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "AO3-Lector/0.1 (personal reader app; okhttp)")
+                        .header("Referer", url)
+                        .post(form as RequestBody)
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        val b = response.body?.string() ?: ""
+                        if (!response.isSuccessful && response.code != 302 && response.code != 303) {
+                            throw IOException("HTTP ${response.code} al enviar el formulario")
+                        }
+                        b
+                    }
+                }
+                if (isCloudflareErrorPage(body)) {
+                    throw IOException("AO3 respondió con un error temporal (Cloudflare)")
+                }
+                return body
+            } catch (e: Exception) {
+                lastError = e
             }
         }
         throw lastError ?: IOException("Error de red")
@@ -127,20 +158,14 @@ class Ao3Client {
      *  - /works honours the include/exclude filters ONLY when a canonical
      *    tag_id is present (the tag page's hidden #tag_id field), and ignores
      *    free-text query.
-     * So: pure text search goes to /works/search; tag browsing + filters go to
-     * /works with the canonical tag name.
      */
     suspend fun search(filters: SearchFilters, page: Int = 1, sort: SortOption = SortOption.BEST_MATCH): SearchResult {
-        // When filters are active, treat the query as a tag to explore so the
-        // filters actually take effect (matches AO3's own sidebar behaviour).
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         if (tag != null && tag.isNotBlank()) {
             val canonical = resolveCanonicalTag(tag)
             if (canonical != null) {
                 return SearchResult(Ao3Parser.parseSearchResults(get(buildTagFilterUrl(canonical, filters, page, sort))), true)
             }
-            // Tag didn't resolve: fall back to text search, but report that
-            // filters could not be applied so the UI can warn the user.
             return SearchResult(Ao3Parser.parseSearchResults(get(buildSearchUrl(filters, page, sort))), false)
         }
         return SearchResult(Ao3Parser.parseSearchResults(get(buildSearchUrl(filters, page, sort))), true)
@@ -164,7 +189,6 @@ class Ao3Client {
                 .addPathSegment("works")
                 .build()
             val html = get(url.toString())
-            // Robust: find the hidden tag_id input regardless of attribute order.
             Regex("""<input[^>]*name="tag_id"[^>]*value="([^"]*)"""").find(html)
                 ?.groupValues?.get(1)
                 ?: Regex("""<input[^>]*value="([^"]*)"[^>]*name="tag_id"""").find(html)?.groupValues?.get(1)
@@ -246,6 +270,63 @@ class Ao3Client {
             content = content ?: chapter.content ?: "",
         )
     }
+
+    // ---- Comments -----------------------------------------------------------
+
+    /** Loads a chapter's comment thread via AO3's AJAX endpoint. */
+    suspend fun getComments(chapterId: Long): List<Ao3Comment> {
+        val url = "https://archiveofourown.org/comments/show_comments?chapter_id=$chapterId"
+        val js = get(url, mapOf("X-Requested-With" to "XMLHttpRequest", "Accept" to "text/javascript, */*"))
+        return Ao3Parser.parseComments(js)
+    }
+
+    /**
+     * Posts a comment as a guest (name + email). Returns the text of any AO3
+     * error message, or null on success.
+     */
+    suspend fun postComment(
+        workId: Long,
+        chapterId: Long?,
+        name: String,
+        email: String,
+        content: String,
+        replyTo: Long? = null,
+    ): String? {
+        // Grab a fresh authenticity token + form action from the page.
+        val pageUrl = if (chapterId != null) {
+            "https://archiveofourown.org/works/$workId/chapters/$chapterId"
+        } else {
+            "https://archiveofourown.org/works/$workId"
+        }
+        val page = get(pageUrl)
+        val token = Regex("""name="authenticity_token"\s+value="([^"]+)"""").find(page)?.groupValues?.get(1)
+            ?: Regex("""value="([^"]+)"\s+name="authenticity_token"""").find(page)?.groupValues?.get(1)
+            ?: throw IOException("No se pudo obtener el token de sesión de AO3")
+        val action = Regex("""<form[^>]*action="(/chapters/\d+/comments|/works/\d+/comments)"""").find(page)
+            ?.groupValues?.get(1)
+            ?: "/works/$workId/comments"
+
+        val fields = linkedMapOf<String, String>()
+        fields["authenticity_token"] = token
+        fields["comment[name]"] = name
+        fields["comment[email]"] = email
+        fields["comment[comment_content]"] = content
+        fields["comment[anonymous]"] = "0"
+        if (replyTo != null) fields["comment[reply_to]"] = replyTo.toString()
+        fields["commit"] = "Comment"
+
+        val body = post("https://archiveofourown.org$action", fields)
+        // AO3 re-renders the page with validation errors inline on failure.
+        val err = Regex("""(?:class="error"|error explanation|We couldn't submit|can't be blank|is invalid|are required)""")
+            .find(body)
+        return err?.let {
+            Regex("<div[^>]*class=\"error[^\"]*\"[^>]*>(.*?)</div>", RegexOption.DOT_MATCHES_ALL)
+                .find(body)?.groupValues?.get(1)?.let { m -> JsoupText(m) }
+                ?: "AO3 rechazó el comentario. Revisa que nombre y email sean válidos."
+        }
+    }
+
+    private fun JsoupText(html: String): String = org.jsoup.Jsoup.parse(html).text().trim()
 }
 
 /** Search outcome: results + whether tag filters were actually applied by AO3. */

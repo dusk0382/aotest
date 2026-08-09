@@ -1,6 +1,7 @@
 package net.spin.ao3.data
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -22,13 +23,20 @@ class Store(context: Context) {
         LIGHT("Claro"),
         SEPIA("Sepia"),
         DARK("Oscuro"),
-        BLACK("Negro"),
+        /** Pure black background — OLED/AMOLED screens turn pixels off. */
+        BLACK("AMOLED"),
     }
 
     class Prefs {
         var fontSizeSp: Int = 18
         var theme: ReaderTheme = ReaderTheme.DARK
         var serif: Boolean = true
+        var lineHeight: Float = 1.75f
+        /** 0 = estrecho, 1 = normal, 2 = amplio. */
+        var margins: Int = 1
+        var appThemeMode: String = "SYSTEM"
+        var commentName: String = ""
+        var commentEmail: String = ""
     }
 
     data class SavedWork(
@@ -134,6 +142,22 @@ class Store(context: Context) {
         persist()
     }
 
+    fun removeHistory(id: Long) {
+        val arr = root.optJSONArray("history") ?: return
+        val filtered = JSONArray()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i)
+            if (obj?.optLong("id") != id) filtered.put(obj)
+        }
+        root.put("history", filtered)
+        persist()
+    }
+
+    fun clearHistory() {
+        root.put("history", JSONArray())
+        persist()
+    }
+
     // ---- Downloads ----------------------------------------------------------
 
     fun downloads(): List<Download> = root.optJSONArray("downloads")?.let { arr ->
@@ -168,6 +192,21 @@ class Store(context: Context) {
         persist()
     }
 
+    /** Adds (or replaces) one chapter inside an existing download record. */
+    fun addDownloadedChapter(workId: Long, title: String, chapter: ChapterInfo) {
+        val existing = download(workId)
+        val merged = (existing?.chapters.orEmpty().filter { it.index != chapter.index } + chapter)
+            .sortedBy { it.index }
+        saveDownload(workId, existing?.title ?: title, merged)
+    }
+
+    /** Removes a single downloaded chapter; drops the record when it was the last one. */
+    fun removeDownloadedChapter(workId: Long, index: Int) {
+        val dl = download(workId) ?: return
+        val left = dl.chapters.filter { it.index != index }
+        if (left.isEmpty()) removeDownload(workId) else saveDownload(workId, dl.title, left)
+    }
+
     fun removeDownload(id: Long) {
         val arr = root.optJSONArray("downloads") ?: return
         val filtered = JSONArray()
@@ -186,17 +225,28 @@ class Store(context: Context) {
             fontSizeSp = 18
             theme = ReaderTheme.DARK
             serif = true
+            lineHeight = 1.75f
+            margins = 1
+            appThemeMode = "SYSTEM"
+            commentName = ""
+            commentEmail = ""
         }
         if (!file.exists()) return JSONObject()
         return try {
             val obj = JSONObject(file.readText())
-            prefs.fontSizeSp = obj.optJSONObject("prefs")?.optInt("fontSize", 18) ?: 18
+            val p = obj.optJSONObject("prefs")
+            prefs.fontSizeSp = p?.optInt("fontSize", 18) ?: 18
             prefs.theme = try {
-                ReaderTheme.valueOf(obj.optJSONObject("prefs")?.optString("theme", "DARK") ?: "DARK")
+                ReaderTheme.valueOf(p?.optString("theme", "DARK") ?: "DARK")
             } catch (_: Exception) {
                 ReaderTheme.DARK
             }
-            prefs.serif = obj.optJSONObject("prefs")?.optBoolean("serif", true) ?: true
+            prefs.serif = p?.optBoolean("serif", true) ?: true
+            prefs.lineHeight = p?.optDouble("lineHeight", 1.75)?.toFloat() ?: 1.75f
+            prefs.margins = p?.optInt("margins", 1) ?: 1
+            prefs.appThemeMode = p?.optString("appThemeMode", "SYSTEM") ?: "SYSTEM"
+            prefs.commentName = p?.optString("commentName", "") ?: ""
+            prefs.commentEmail = p?.optString("commentEmail", "") ?: ""
             obj
         } catch (_: Exception) {
             JSONObject()
@@ -208,9 +258,14 @@ class Store(context: Context) {
             put("fontSize", prefs.fontSizeSp)
             put("theme", prefs.theme.name)
             put("serif", prefs.serif)
+            put("lineHeight", prefs.lineHeight.toDouble())
+            put("margins", prefs.margins)
+            put("appThemeMode", prefs.appThemeMode)
+            put("commentName", prefs.commentName)
+            put("commentEmail", prefs.commentEmail)
         })
         // Write asynchronously to keep the UI snappy
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             mutex.withLock {
                 withContext(Dispatchers.IO) {
                     try {
@@ -273,6 +328,7 @@ class Store(context: Context) {
         put("index", index)
         put("title", title)
         put("url", url ?: "")
+        chapterId?.let { put("chapterId", it) }
         put("content", content?.takeIf { it.isNotBlank() } ?: "")
     }
 
@@ -280,6 +336,7 @@ class Store(context: Context) {
         index = optInt("index", 0),
         title = optString("title", ""),
         url = optString("url", "").ifEmpty { null },
+        chapterId = if (has("chapterId")) optLong("chapterId") else null,
         content = optString("content", "").ifEmpty { null },
     )
 }

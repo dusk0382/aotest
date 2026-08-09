@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,12 +24,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,7 +44,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,13 +57,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
+import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.ui.components.AdditionalColor
@@ -70,6 +83,8 @@ import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WarningColor
 import net.spin.ao3.ui.components.ratingColor
+import net.spin.ao3.ui.theme.LocalSemanticColors
+import net.spin.ao3.util.ChapterExporter
 import net.spin.ao3.util.formatCount
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -82,19 +97,45 @@ fun WorkDetailScreen(
     onOpenTag: (String) -> Unit,
 ) {
     val store = container.store
+    val snackbar = remember { SnackbarHostState() }
+    val semantic = LocalSemanticColors.current
     var detail by remember { mutableStateOf<WorkDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(store.isSaved(workId)) }
     var downloadedIds by remember { mutableStateOf(store.downloadedChapterIds(workId)) }
-    var downloading by remember { mutableStateOf(false) }
+    var downloadingChapter by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var downloadingAll by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0f) }
-    var downloadError by remember { mutableStateOf<String?>(null) }
+    var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
     var descExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var downloadJob by remember { mutableStateOf<Job?>(null) }
     val history = remember(workId) { store.history().firstOrNull { it.id == workId } }
     val chapterProgress = remember(workId) { history?.chapterProgress.orEmpty() }
+
+    // ---- Comments state ----
+    var commentChapterIndex by rememberSaveable { mutableIntStateOf(history?.chapterIndex ?: 0) }
+    var comments by remember { mutableStateOf<List<Ao3Comment>?>(null) }
+    var commentsLoading by remember { mutableStateOf(false) }
+    var commentsError by remember { mutableStateOf<String?>(null) }
+    var commentReloadTick by remember { mutableIntStateOf(0) }
+    var showCommentForm by remember { mutableStateOf(false) }
+    var replyTo by remember { mutableStateOf<Long?>(null) }
+    var commentName by remember { mutableStateOf(store.prefs.commentName) }
+    var commentEmail by remember { mutableStateOf(store.prefs.commentEmail) }
+    var commentBody by remember { mutableStateOf("") }
+    var posting by remember { mutableStateOf(false) }
+
+    val exporter = ChapterExporter.rememberChapterExporter { msg ->
+        scope.launch {
+            if (msg.startsWith("OK:")) {
+                snackbar.showSnackbar("Guardado en Descargas: ${msg.removePrefix("OK:")}")
+            } else {
+                snackbar.showSnackbar(msg.removePrefix("ERR:"))
+            }
+        }
+    }
 
     LaunchedEffect(workId) {
         try {
@@ -110,17 +151,50 @@ fun WorkDetailScreen(
         onDispose { downloadJob?.cancel() }
     }
 
+    fun refreshDownloads() {
+        downloadedIds = store.downloadedChapterIds(workId)
+    }
+
     fun toggleSaved() {
         val d = detail ?: return
         if (saved) store.removeSaved(d.summary.id) else store.saveWork(d.summary)
         saved = !saved
     }
 
-    fun startDownload() {
+    fun downloadChapter(ch: ChapterInfo) {
         val d = detail ?: return
-        if (downloading) return
-        downloading = true
-        downloadError = null
+        if (ch.index in downloadingChapter) return
+        downloadingChapter = downloadingChapter + ch.index
+        scope.launch {
+            try {
+                val ready = if (ch.content != null) ch else container.client.getChapter(d.summary.id, ch)
+                store.addDownloadedChapter(d.summary.id, d.summary.title, ready)
+                refreshDownloads()
+                snackbar.showSnackbar("Capítulo ${ch.index + 1} descargado (sin conexión)")
+            } catch (e: Exception) {
+                snackbar.showSnackbar("No se pudo descargar: ${e.message}")
+            } finally {
+                downloadingChapter = downloadingChapter - ch.index
+            }
+        }
+    }
+
+    fun exportChapter(ch: ChapterInfo) {
+        val d = detail ?: return
+        scope.launch {
+            try {
+                val ready = if (ch.content != null) ch else container.client.getChapter(d.summary.id, ch)
+                exporter(d.summary.title, ch.index, ch.title, ready.content)
+            } catch (e: Exception) {
+                snackbar.showSnackbar("No se pudo exportar: ${e.message}")
+            }
+        }
+    }
+
+    fun startDownloadAll() {
+        val d = detail ?: return
+        if (downloadingAll) return
+        downloadingAll = true
         downloadProgress = 0f
         downloadJob = scope.launch {
             try {
@@ -130,19 +204,19 @@ fun WorkDetailScreen(
                     ready
                 }
                 store.saveDownload(d.summary.id, d.summary.title, fetched)
-                downloadedIds = fetched.map { it.index }.toSet()
+                refreshDownloads()
+                snackbar.showSnackbar("Obra descargada: ${d.chapters.size} capítulos")
             } catch (e: Exception) {
-                downloadError = "Descarga incompleta: ${e.message}"
+                snackbar.showSnackbar("Descarga incompleta: ${e.message}")
             } finally {
-                downloading = false
+                downloadingAll = false
             }
         }
     }
 
     fun deleteDownload() {
         store.removeDownload(workId)
-        downloadedIds = emptySet()
-        downloadError = null
+        refreshDownloads()
     }
 
     Scaffold(
@@ -159,7 +233,7 @@ fun WorkDetailScreen(
                         Icon(
                             if (saved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorito",
-                            tint = if (saved) Color(0xFFE53935) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (saved) semantic.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 },
@@ -168,6 +242,7 @@ fun WorkDetailScreen(
                 ),
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val d = detail
         when {
@@ -193,155 +268,429 @@ fun WorkDetailScreen(
             d == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("Obra no encontrada")
             }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(bottom = 32.dp),
-            ) {
-                item {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(d.summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            d.summary.author,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), tinted = true) }
-                            if (d.summary.isCompleted) TagChip("Completada", Color(0xFF2E7D32), tinted = true)
-                            d.summary.warnings.take(2).forEach { TagChip(it, WarningColor) }
-                            d.summary.categories.forEach { TagChip(it, CategoryColor) }
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                StatBig("${formatCount(d.summary.words)}", "palabras", Modifier.weight(1f))
-                                StatBig(
-                                    if (d.summary.chapterTotal != null) {
-                                        "${d.summary.chapterCount}/${d.summary.chapterTotal}"
-                                    } else {
-                                        "${d.summary.chapterCount}+"
-                                    },
-                                    "capítulos",
-                                    Modifier.weight(1f),
-                                )
-                                StatBig("${formatCount(d.summary.hits)}", "visitas", Modifier.weight(1f))
-                                StatBig("${formatCount(d.summary.kudos)}", "kudos", Modifier.weight(1f))
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            listOfNotNull(
-                                d.summary.published?.let { "Publicada: $it" },
-                                d.summary.updated?.let { "Actualizada: $it" },
-                            ).joinToString("  ·  "),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            else -> {
+                val chapters = d.chapters
+
+                // Load comments for the selected chapter.
+                LaunchedEffect(commentChapterIndex, commentReloadTick, workId) {
+                    val ch = chapters.getOrNull(commentChapterIndex) ?: return@LaunchedEffect
+                    val cid = ch.chapterId ?: run {
+                        comments = null
+                        return@LaunchedEffect
+                    }
+                    commentsLoading = true
+                    commentsError = null
+                    try {
+                        comments = container.client.getComments(cid)
+                    } catch (e: Exception) {
+                        commentsError = e.message ?: "No se pudieron cargar los comentarios"
+                    } finally {
+                        commentsLoading = false
                     }
                 }
 
-                item {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Button(
-                            onClick = { onOpenChapter(history?.chapterIndex ?: 0) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                ) {
+                    item {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(d.summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(4.dp))
                             Text(
-                                if (history != null) "Continuar · Cap. ${history.chapterIndex + 1}"
-                                else "Leer desde el principio",
+                                d.summary.author,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), tinted = true) }
+                                if (d.summary.isCompleted) TagChip("Completada", semantic.success, tinted = true)
+                                d.summary.warnings.take(2).forEach { TagChip(it, WarningColor) }
+                                d.summary.categories.forEach { TagChip(it, CategoryColor) }
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    StatBig("${formatCount(d.summary.words)}", "palabras", Modifier.weight(1f))
+                                    StatBig(
+                                        if (d.summary.chapterTotal != null) {
+                                            "${d.summary.chapterCount}/${d.summary.chapterTotal}"
+                                        } else {
+                                            "${d.summary.chapterCount}+"
+                                        },
+                                        "capítulos",
+                                        Modifier.weight(1f),
+                                    )
+                                    StatBig("${formatCount(d.summary.hits)}", "visitas", Modifier.weight(1f))
+                                    StatBig("${formatCount(d.summary.kudos)}", "kudos", Modifier.weight(1f))
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                listOfNotNull(
+                                    d.summary.published?.let { "Publicada: $it" },
+                                    d.summary.updated?.let { "Actualizada: $it" },
+                                    if (d.summary.comments > 0) "${d.summary.comments} comentarios" else null,
+                                ).joinToString("  ·  "),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (downloadedIds.isNotEmpty()) {
-                            OutlinedButton(onClick = { deleteDownload() }) {
-                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Text("Descargado")
-                            }
-                        } else {
+                    }
+
+                    item {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
                             Button(
-                                onClick = { startDownload() },
-                                enabled = !downloading,
-                                modifier = Modifier.weight(0.8f),
+                                onClick = { onOpenChapter(history?.chapterIndex ?: 0) },
+                                modifier = Modifier.weight(1f),
                             ) {
-                                if (downloading) {
-                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Text(
+                                    if (history != null) "Continuar · Cap. ${history.chapterIndex + 1}"
+                                    else "Leer desde el principio",
+                                )
+                            }
+                            if (downloadedIds.isNotEmpty()) {
+                                OutlinedButton(onClick = { deleteDownload() }) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Text("Descargado (${downloadedIds.size})")
                                 }
-                                Text(if (downloading) " ${(downloadProgress * 100).toInt()}%" else "Descargar")
+                            } else {
+                                Button(
+                                    onClick = { startDownloadAll() },
+                                    enabled = !downloadingAll,
+                                    modifier = Modifier.weight(0.8f),
+                                ) {
+                                    if (downloadingAll) {
+                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                    }
+                                    Text(if (downloadingAll) " ${(downloadProgress * 100).toInt()}%" else "Descargar todo")
+                                }
+                            }
+                        }
+                        if (downloadingAll) {
+                            LinearProgressIndicator(
+                                progress = { downloadProgress },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+
+                    item {
+                        Section("Resumen") {
+                            val summary = d.summary.summary
+                            Text(
+                                summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = if (descExpanded) Int.MAX_VALUE else 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (summary.length > 200) {
+                                TextButton(onClick = { descExpanded = !descExpanded }) {
+                                    Text(if (descExpanded) "Ver menos" else "Ver más")
+                                }
                             }
                         }
                     }
-                    if (downloading) {
-                        LinearProgressIndicator(
-                            progress = { downloadProgress },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        )
-                    }
-                    downloadError?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    }
-                }
 
-                item {
-                    Section("Resumen") {
-                        val summary = d.summary.summary
-                        Text(
-                            summary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = if (descExpanded) Int.MAX_VALUE else 6,
-                            overflow = TextOverflow.Ellipsis,
+                    if (d.relationships.isNotEmpty()) {
+                        item { TagSection("Relaciones", d.relationships, RelationshipColor, onOpenTag) }
+                    }
+                    if (d.characters.isNotEmpty()) {
+                        item { TagSection("Personajes", d.characters, CharacterColor, onOpenTag) }
+                    }
+                    if (d.additionalTags.isNotEmpty()) {
+                        item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, onOpenTag) }
+                    }
+                    if (d.summary.fandoms.isNotEmpty()) {
+                        item { TagSection("Fandoms", d.summary.fandoms, FandomColor, onOpenTag) }
+                    }
+
+                    item {
+                        Section("Capítulos (${d.chapters.size})") {
+                            Text(
+                                "Toca el icono de descarga para guardar un capítulo para leer sin conexión, o el de exportar para guardarlo como .txt en Descargas.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(chapters, key = { it.index }) { ch ->
+                        ChapterRow(
+                            index = ch.index,
+                            chapter = ch,
+                            downloaded = downloadedIds.contains(ch.index),
+                            downloading = ch.index in downloadingChapter,
+                            progress = chapterProgress[ch.index],
+                            onClick = { onOpenChapter(ch.index) },
+                            onDownload = { downloadChapter(ch) },
+                            onExport = { exportChapter(ch) },
+                            onRemoveDownload = { removeChapterIndex = ch.index },
                         )
-                        if (summary.length > 200) {
-                            TextButton(onClick = { descExpanded = !descExpanded }) {
-                                Text(if (descExpanded) "Ver menos" else "Ver más")
-                            }
+                    }
+
+                    // ---- Comments ----
+                    item {
+                        Section("Comentarios (${d.summary.comments})") {
+                            CommentSection(
+                                chapters = chapters,
+                                selectedIndex = commentChapterIndex,
+                                onSelectChapter = { commentChapterIndex = it },
+                                comments = comments,
+                                loading = commentsLoading,
+                                error = commentsError,
+                                onRetry = { commentReloadTick++ },
+                                onOpenForm = {
+                                    replyTo = null
+                                    showCommentForm = true
+                                },
+                                onReply = { id ->
+                                    replyTo = id
+                                    showCommentForm = true
+                                },
+                            )
                         }
                     }
                 }
+            }
+        }
+    }
 
-                if (d.relationships.isNotEmpty()) {
-                    item { TagSection("Relaciones", d.relationships, RelationshipColor, onOpenTag) }
-                }
-                if (d.characters.isNotEmpty()) {
-                    item { TagSection("Personajes", d.characters, CharacterColor, onOpenTag) }
-                }
-                if (d.additionalTags.isNotEmpty()) {
-                    item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, onOpenTag) }
-                }
-                if (d.summary.fandoms.isNotEmpty()) {
-                    item { TagSection("Fandoms", d.summary.fandoms, FandomColor, onOpenTag) }
-                }
+    // ---- Remove single chapter download dialog ----
+    removeChapterIndex?.let { index ->
+        AlertDialog(
+            onDismissRequest = { removeChapterIndex = null },
+            title = { Text("Quitar capítulo de las descargas") },
+            text = { Text("El capítulo ${index + 1} se eliminará de la descarga local.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.removeDownloadedChapter(workId, index)
+                    refreshDownloads()
+                    removeChapterIndex = null
+                }) { Text("Quitar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { removeChapterIndex = null }) { Text("Cancelar") }
+            },
+        )
+    }
 
-                item {
-                    Section("Capítulos (${d.chapters.size})") { }
+    // ---- Comment form ----
+    if (showCommentForm) {
+        val d = detail
+        AlertDialog(
+            onDismissRequest = { showCommentForm = false },
+            title = {
+                Text(if (replyTo == null) "Deja un comentario" else "Responder")
+            },
+            text = {
+                Column {
+                    Text(
+                        "Como invitado (nombre + email; el email no se publica). ${replyTo?.let { "Respondiendo a un comentario." } ?: ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = commentName,
+                        onValueChange = { commentName = it },
+                        label = { Text("Nombre") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = commentEmail,
+                        onValueChange = { commentEmail = it },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = commentBody,
+                        onValueChange = { commentBody = it },
+                        label = { Text("Comentario") },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp),
+                    )
                 }
-                items(d.chapters, key = { it.index }) { ch ->
-                    ChapterRow(
-                        index = ch.index,
-                        chapter = ch,
-                        downloaded = downloadedIds.contains(ch.index),
-                        progress = chapterProgress[ch.index],
-                        onClick = { onOpenChapter(ch.index) },
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !posting && commentName.isNotBlank() && commentEmail.isNotBlank() && commentBody.isNotBlank(),
+                    onClick = {
+                        val dd = d ?: return@TextButton
+                        val ch = dd.chapters.getOrNull(commentChapterIndex)
+                        posting = true
+                        scope.launch {
+                            try {
+                                store.prefs.commentName = commentName.trim()
+                                store.prefs.commentEmail = commentEmail.trim()
+                                store.savePrefs()
+                                val err = container.client.postComment(
+                                    workId = workId,
+                                    chapterId = ch?.chapterId,
+                                    name = commentName.trim(),
+                                    email = commentEmail.trim(),
+                                    content = commentBody.trim(),
+                                    replyTo = replyTo,
+                                )
+                                if (err == null) {
+                                    showCommentForm = false
+                                    commentBody = ""
+                                    commentReloadTick++
+                                    snackbar.showSnackbar("Comentario enviado")
+                                } else {
+                                    snackbar.showSnackbar(err)
+                                }
+                            } catch (e: Exception) {
+                                snackbar.showSnackbar("No se pudo enviar: ${e.message}")
+                            } finally {
+                                posting = false
+                            }
+                        }
+                    },
+                ) {
+                    if (posting) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Enviar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCommentForm = false }) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CommentSection(
+    chapters: List<ChapterInfo>,
+    selectedIndex: Int,
+    onSelectChapter: (Int) -> Unit,
+    comments: List<Ao3Comment>?,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+    onOpenForm: () -> Unit,
+    onReply: (Long) -> Unit,
+) {
+    if (chapters.size > 1) {
+        var open by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Capítulo: ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { open = true }) {
+                Text("${selectedIndex + 1}${chapters.getOrNull(selectedIndex)?.title?.let { " · $it" }?.take(40) ?: ""}")
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                chapters.forEachIndexed { i, ch ->
+                    DropdownMenuItem(
+                        text = { Text("${i + 1}. ${ch.title.ifBlank { "Sin título" }}") },
+                        onClick = { onSelectChapter(i); open = false },
                     )
                 }
             }
         }
+    }
+
+    when {
+        loading -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+            Text("Cargando comentarios…", style = MaterialTheme.typography.bodySmall)
+        }
+        error != null -> Column {
+            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onRetry) { Text("Reintentar") }
+        }
+        comments == null -> Text(
+            "Los comentarios de este capítulo no están disponibles.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        comments.isEmpty() -> Text(
+            "Todavía no hay comentarios en este capítulo. ¡Anímate a dejar el primero!",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        else -> {
+            comments.forEach { comment ->
+                CommentItem(comment, onReply)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    OutlinedButton(onClick = onOpenForm, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Deja un comentario")
+    }
+}
+
+@Composable
+private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = (comment.depth * 14).dp, top = 6.dp, bottom = 6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                comment.author,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (comment.depth > 0) {
+                Text(
+                    "↳",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                comment.date,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            comment.text.ifBlank { "…" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onReply(comment.id) }, modifier = Modifier.height(28.dp)) {
+                Text("Responder", style = MaterialTheme.typography.labelMedium)
+            }
+            if (comment.id != 0L) {
+                Text(
+                    "ID ${comment.id}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     }
 }
 
@@ -356,7 +705,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TagSection(title: String, tags: List<String>, color: Color, onOpenTag: (String) -> Unit) {
+private fun TagSection(title: String, tags: List<String>, color: androidx.compose.ui.graphics.Color, onOpenTag: (String) -> Unit) {
     Section(title) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             tags.take(24).forEach { TagChip(it, color, onClick = { onOpenTag(it) }) }
@@ -377,12 +726,17 @@ private fun ChapterRow(
     index: Int,
     chapter: ChapterInfo,
     downloaded: Boolean,
+    downloading: Boolean,
     progress: Float?,
     onClick: () -> Unit,
+    onDownload: () -> Unit,
+    onExport: () -> Unit,
+    onRemoveDownload: () -> Unit,
 ) {
+    val semantic = LocalSemanticColors.current
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -417,22 +771,36 @@ private fun ChapterRow(
                 )
             }
         }
-        if (downloaded) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = "Descargado",
-                tint = Color(0xFF2E7D32),
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.size(8.dp))
-        }
         if (progress != null && progress >= 0.97f) {
             Icon(
                 Icons.Default.Check,
                 contentDescription = "Leído",
                 tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+        // Export .txt
+        IconButton(onClick = onExport, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.FileDownload,
+                contentDescription = "Exportar .txt",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
+        }
+        // Download toggle
+        if (downloading) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+            IconButton(onClick = if (downloaded) onRemoveDownload else onDownload, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    if (downloaded) Icons.Default.Check else Icons.Default.Download,
+                    contentDescription = if (downloaded) "Descargado (toca para quitar)" else "Descargar capítulo",
+                    tint = if (downloaded) semantic.success else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }

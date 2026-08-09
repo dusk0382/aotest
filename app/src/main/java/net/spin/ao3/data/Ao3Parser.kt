@@ -1,5 +1,6 @@
 package net.spin.ao3.data
 
+import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
@@ -193,11 +194,12 @@ object Ao3Parser {
                 return options.mapIndexed { i, opt ->
                     val text = opt.text().trim()
                     val title = text.substringAfter('.').trim().ifEmpty { text }
-                    val chapterId = opt.attr("value")
+                    val chapterId = opt.attr("value").toLongOrNull()
                     ChapterInfo(
                         index = i,
                         title = title,
-                        url = if (chapterId.isNotBlank()) "$BASE/works/$workId/chapters/$chapterId" else "$BASE/works/$workId",
+                        url = if (chapterId != null) "$BASE/works/$workId/chapters/$chapterId" else "$BASE/works/$workId",
+                        chapterId = chapterId,
                     )
                 }
             }
@@ -206,7 +208,13 @@ object Ao3Parser {
         val indexLinks = doc.select("ol.chapter li a[href*='/chapters/']")
         if (indexLinks.isNotEmpty()) {
             return indexLinks.mapIndexed { i, a ->
-                ChapterInfo(index = i, title = a.text().trim(), url = a.absUrl("href"))
+                val href = a.absUrl("href")
+                ChapterInfo(
+                    index = i,
+                    title = a.text().trim(),
+                    url = href,
+                    chapterId = Regex("/chapters/(\\d+)").find(href)?.groupValues?.get(1)?.toLongOrNull(),
+                )
             }
         }
         // Classic template: all chapters inline on the work page.
@@ -253,9 +261,70 @@ object Ao3Parser {
     private fun extractChapterTitle(doc: Document): String? =
         doc.selectFirst("div#chapters h3.title")?.text()?.trim()?.substringAfter(":")?.trim()?.ifEmpty { null }
 
+    // ---- Comments -----------------------------------------------------------
+
+    /**
+     * AO3's modern template loads comments via AJAX from
+     * /comments/show_comments?chapter_id=... which answers a small JS snippet
+     * whose appended HTML contains the <ol class="thread">. This extracts the
+     * HTML, unescapes it and flattens the nested thread into a list with depth.
+     */
+    fun parseComments(jsFragment: String): List<Ao3Comment> {
+        val html = extractThreadHtml(jsFragment) ?: return emptyList()
+        val doc = Jsoup.parseBodyFragment(html, BASE)
+        val out = mutableListOf<Ao3Comment>()
+        doc.select("ol.thread > li.comment.group").forEach { li -> parseComment(li, 0, out) }
+        return out
+    }
+
+    /** Grabs the HTML inside $j("#comments_placeholder").append("..."); and unescapes it. */
+    private fun extractThreadHtml(js: String): String? {
+        val start = js.indexOf("#comments_placeholder").takeIf { it >= 0 } ?: return null
+        val idx = js.indexOf(".append(\"", start).takeIf { it >= 0 } ?: return null
+        val begin = idx + ".append(\"".length
+        val end = js.indexOf("\");", begin).takeIf { it >= 0 } ?: return null
+        val raw = js.substring(begin, end)
+        if (raw.isBlank()) return null
+        return raw
+            .replace("\\\"", "\"")
+            .replace("\\/", "/")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\\\", "\\")
+    }
+
+    private fun parseComment(li: Element, depth: Int, out: MutableList<Ao3Comment>) {
+        val id = li.attr("id").removePrefix("comment_").toLongOrNull() ?: 0L
+        val byline = li.selectFirst("h4.heading.byline")
+        val authorEl = byline?.selectFirst("a[rel=author]") ?: byline?.selectFirst("a")
+        val author = authorEl?.text()?.trim()
+            ?: byline?.ownText()?.trim()?.ifEmpty { byline.text().trim() }
+            ?: "Anónimo"
+        val date = byline?.selectFirst("span.posted.datetime")?.text()?.trim() ?: ""
+        val body = li.selectFirst("blockquote.userstuff")
+        val html = body?.html()?.trim().orEmpty()
+        val text = body?.text()?.trim() ?: ""
+        if (html.isNotBlank() || author.isNotBlank()) {
+            out.add(
+                Ao3Comment(
+                    id = id,
+                    author = author,
+                    authorUrl = authorEl?.attr("href")?.takeIf { it.startsWith("http") || it.startsWith("/") },
+                    date = date,
+                    html = sanitize(html, BASE) ?: "",
+                    text = text,
+                    depth = depth,
+                ),
+            )
+        }
+        // Replies live in a nested <ol class="comment children"> (or ol.comment).
+        li.select("> ol.comment.children > li.comment.group, > ol.comment > li.comment.group")
+            .forEach { child -> parseComment(child, depth + 1, out) }
+    }
+
     // ---- Helpers ------------------------------------------------------------
 
-    /** "4/?" -> (4, null), "12/12" -> (12, 12), "1/1" -> (1, 1). */
+    /** "4/?", "12/12" -> (4, 12), "1/1" -> (1, 1). */
     private fun parseChapters(text: String?): Pair<Int, Int?> {
         if (text.isNullOrBlank()) return 1 to 1
         val m = Regex("""(\d+)\s*/\s*(\d+|\?)""").find(text)
@@ -279,5 +348,56 @@ object Ao3Parser {
         }
         doc.select("a").forEach { a -> a.attr("href", a.absUrl("href")) }
         return doc.body().html()
+    }
+
+    /** Converts sanitized HTML to a readable plain-text rendition. */
+    fun htmlToPlainText(html: String?): String {
+        if (html.isNullOrBlank()) return ""
+        val doc = Jsoup.parseBodyFragment(html)
+        val sb = StringBuilder()
+        walkText(doc.body(), sb)
+        return sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+    }
+
+    private val blockTags = setOf(
+        "p", "div", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6",
+        "center", "hr", "pre", "table", "ul", "ol", "tr", "td", "section", "header", "footer",
+    )
+
+    private fun walkText(el: Element, sb: StringBuilder) {
+        for (node in el.childNodes()) {
+            when (node) {
+                is org.jsoup.nodes.TextNode -> appendText(sb, node.text().trim())
+                is Element -> {
+                    val tag = node.tagName().lowercase()
+                    if (tag in blockTags) {
+                        trimTrailingSpace(sb)
+                        sb.append('\n')
+                        walkText(node, sb)
+                        trimTrailingSpace(sb)
+                        sb.append('\n')
+                    } else if (tag == "br") {
+                        trimTrailingSpace(sb)
+                        sb.append('\n')
+                    } else {
+                        walkText(node, sb)
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    private fun trimTrailingSpace(sb: StringBuilder) {
+        if (sb.isNotEmpty() && sb.last() == ' ') sb.setLength(sb.length - 1)
+    }
+
+    /** Appends a word, avoiding a space before punctuation or another space. */
+    private fun appendText(sb: StringBuilder, t: String) {
+        if (t.isEmpty()) return
+        if (sb.isNotEmpty() && sb.last() == ' ') {
+            if (t.first() in ".,;:!?…") sb.setLength(sb.length - 1)
+        }
+        sb.append(t).append(' ')
     }
 }

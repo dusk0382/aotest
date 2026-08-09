@@ -18,14 +18,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -41,13 +38,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.components.TagChip
+import net.spin.ao3.ui.theme.LocalSemanticColors
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -60,12 +57,8 @@ fun HomeScreen(
 ) {
     val store = container.store
     val history = remember { store.history() }
-    val saved = remember { store.savedWorks() }
-    val downloads = remember { store.downloads() }
     var query by rememberSaveable { mutableStateOf("") }
-
-    val chipColor = MaterialTheme.colorScheme.primary
-    val fandomChipColor = MaterialTheme.colorScheme.secondary
+    val semantic = LocalSemanticColors.current
 
     Scaffold(
         topBar = {
@@ -97,16 +90,16 @@ fun HomeScreen(
                     onSearch = { if (query.isNotBlank()) onSearch(query.trim(), SortOption.BEST_MATCH) },
                 ),
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
 
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("⭐ Tendencias", chipColor, tinted = true, onClick = { onSearch("", SortOption.KUDOS) })
-                TagChip("🔥 Lo nuevo", chipColor, tinted = true, onClick = { onSearch("", SortOption.UPDATED) })
-                TagChip("📖 Más leídas", chipColor, tinted = true, onClick = { onSearch("", SortOption.HITS) })
-                TagChip("✍️ Más largas", chipColor, tinted = true, onClick = { onSearch("", SortOption.WORDS) })
+                TagChip("⭐ Tendencias", semantic.info, tinted = true, onClick = { onSearch("", SortOption.KUDOS) })
+                TagChip("🔥 Lo nuevo", semantic.info, tinted = true, onClick = { onSearch("", SortOption.UPDATED) })
+                TagChip("📖 Más leídas", semantic.info, tinted = true, onClick = { onSearch("", SortOption.HITS) })
+                TagChip("✍️ Más largas", semantic.info, tinted = true, onClick = { onSearch("", SortOption.WORDS) })
             }
             Spacer(Modifier.height(22.dp))
 
@@ -115,13 +108,13 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("Naruto", fandomChipColor, onClick = { onBrowseTag("Naruto") })
-                TagChip("Harry Potter", fandomChipColor, onClick = { onBrowseTag("Harry Potter") })
-                TagChip("Marvel", fandomChipColor, onClick = { onBrowseTag("Marvel") })
-                TagChip("DCU", fandomChipColor, onClick = { onBrowseTag("DCU") })
-                TagChip("My Hero Academia", fandomChipColor, onClick = { onBrowseTag("My Hero Academia") })
-                TagChip("One Piece", fandomChipColor, onClick = { onBrowseTag("One Piece") })
-                TagChip("Sherlock", fandomChipColor, onClick = { onBrowseTag("Sherlock (TV)") })
+                TagChip("Naruto", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Naruto") })
+                TagChip("Harry Potter", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Harry Potter") })
+                TagChip("Marvel", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Marvel") })
+                TagChip("DCU", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("DCU") })
+                TagChip("My Hero Academia", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("My Hero Academia") })
+                TagChip("One Piece", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("One Piece") })
+                TagChip("Sherlock", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Sherlock (TV)") })
             }
             Spacer(Modifier.height(22.dp))
 
@@ -174,102 +167,6 @@ fun HomeScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-
-            SectionTitle("Favoritos")
-            if (saved.isEmpty()) {
-                EmptyHint("Marca obras con la estrella ⭐ para tenerlas aquí.")
-            } else {
-                saved.forEach { sw ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                            .clickable { onOpenDetail(sw.id) },
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Default.Star,
-                                contentDescription = null,
-                                tint = Color(0xFFF9A825),
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.size(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    sw.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                )
-                                Text(
-                                    "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Icon(
-                                Icons.Default.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-
-            SectionTitle("Descargas")
-            if (downloads.isEmpty()) {
-                EmptyHint("Descarga obras para leerlas sin conexión.")
-            } else {
-                downloads.forEach { dl ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                            .clickable { onOpenReader(dl.id, 0) },
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF2E7D32),
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.size(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    dl.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                )
-                                Text(
-                                    "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · disponible sin conexión",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Icon(
-                                Icons.Default.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
             Spacer(Modifier.height(24.dp))
             Text(
                 "AO3 Lector · app de uso personal\nEl contenido pertenece a sus autores en archiveofourown.org",
@@ -282,7 +179,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
@@ -292,7 +189,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun EmptyHint(text: String) {
+internal fun EmptyHint(text: String) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()

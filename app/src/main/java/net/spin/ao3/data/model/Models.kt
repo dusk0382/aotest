@@ -203,11 +203,15 @@ data class WorkSummary(
     val isCompleted: Boolean get() = chapterTotal != null && chapterCount >= chapterTotal
 }
 
-/** A single chapter; [content] holds sanitized HTML when available (inline or downloaded). */
+/**
+ * A single chapter; [content] holds sanitized HTML when available (inline or
+ * downloaded) and [chapterId] is AO3's numeric chapter id (used for comments).
+ */
 data class ChapterInfo(
     val index: Int,
     val title: String,
     val url: String?,
+    val chapterId: Long? = null,
     val content: String? = null,
 )
 
@@ -220,4 +224,17 @@ data class WorkDetail(
     val characters: List<String> = emptyList(),
     val additionalTags: List<String> = emptyList(),
     val chapters: List<ChapterInfo>,
+)
+
+/** A single comment in a thread (flat list; [depth] drives indentation). */
+data class Ao3Comment(
+    val id: Long,
+    val author: String,
+    val authorUrl: String?,
+    val date: String,
+    /** Sanitized HTML of the comment body (rendered in the reader WebView style). */
+    val html: String,
+    /** Plain-text version of the body. */
+    val text: String,
+    val depth: Int,
 )
