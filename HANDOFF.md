@@ -492,3 +492,7 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
 - Tests 7/7 (Ao3ParserTest 4 + Ao3CommentsTest 3, con snapshot real `comments.js`).
 - En dispositivo: barra inferior Inicio/Biblioteca/Ajustes ✓, Biblioteca con 3 tabs ✓, Ajustes completo ✓, descarga selectiva del capítulo 1 ✓ (aparece en Descargas "1 capítulo · sin conexión"), export `Capitulo_1_Oh, Naruto, Naruto.txt` con contenido correcto ✓, comentarios de Evitative cargados ✓, panel del lector con Interlineado/Márgenes/AMOLED ✓.
 - Nota de pruebas: el teclado de MIUI tapa la barra inferior (cerrar con BACK antes de tocar la barra). Los iconos de las filas se localizan por píxeles (el OCR no ve iconos).
+
+### Release publicado
+- **v0.3.0** (versionCode 3): GitHub Release con `app-release.apk` firmado (2.05 MB, key rotada `ab7ba84e...`).
+  Creado con `git tag v0.3.0` + push (el job `release` del workflow publica el APK automáticamente).
