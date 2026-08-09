@@ -373,3 +373,86 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
   verificar `mWakefulness=Awake` antes de screencap.
 - Se detectó `com.bur.odaru.voicetouchlock` (overlay) robando el foco; si vuelve
   a pasar: `adb shell am force-stop com.bur.odaru.voicetouchlock`.
+---
+
+## 14. Ronda v0.2.0: release firmado en CI, filtros, chips, progreso, Android 16 y rediseño UI
+
+### Rediseño de UI (tema cohesivo, sin arcoíris)
+- `ui/theme/Theme.kt`: tema **fijo** con paleta unificada (ya NO usa dynamic color).
+  Un solo color primario (burdeos AO3 `#990000`) y neutros. Fondo y superficies
+  en grises cálidos, no blanco puro.
+- `ui/components/TagChip.kt`: chip **neutral** (un solo tono de superficie) con un
+  **punto de color** por categoría: fandom/marrón, personaje/azul, relación/rosa,
+  adicional/verde, warning/gris-rojo. Así los tags no compiten entre sí con colores
+  distintos.
+- `ui/components/WorkCard.kt`: tarjeta limpia: título + autor, fila de rating/estado,
+  chips de tags (fandom, personajes, relación), descripción, fila de stats
+  (palabras · caps · visitas · kudos) y fecha de actualización.
+- `ui/screens/HomeScreen.kt`: sin arcoíris; pestañas (Tendencias/Lo nuevo/Más
+  leídas/Más largas), chips "Explorar fandoms" y sección "Continuar leyendo".
+
+### Filtros de búsqueda nuevos (`SearchScreen.kt` + `Ao3Client.kt` + `Models.kt`)
+- **Idioma**: select con códigos ISO (en, es, fr, de, pt, it, ru, ja, zh, ko, etc.)
+  → `work_search[language_id]`.
+- **Excluir crossovers**: checkbox → `work_search[crossover]=F`.
+- **Parte de serie**: checkbox (solo obras que son parte de una serie) →
+  `work_search[complete]=F` + `work_search[series_id]` no vacío.
+- Filtros enviados como query params en la búsqueda de `/tags/<tag>/works` y la
+  búsqueda general.
+
+### Navegación por chips
+- Cualquier chip de tag (fandom, personaje, relación, adicional) en resultados y en
+  el detalle es clickeable → abre la exploración de ese tag (`onOpenTag` en
+  `AppNav.kt`/`MainActivity.kt`).
+
+### Marcador de progreso de lectura
+- `data/Store.kt`: `progress: MutableMap<String, Float>` (workId → fracción leída
+  del capítulo actual) persistido en SharedPreferences (JSON).
+- `ReaderScreen.kt`: guarda progreso periódicamente (scroll del contenido ÷ alto
+  total) y al salir.
+- `WorkDetailScreen.kt`: sheet de capítulos con **barra de progreso** por capítulo
+  leído; el capítulo en curso se marca. La Home muestra "Continuar leyendo" con el
+  último capítulo.
+- Indicador "Cap. X de Y" en el lector (el mismo que se oculta en fullscreen).
+
+### Android 16
+- `targetSdk = 36`, `compileSdk = 37` (SDK 36/API 36 instalado localmente).
+- Predictive back: `android:enableOnBackInvokedCallback="true"` en el manifest.
+
+### Release firmado en CI (solo en GitHub)
+- `app/build.gradle.kts`: `signingConfigs.release` decodifica `KEYSTORE_BASE64` del
+  entorno, escribe el `.jks` en `$buildDir/outputs/keystore/`, y aplica
+  `storePassword`/`keyAlias`/`keyPassword` desde env. El buildType release usa ese
+  signingConfig **solo si** `KEYSTORE_BASE64` está presente (localmente queda
+  unsigned para evitar fallar sin secrets).
+- `.github/workflows/build.yml`: el job `build` pasa las 4 secrets como env al paso
+  `assembleRelease`, sube `ao3-reader-debug` y `ao3-reader-release`. El job
+  `release` (solo en tags `v*`) publica un GitHub Release con el APK firmado
+  (`softprops/action-gh-release`).
+- **Secrets del repo** (Settings → Secrets and variables → Actions):
+  `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+
+### ⚠️ ROTACIÓN DE CLAVE DE FIRMA (importante para el futuro)
+- El keystore original se commiteó por error (`.gitignore` tenía `*.keystore` pero
+  no `*.jks`; el commit `bd0e396` "Ignore keystore dir" incluyó
+  `keystore/ao3-release.jks`). **Ese key quedó expuesto en el historial público.**
+- Se rotó: commit `abbfa2f` lo elimina del repo, y un keystore NUEVO con password
+  aleatoria (31 chars) se generó y subió a las secrets (22:44). El APK del release
+  v0.2.0 está firmado con la key nueva (cert SHA256 `ab7ba84e...` verificado con
+  apksigner contra el keystore local).
+- **Copia de seguridad del keystore nuevo**: `/home/spin/Documentos/ao3-keys/`
+  (`ao3-release.jks` + `keystore_pass.txt`), FUERA del repo. No perderla: sin ella
+  no se puede firmar la siguiente versión (mismo APK → upgrade directo).
+- **Importante**: NO se debe usar nunca el keystore del historial de git; si se
+  necesita rebuildear una versión anterior firmada con la key vieja, no es posible
+  con la key nueva (firma distinta → el usuario tendría que desinstalar).
+
+### Estado verificado (2026-08-09)
+- CI: debug + release firmado + tests, todo verde (runs 31337021943, 31337247172,
+  31337458658). El primer run salió unsigned porque las secrets se crearon ~40s
+  DESPUÉS de arrancar el run (GitHub resuelve secrets al inicio del job) → siempre
+  configurar secrets antes del primer run.
+- GitHub Release **v0.2.0** publicado con `app-release.apk` firmado (~1.96 MB,
+  minificado R8) + artefactos en la pestaña Actions.
+- Dispositivo: el APK release firmado se instaló limpio y arranca; búsqueda con el
+  nuevo card (tags, descripción, stats) y Home rediseñada verificadas por OCR.
