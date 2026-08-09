@@ -46,9 +46,44 @@ val CATEGORY_OPTIONS = listOf(
     FilterOption(2246, "Multi"),
 )
 
+/** AO3 language (work_search[language_id] uses ISO codes, not numeric ids). */
+data class LanguageOption(val code: String, val label: String)
+
+val LANGUAGE_OPTIONS = listOf(
+    LanguageOption("en", "English"),
+    LanguageOption("es", "Español"),
+    LanguageOption("fr", "Français"),
+    LanguageOption("de", "Deutsch"),
+    LanguageOption("pt", "Português"),
+    LanguageOption("it", "Italiano"),
+    LanguageOption("nl", "Nederlands"),
+    LanguageOption("pl", "Polski"),
+    LanguageOption("ru", "Русский"),
+    LanguageOption("zh", "中文"),
+    LanguageOption("ja", "日本語"),
+    LanguageOption("ko", "한국어"),
+    LanguageOption("ar", "العربية"),
+    LanguageOption("hi", "हिन्दी"),
+    LanguageOption("tr", "Türkçe"),
+    LanguageOption("sv", "Svenska"),
+    LanguageOption("da", "Dansk"),
+    LanguageOption("no", "Norsk"),
+    LanguageOption("fi", "suomi"),
+    LanguageOption("el", "Ελληνικά"),
+    LanguageOption("cs", "Čeština"),
+    LanguageOption("uk", "Українська"),
+    LanguageOption("vi", "Tiếng Việt"),
+    LanguageOption("th", "ไทย"),
+    LanguageOption("id", "Bahasa Indonesia"),
+    LanguageOption("fil", "Filipino"),
+    LanguageOption("hu", "Magyar"),
+    LanguageOption("ro", "Română"),
+    LanguageOption("he", "עברית"),
+)
+
 /**
  * All the AO3 "Search and Filter" options. Mirrors the sidebar that AO3's
- * own UI submits to /works/search (GET).
+ * own UI submits to /works (GET, with a canonical tag_id).
  */
 data class SearchFilters(
     val query: String = "",
@@ -66,6 +101,12 @@ data class SearchFilters(
     val excludeCategories: Set<Int> = emptySet(),
     val completeOnly: Boolean = false,
     val crossoverOnly: Boolean = false,
+    /** work_search[crossover]=F — hides works with more than one fandom. */
+    val excludeCrossover: Boolean = false,
+    /** work_search[series_count]=1 — only works that are part of a series. */
+    val partOfSeries: Boolean = false,
+    /** ISO code, work_search[language_id]. */
+    val language: String? = null,
     val wordsFrom: String = "",
     val wordsTo: String = "",
     val dateFrom: String = "",
@@ -76,7 +117,8 @@ data class SearchFilters(
         get() = tag != null || includeTags.isNotBlank() || excludeTags.isNotBlank() ||
             rating != null || warnings.isNotEmpty() || categories.isNotEmpty() ||
             excludeRating != null || excludeWarnings.isNotEmpty() || excludeCategories.isNotEmpty() ||
-            completeOnly || crossoverOnly || wordsFrom.isNotBlank() || wordsTo.isNotBlank() ||
+            completeOnly || crossoverOnly || excludeCrossover || partOfSeries || language != null ||
+            wordsFrom.isNotBlank() || wordsTo.isNotBlank() ||
             dateFrom.isNotBlank() || dateTo.isNotBlank()
 
     /** Compact serialization for navigation state (\u0002 separator). */
@@ -93,6 +135,9 @@ data class SearchFilters(
         excludeCategories.joinToString(","),
         if (completeOnly) "1" else "",
         if (crossoverOnly) "1" else "",
+        if (excludeCrossover) "1" else "",
+        if (partOfSeries) "1" else "",
+        language ?: "",
         wordsFrom,
         wordsTo,
         dateFrom,
@@ -117,10 +162,13 @@ data class SearchFilters(
                 excludeCategories = ids(9),
                 completeOnly = g(10) == "1",
                 crossoverOnly = g(11) == "1",
-                wordsFrom = g(12),
-                wordsTo = g(13),
-                dateFrom = g(14),
-                dateTo = g(15),
+                excludeCrossover = g(12) == "1",
+                partOfSeries = g(13) == "1",
+                language = g(14).ifEmpty { null },
+                wordsFrom = g(15),
+                wordsTo = g(16),
+                dateFrom = g(17),
+                dateTo = g(18),
             )
         }
     }

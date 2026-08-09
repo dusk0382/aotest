@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
@@ -62,6 +63,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
+import net.spin.ao3.data.model.LANGUAGE_OPTIONS
 import net.spin.ao3.data.model.RATING_OPTIONS
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
@@ -78,6 +80,7 @@ fun SearchScreen(
     sort: SortOption,
     onBack: () -> Unit,
     onOpenDetail: (Long) -> Unit,
+    onOpenTag: (String) -> Unit,
 ) {
     var currentFilters by remember { mutableStateOf(filters) }
     var currentSort by remember { mutableStateOf(sort) }
@@ -237,7 +240,7 @@ fun SearchScreen(
                     }
                 }
                 items(results, key = { it.id }) { work ->
-                    WorkCard(work = work, onClick = { onOpenDetail(work.id) })
+                    WorkCard(work = work, onTagClick = onOpenTag, onClick = { onOpenDetail(work.id) })
                 }
                 item {
                     if (error != null) {
@@ -298,6 +301,9 @@ private fun activeFilterCount(f: SearchFilters): Int {
     n += f.excludeCategories.size
     if (f.completeOnly) n++
     if (f.crossoverOnly) n++
+    if (f.excludeCrossover) n++
+    if (f.partOfSeries) n++
+    if (f.language != null) n++
     if (f.wordsFrom.isNotBlank()) n++
     if (f.wordsTo.isNotBlank()) n++
     if (f.dateFrom.isNotBlank()) n++
@@ -313,7 +319,10 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
     f.warnings.forEach { w -> WARNING_OPTIONS.firstOrNull { it.id == w }?.let { parts.add("⚠ ${it.label}") } }
     f.categories.forEach { c -> CATEGORY_OPTIONS.firstOrNull { it.id == c }?.let { parts.add(it.label) } }
     if (f.completeOnly) parts.add("Completadas")
-    if (f.crossoverOnly) parts.add("Crossover")
+    if (f.crossoverOnly) parts.add("Solo crossover")
+    if (f.excludeCrossover) parts.add("Sin crossovers")
+    if (f.partOfSeries) parts.add("Parte de serie")
+    f.language?.let { l -> LANGUAGE_OPTIONS.firstOrNull { it.code == l }?.let { parts.add("Idioma: ${it.label}") } }
     if (f.wordsFrom.isNotBlank() || f.wordsTo.isNotBlank()) parts.add("${f.wordsFrom}-${f.wordsTo} palabras")
     if (f.dateFrom.isNotBlank() || f.dateTo.isNotBlank()) parts.add("${f.dateFrom} → ${f.dateTo}")
     if (f.includeTags.isNotBlank()) parts.add("Incluir: ${f.includeTags}")
@@ -446,6 +455,34 @@ private fun FilterSheet(
             }
             Spacer(Modifier.height(10.dp))
 
+            SectionLabel("Idioma")
+            var langOpen by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(
+                    onClick = { langOpen = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        f.language?.let { l -> LANGUAGE_OPTIONS.firstOrNull { it.code == l }?.label ?: l } ?: "Cualquier idioma",
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                }
+                DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Cualquier idioma") },
+                        onClick = { f = f.copy(language = null); langOpen = false },
+                    )
+                    LANGUAGE_OPTIONS.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(opt.label) },
+                            onClick = { f = f.copy(language = opt.code); langOpen = false },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+
             SectionLabel("Tags (separados por coma; se requieren TODOS)")
             OutlinedTextField(
                 value = f.includeTags,
@@ -482,7 +519,31 @@ private fun FilterSheet(
                     Text("Solo crossovers", style = MaterialTheme.typography.bodyMedium)
                     Text("Muestra solo obras con más de un fandom", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = f.crossoverOnly, onCheckedChange = { f = f.copy(crossoverOnly = it) })
+                Switch(checked = f.crossoverOnly, onCheckedChange = {
+                    f = f.copy(crossoverOnly = it, excludeCrossover = if (it) false else f.excludeCrossover)
+                })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Excluir crossovers", style = MaterialTheme.typography.bodyMedium)
+                    Text("Oculta las obras con más de un fandom", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = f.excludeCrossover, onCheckedChange = {
+                    f = f.copy(excludeCrossover = it, crossoverOnly = if (it) false else f.crossoverOnly)
+                })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Parte de una serie", style = MaterialTheme.typography.bodyMedium)
+                    Text("Solo obras que pertenecen a una serie", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = f.partOfSeries, onCheckedChange = { f = f.copy(partOfSeries = it) })
             }
             Spacer(Modifier.height(10.dp))
 

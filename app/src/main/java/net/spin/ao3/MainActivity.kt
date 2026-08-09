@@ -43,6 +43,8 @@ private fun AppRoot() {
 
     BackHandler(enabled = nav.canGoBack) { nav.pop() }
 
+    fun browseTag(tag: String) = nav.push(Route.Search(SearchFilters(tag = tag), SortOption.KUDOS))
+
     AnimatedContent(
         targetState = nav.current,
         transitionSpec = {
@@ -55,7 +57,7 @@ private fun AppRoot() {
             Route.Home -> HomeScreen(
                 container = container,
                 onSearch = { q, s -> nav.push(Route.Search(SearchFilters(query = q), s)) },
-                onBrowseTag = { tag -> nav.push(Route.Search(SearchFilters(tag = tag), SortOption.KUDOS)) },
+                onBrowseTag = { tag -> browseTag(tag) },
                 onOpenDetail = { nav.push(Route.Detail(it)) },
                 onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
             )
@@ -65,12 +67,14 @@ private fun AppRoot() {
                 sort = route.sort,
                 onBack = { nav.pop() },
                 onOpenDetail = { nav.push(Route.Detail(it)) },
+                onOpenTag = { tag -> browseTag(tag) },
             )
             is Route.Detail -> WorkDetailScreen(
                 container = container,
                 workId = route.workId,
                 onBack = { nav.pop() },
                 onOpenChapter = { ch -> nav.push(Route.Reader(route.workId, ch)) },
+                onOpenTag = { tag -> browseTag(tag) },
             )
             is Route.Reader -> ReaderScreen(
                 container = container,

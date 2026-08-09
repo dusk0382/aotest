@@ -64,6 +64,9 @@ fun HomeScreen(
     val downloads = remember { store.downloads() }
     var query by rememberSaveable { mutableStateOf("") }
 
+    val chipColor = MaterialTheme.colorScheme.primary
+    val fandomChipColor = MaterialTheme.colorScheme.secondary
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -94,39 +97,40 @@ fun HomeScreen(
                     onSearch = { if (query.isNotBlank()) onSearch(query.trim(), SortOption.BEST_MATCH) },
                 ),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("⭐ Tendencias", MaterialTheme.colorScheme.primary, onClick = { onSearch("", SortOption.KUDOS) })
-                TagChip("🔥 Lo nuevo", Color(0xFFE65100), onClick = { onSearch("", SortOption.UPDATED) })
-                TagChip("📖 Más leídas", Color(0xFF00695C), onClick = { onSearch("", SortOption.HITS) })
-                TagChip("✍️ Más largas", Color(0xFF7B1FA2), onClick = { onSearch("", SortOption.WORDS) })
+                TagChip("⭐ Tendencias", chipColor, tinted = true, onClick = { onSearch("", SortOption.KUDOS) })
+                TagChip("🔥 Lo nuevo", chipColor, tinted = true, onClick = { onSearch("", SortOption.UPDATED) })
+                TagChip("📖 Más leídas", chipColor, tinted = true, onClick = { onSearch("", SortOption.HITS) })
+                TagChip("✍️ Más largas", chipColor, tinted = true, onClick = { onSearch("", SortOption.WORDS) })
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(22.dp))
 
             SectionTitle("Explorar fandoms")
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("Naruto", Color(0xFFE65100), onClick = { onBrowseTag("Naruto") })
-                TagChip("Harry Potter", Color(0xFF4527A0), onClick = { onBrowseTag("Harry Potter") })
-                TagChip("Marvel", Color(0xFFB71C1C), onClick = { onBrowseTag("Marvel") })
-                TagChip("DCU", Color(0xFF1565C0), onClick = { onBrowseTag("DCU") })
-                TagChip("My Hero Academia", Color(0xFF00695C), onClick = { onBrowseTag("My Hero Academia") })
-                TagChip("One Piece", Color(0xFFF9A825), onClick = { onBrowseTag("One Piece") })
-                TagChip("Sherlock", Color(0xFF37474F), onClick = { onBrowseTag("Sherlock (TV)") })
+                TagChip("Naruto", fandomChipColor, onClick = { onBrowseTag("Naruto") })
+                TagChip("Harry Potter", fandomChipColor, onClick = { onBrowseTag("Harry Potter") })
+                TagChip("Marvel", fandomChipColor, onClick = { onBrowseTag("Marvel") })
+                TagChip("DCU", fandomChipColor, onClick = { onBrowseTag("DCU") })
+                TagChip("My Hero Academia", fandomChipColor, onClick = { onBrowseTag("My Hero Academia") })
+                TagChip("One Piece", fandomChipColor, onClick = { onBrowseTag("One Piece") })
+                TagChip("Sherlock", fandomChipColor, onClick = { onBrowseTag("Sherlock (TV)") })
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(22.dp))
 
             SectionTitle("Continuar leyendo")
             if (history.isEmpty()) {
                 EmptyHint("Todavía no has leído nada.\nBusca un fandom o explora las tendencias.")
             } else {
                 history.forEach { entry ->
+                    val read = entry.chapterProgress.count { it.value >= 0.97f }
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -155,6 +159,7 @@ fun HomeScreen(
                                 )
                                 Text(
                                     "${entry.author} · Cap. ${entry.chapterIndex + 1}" +
+                                        (if (read > 0) " · $read leídos" else "") +
                                         (if (entry.scrollRatio > 0.02f) " · ${(entry.scrollRatio * 100).toInt()}%" else ""),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

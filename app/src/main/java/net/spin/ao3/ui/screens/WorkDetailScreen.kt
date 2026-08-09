@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -78,6 +79,7 @@ fun WorkDetailScreen(
     workId: Long,
     onBack: () -> Unit,
     onOpenChapter: (Int) -> Unit,
+    onOpenTag: (String) -> Unit,
 ) {
     val store = container.store
     var detail by remember { mutableStateOf<WorkDetail?>(null) }
@@ -92,6 +94,7 @@ fun WorkDetailScreen(
     val scope = rememberCoroutineScope()
     var downloadJob by remember { mutableStateOf<Job?>(null) }
     val history = remember(workId) { store.history().firstOrNull { it.id == workId } }
+    val chapterProgress = remember(workId) { history?.chapterProgress.orEmpty() }
 
     LaunchedEffect(workId) {
         try {
@@ -203,26 +206,36 @@ fun WorkDetailScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.primary,
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(12.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey)) }
-                            if (d.summary.isCompleted) TagChip("Completada", Color(0xFF2E7D32))
+                            d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), tinted = true) }
+                            if (d.summary.isCompleted) TagChip("Completada", Color(0xFF2E7D32), tinted = true)
                             d.summary.warnings.take(2).forEach { TagChip(it, WarningColor) }
                             d.summary.categories.forEach { TagChip(it, CategoryColor) }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            StatBig("${formatCount(d.summary.words)}", "palabras")
-                            StatBig(
-                                if (d.summary.chapterTotal != null) {
-                                    "${d.summary.chapterCount}/${d.summary.chapterTotal}"
-                                } else {
-                                    "${d.summary.chapterCount}+"
-                                },
-                                "capítulos",
-                            )
-                            StatBig("${formatCount(d.summary.hits)}", "visitas")
-                            StatBig("${formatCount(d.summary.kudos)}", "kudos")
+                        Spacer(Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                StatBig("${formatCount(d.summary.words)}", "palabras", Modifier.weight(1f))
+                                StatBig(
+                                    if (d.summary.chapterTotal != null) {
+                                        "${d.summary.chapterCount}/${d.summary.chapterTotal}"
+                                    } else {
+                                        "${d.summary.chapterCount}+"
+                                    },
+                                    "capítulos",
+                                    Modifier.weight(1f),
+                                )
+                                StatBig("${formatCount(d.summary.hits)}", "visitas", Modifier.weight(1f))
+                                StatBig("${formatCount(d.summary.kudos)}", "kudos", Modifier.weight(1f))
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -303,16 +316,16 @@ fun WorkDetailScreen(
                 }
 
                 if (d.relationships.isNotEmpty()) {
-                    item { TagSection("Relaciones", d.relationships, RelationshipColor) }
+                    item { TagSection("Relaciones", d.relationships, RelationshipColor, onOpenTag) }
                 }
                 if (d.characters.isNotEmpty()) {
-                    item { TagSection("Personajes", d.characters, CharacterColor) }
+                    item { TagSection("Personajes", d.characters, CharacterColor, onOpenTag) }
                 }
                 if (d.additionalTags.isNotEmpty()) {
-                    item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor) }
+                    item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, onOpenTag) }
                 }
                 if (d.summary.fandoms.isNotEmpty()) {
-                    item { TagSection("Fandoms", d.summary.fandoms, FandomColor) }
+                    item { TagSection("Fandoms", d.summary.fandoms, FandomColor, onOpenTag) }
                 }
 
                 item {
@@ -323,6 +336,7 @@ fun WorkDetailScreen(
                         index = ch.index,
                         chapter = ch,
                         downloaded = downloadedIds.contains(ch.index),
+                        progress = chapterProgress[ch.index],
                         onClick = { onOpenChapter(ch.index) },
                     )
                 }
@@ -342,24 +356,30 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TagSection(title: String, tags: List<String>, color: Color) {
+private fun TagSection(title: String, tags: List<String>, color: Color, onOpenTag: (String) -> Unit) {
     Section(title) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            tags.take(24).forEach { TagChip(it, color) }
+            tags.take(24).forEach { TagChip(it, color, onClick = { onOpenTag(it) }) }
         }
     }
 }
 
 @Composable
-private fun StatBig(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun StatBig(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun ChapterRow(index: Int, chapter: ChapterInfo, downloaded: Boolean, onClick: () -> Unit) {
+private fun ChapterRow(
+    index: Int,
+    chapter: ChapterInfo,
+    downloaded: Boolean,
+    progress: Float?,
+    onClick: () -> Unit,
+) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
@@ -380,18 +400,37 @@ private fun ChapterRow(index: Int, chapter: ChapterInfo, downloaded: Boolean, on
             }
         }
         Spacer(Modifier.size(12.dp))
-        Text(
-            chapter.title.ifBlank { "Capítulo ${index + 1}" },
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                chapter.title.ifBlank { "Capítulo ${index + 1}" },
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (progress != null && progress < 0.97f && progress > 0.01f) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(0.55f).height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                )
+            }
+        }
         if (downloaded) {
             Icon(
                 Icons.Default.Check,
                 contentDescription = "Descargado",
                 tint = Color(0xFF2E7D32),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.size(8.dp))
+        }
+        if (progress != null && progress >= 0.97f) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Leído",
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp),
             )
         }

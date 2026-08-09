@@ -173,36 +173,48 @@ class Ao3Client {
         return resolved
     }
 
+    /** Adds the shared work_search[...] params used by both endpoints. */
+    private fun HttpUrl.Builder.addCommon(filters: SearchFilters, sort: SortOption, page: Int): HttpUrl.Builder {
+        fun add(key: String, value: String) {
+            if (value.isNotBlank()) addQueryParameter(key, value)
+        }
+        add("work_search[other_tag_names]", filters.includeTags)
+        add("work_search[excluded_tag_names]", filters.excludeTags)
+        add("work_search[complete]", if (filters.completeOnly) "T" else "")
+        add("work_search[crossover]", when {
+            filters.excludeCrossover -> "F"
+            filters.crossoverOnly -> "T"
+            else -> ""
+        })
+        add("work_search[series_count]", if (filters.partOfSeries) "1" else "")
+        add("work_search[language_id]", filters.language ?: "")
+        add("work_search[words_from]", filters.wordsFrom)
+        add("work_search[words_to]", filters.wordsTo)
+        add("work_search[date_from]", filters.dateFrom)
+        add("work_search[date_to]", filters.dateTo)
+        sort.column?.let { addQueryParameter("work_search[sort_column]", it) }
+        sort.column?.let { addQueryParameter("work_search[sort_order]", "desc") }
+        if (page > 1) addQueryParameter("page", page.toString())
+        return this
+    }
+
     /** /works?tag_id=<canonical>&filters&sort — the only URL where AO3 applies tag filters. */
     private fun buildTagFilterUrl(tag: String, filters: SearchFilters, page: Int, sort: SortOption): String {
         val b = HttpUrl.Builder()
             .scheme("https")
             .host("archiveofourown.org")
             .addPathSegment("works")
-        fun add(key: String, value: String) {
-            if (value.isNotBlank()) b.addQueryParameter(key, value)
-        }
         fun addIds(key: String, ids: Set<Int>) {
             ids.forEach { b.addQueryParameter(key, it.toString()) }
         }
         b.addQueryParameter("tag_id", tag)
-        add("work_search[other_tag_names]", filters.includeTags)
-        add("work_search[excluded_tag_names]", filters.excludeTags)
         addIds("include_work_search[rating_ids][]", filters.rating?.let { setOf(it) }.orEmpty())
         addIds("include_work_search[archive_warning_ids][]", filters.warnings)
         addIds("include_work_search[category_ids][]", filters.categories)
         addIds("exclude_work_search[rating_ids][]", filters.excludeRating?.let { setOf(it) }.orEmpty())
         addIds("exclude_work_search[archive_warning_ids][]", filters.excludeWarnings)
         addIds("exclude_work_search[category_ids][]", filters.excludeCategories)
-        add("work_search[complete]", if (filters.completeOnly) "T" else "")
-        add("work_search[crossover]", if (filters.crossoverOnly) "T" else "")
-        add("work_search[words_from]", filters.wordsFrom)
-        add("work_search[words_to]", filters.wordsTo)
-        add("work_search[date_from]", filters.dateFrom)
-        add("work_search[date_to]", filters.dateTo)
-        sort.column?.let { b.addQueryParameter("work_search[sort_column]", it) }
-        sort.column?.let { b.addQueryParameter("work_search[sort_order]", "desc") }
-        if (page > 1) b.addQueryParameter("page", page.toString())
+        b.addCommon(filters, sort, page)
         return b.build().toString()
     }
 
@@ -213,21 +225,8 @@ class Ao3Client {
             .host("archiveofourown.org")
             .addPathSegment("works")
             .addPathSegment("search")
-        fun add(key: String, value: String) {
-            if (value.isNotBlank()) b.addQueryParameter(key, value)
-        }
-        add("work_search[query]", filters.query)
-        add("work_search[other_tag_names]", filters.includeTags)
-        add("work_search[excluded_tag_names]", filters.excludeTags)
-        add("work_search[complete]", if (filters.completeOnly) "T" else "")
-        add("work_search[crossover]", if (filters.crossoverOnly) "T" else "")
-        add("work_search[words_from]", filters.wordsFrom)
-        add("work_search[words_to]", filters.wordsTo)
-        add("work_search[date_from]", filters.dateFrom)
-        add("work_search[date_to]", filters.dateTo)
-        sort.column?.let { b.addQueryParameter("work_search[sort_column]", it) }
-        sort.column?.let { b.addQueryParameter("work_search[sort_order]", "desc") }
-        if (page > 1) b.addQueryParameter("page", page.toString())
+        if (filters.query.isNotBlank()) b.addQueryParameter("work_search[query]", filters.query)
+        b.addCommon(filters, sort, page)
         return b.build().toString()
     }
 

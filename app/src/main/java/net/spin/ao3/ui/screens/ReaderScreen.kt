@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -40,6 +41,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -109,6 +111,10 @@ fun ReaderScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
 
+    // Reading progress (per chapter, saved to Store).
+    var currentRatio by remember { mutableFloatStateOf(0f) }
+    var chapterProgress by remember { mutableStateOf<Map<Int, Float>>(emptyMap()) }
+
     // Tap on the text toggles the bars + full screen; scrolls and links are left alone.
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var showHint by remember { mutableStateOf(false) }
@@ -177,7 +183,9 @@ fun ReaderScreen(
         }
         val hist = currentHistory()
         currentIndex = currentIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+        chapterProgress = hist?.chapterProgress.orEmpty()
         pendingScroll = if (hist != null && hist.chapterIndex == currentIndex) hist.scrollRatio else 0f
+        currentRatio = if (hist != null && hist.chapterIndex == currentIndex) hist.scrollRatio else 0f
         loading = false
     }
 
@@ -209,8 +217,20 @@ fun ReaderScreen(
         val a = workAuthor
         val idx = currentIndex
         readScrollRatio(wv) { ratio ->
+            currentRatio = ratio
+            val base = currentHistory()?.chapterProgress.orEmpty().toMutableMap()
+            base[idx] = ratio
+            chapterProgress = base
             store.updateHistory(
-                Store.HistoryEntry(id = workId, title = t, author = a, chapterIndex = idx, scrollRatio = ratio, at = System.currentTimeMillis()),
+                Store.HistoryEntry(
+                    id = workId,
+                    title = t,
+                    author = a,
+                    chapterIndex = idx,
+                    scrollRatio = ratio,
+                    chapterProgress = base,
+                    at = System.currentTimeMillis(),
+                ),
             )
         }
     }
@@ -227,6 +247,7 @@ fun ReaderScreen(
         if (index !in chapters.indices || index == currentIndex) return
         saveProgressNow()
         pendingScroll = 0f
+        currentRatio = 0f
         currentIndex = index
     }
 
@@ -360,7 +381,7 @@ fun ReaderScreen(
             }
         }
 
-        // Bottom bar (chapter indicator + navigation)
+        // Bottom bar (chapter indicator + navigation + reading progress)
         if (chromeVisible) {
             Surface(
                 color = readerBgColor(theme).copy(alpha = 0.97f),
@@ -369,36 +390,44 @@ fun ReaderScreen(
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { goToChapter(currentIndex - 1) }, enabled = currentIndex > 0) {
-                        Icon(
-                            Icons.Default.KeyboardArrowLeft,
-                            contentDescription = "Anterior",
-                            tint = if (currentIndex > 0) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
-                        )
-                    }
-                    Text(
-                        "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}",
-                        color = readerFgColor(theme),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { showChapters = true }
-                            .padding(vertical = 8.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                Column {
+                    LinearProgressIndicator(
+                        progress = { currentRatio.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        color = readerFgColor(theme).copy(alpha = 0.55f),
+                        trackColor = readerFgColor(theme).copy(alpha = 0.12f),
                     )
-                    IconButton(
-                        onClick = { goToChapter(currentIndex + 1) },
-                        enabled = currentIndex < chapters.size - 1,
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Siguiente",
-                            tint = if (currentIndex < chapters.size - 1) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
+                        IconButton(onClick = { goToChapter(currentIndex - 1) }, enabled = currentIndex > 0) {
+                            Icon(
+                                Icons.Default.KeyboardArrowLeft,
+                                contentDescription = "Anterior",
+                                tint = if (currentIndex > 0) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
+                            )
+                        }
+                        Text(
+                            "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}",
+                            color = readerFgColor(theme),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showChapters = true }
+                                .padding(vertical = 8.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
+                        IconButton(
+                            onClick = { goToChapter(currentIndex + 1) },
+                            enabled = currentIndex < chapters.size - 1,
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowRight,
+                                contentDescription = "Siguiente",
+                                tint = if (currentIndex < chapters.size - 1) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
+                            )
+                        }
                     }
                 }
             }
@@ -502,6 +531,7 @@ fun ReaderScreen(
             )
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
                 itemsIndexed(chapters) { index, chapter ->
+                    val prog = chapterProgress[index]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -509,7 +539,7 @@ fun ReaderScreen(
                                 showChapters = false
                                 goToChapter(index)
                             }
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -519,20 +549,40 @@ fun ReaderScreen(
                             color = if (index == currentIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(28.dp),
                         )
-                        Text(
-                            chapter.title.ifBlank { "Capítulo ${index + 1}" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (index == currentIndex) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (index == currentIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Spacer(Modifier.width(6.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                chapter.title.ifBlank { "Capítulo ${index + 1}" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (index == currentIndex) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (index == currentIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (prog != null && prog < 0.97f && prog > 0.01f) {
+                                Spacer(Modifier.height(3.dp))
+                                LinearProgressIndicator(
+                                    progress = { prog },
+                                    modifier = Modifier.fillMaxWidth(0.5f).height(2.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                )
+                            }
+                        }
                         if (downloadedIds.contains(index)) {
                             Icon(
                                 Icons.Default.Check,
                                 contentDescription = "Descargado",
                                 tint = Color(0xFF2E7D32),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        if (prog != null && prog >= 0.97f) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Leído",
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
                         }

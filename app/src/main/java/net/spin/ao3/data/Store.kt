@@ -48,6 +48,8 @@ class Store(context: Context) {
         val author: String,
         val chapterIndex: Int,
         val scrollRatio: Float,
+        /** Chapter index -> scroll ratio (0..1) for the whole work. */
+        val chapterProgress: Map<Int, Float> = emptyMap(),
         val at: Long,
     )
 
@@ -124,6 +126,9 @@ class Store(context: Context) {
             put("chapter", entry.chapterIndex)
             put("scroll", entry.scrollRatio)
             put("at", entry.at)
+            put("progress", JSONObject().apply {
+                entry.chapterProgress.forEach { (k, v) -> put(k.toString(), v.toDouble()) }
+            })
         })
         root.put("history", filtered)
         persist()
@@ -241,6 +246,17 @@ class Store(context: Context) {
         author = optString("author", ""),
         chapterIndex = optInt("chapter", 0),
         scrollRatio = optDouble("scroll", 0.0).toFloat(),
+        chapterProgress = optJSONObject("progress")?.let { p ->
+            val m = mutableMapOf<Int, Float>()
+            val it = p.keys()
+            while (it.hasNext()) {
+                val k = it.next()
+                val idx = k.toIntOrNull()
+                val v = p.optDouble(k, 0.0)
+                if (idx != null && v > 0.0) m[idx] = v.toFloat()
+            }
+            m
+        } ?: emptyMap(),
         at = optLong("at"),
     )
 
