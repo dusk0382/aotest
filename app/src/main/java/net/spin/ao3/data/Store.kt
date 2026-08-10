@@ -34,6 +34,8 @@ class Store(context: Context) {
         var lineHeight: Float = 1.75f
         /** 0 = estrecho, 1 = normal, 2 = amplio. */
         var margins: Int = 1
+        /** Modo de lectura: false = scroll continuo (WebView), true = paginado. */
+        var paged: Boolean = false
         var appThemeMode: String = "SYSTEM"
         var commentName: String = ""
         var commentEmail: String = ""
@@ -244,6 +246,7 @@ class Store(context: Context) {
             prefs.serif = p?.optBoolean("serif", true) ?: true
             prefs.lineHeight = p?.optDouble("lineHeight", 1.75)?.toFloat() ?: 1.75f
             prefs.margins = p?.optInt("margins", 1) ?: 1
+            prefs.paged = p?.optBoolean("paged", false) ?: false
             prefs.appThemeMode = p?.optString("appThemeMode", "SYSTEM") ?: "SYSTEM"
             prefs.commentName = p?.optString("commentName", "") ?: ""
             prefs.commentEmail = p?.optString("commentEmail", "") ?: ""
@@ -260,6 +263,7 @@ class Store(context: Context) {
             put("serif", prefs.serif)
             put("lineHeight", prefs.lineHeight.toDouble())
             put("margins", prefs.margins)
+            put("paged", prefs.paged)
             put("appThemeMode", prefs.appThemeMode)
             put("commentName", prefs.commentName)
             put("commentEmail", prefs.commentEmail)

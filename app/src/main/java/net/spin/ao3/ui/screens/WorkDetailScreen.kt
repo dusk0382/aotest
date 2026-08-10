@@ -1,5 +1,12 @@
 package net.spin.ao3.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -54,10 +62,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,13 +74,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Job
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
+import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
@@ -105,12 +116,15 @@ fun WorkDetailScreen(
     var saved by remember { mutableStateOf(store.isSaved(workId)) }
     var downloadedIds by remember { mutableStateOf(store.downloadedChapterIds(workId)) }
     var downloadingChapter by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var downloadingAll by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableStateOf(0f) }
     var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
     var descExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var downloadJob by remember { mutableStateOf<Job?>(null) }
+    var kudoed by rememberSaveable { mutableStateOf(false) }
+    var kudosSending by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val queueState by DownloadQueueService.state.collectAsState()
+    var lastQueueCompletion by remember { mutableLongStateOf(0L) }
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { /* proceed either way */ }
     val history = remember(workId) { store.history().firstOrNull { it.id == workId } }
     val chapterProgress = remember(workId) { history?.chapterProgress.orEmpty() }
 
@@ -147,12 +161,16 @@ fun WorkDetailScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { downloadJob?.cancel() }
-    }
-
     fun refreshDownloads() {
         downloadedIds = store.downloadedChapterIds(workId)
+    }
+
+    LaunchedEffect(queueState.completedAt) {
+        if (queueState.completedAt > 0 && queueState.completedAt != lastQueueCompletion) {
+            lastQueueCompletion = queueState.completedAt
+            refreshDownloads()
+            snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+        }
     }
 
     fun toggleSaved() {
@@ -191,27 +209,47 @@ fun WorkDetailScreen(
         }
     }
 
-    fun startDownloadAll() {
+    fun enqueueAll() {
         val d = detail ?: return
-        if (downloadingAll) return
-        downloadingAll = true
-        downloadProgress = 0f
-        downloadJob = scope.launch {
+        if (queueState.active && queueState.workId == d.summary.id) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        ContextCompat.startForegroundService(
+            context,
+            DownloadQueueService.enqueueIntent(context, d.summary.id, d.summary.title, d.chapters),
+        )
+        scope.launch { snackbar.showSnackbar("Descarga en cola…") }
+    }
+
+    fun sendKudos() {
+        val d = detail ?: return
+        if (kudosSending || kudoed) return
+        kudosSending = true
+        scope.launch {
             try {
-                val fetched = d.chapters.mapIndexed { i, ch ->
-                    val ready = if (ch.content != null) ch else container.client.getChapter(d.summary.id, ch)
-                    downloadProgress = (i + 1) / d.chapters.size.toFloat()
-                    ready
+                val msg = container.client.postKudos(d.summary.id)
+                if (msg == null) {
+                    kudoed = true
+                    snackbar.showSnackbar("¡Gracias por el kudo! ❤")
+                } else {
+                    snackbar.showSnackbar(msg)
                 }
-                store.saveDownload(d.summary.id, d.summary.title, fetched)
-                refreshDownloads()
-                snackbar.showSnackbar("Obra descargada: ${d.chapters.size} capítulos")
             } catch (e: Exception) {
-                snackbar.showSnackbar("Descarga incompleta: ${e.message}")
+                snackbar.showSnackbar("No se pudo enviar el kudo: ${e.message}")
             } finally {
-                downloadingAll = false
+                kudosSending = false
             }
         }
+    }
+
+    fun openBookmarkPage() {
+        val d = detail ?: return
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://archiveofourown.org/bookmarks/new?work_id=${d.summary.id}")),
+        )
     }
 
     fun deleteDownload() {
@@ -346,6 +384,37 @@ fun WorkDetailScreen(
                         }
                     }
 
+                    // Kudos (invitado anónimo) + marcar en AO3 (navegador)
+                    item {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = { sendKudos() },
+                                enabled = !kudosSending && !kudoed,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                if (kudosSending) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(
+                                        if (kudoed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (kudoed) "Kudo enviado" else "Dar kudos")
+                            }
+                            OutlinedButton(onClick = { openBookmarkPage() }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.BookmarkBorder, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Marcar en AO3")
+                            }
+                        }
+                    }
+
                     item {
                         Row(
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -367,21 +436,24 @@ fun WorkDetailScreen(
                                     Text("Descargado (${downloadedIds.size})")
                                 }
                             } else {
+                                val queuedHere = queueState.active && queueState.workId == d.summary.id
                                 Button(
-                                    onClick = { startDownloadAll() },
-                                    enabled = !downloadingAll,
+                                    onClick = { enqueueAll() },
+                                    enabled = !queuedHere,
                                     modifier = Modifier.weight(0.8f),
                                 ) {
-                                    if (downloadingAll) {
+                                    if (queuedHere) {
                                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                        Text(" ${queueState.done}/${queueState.total}")
+                                    } else {
+                                        Text("Descargar todo")
                                     }
-                                    Text(if (downloadingAll) " ${(downloadProgress * 100).toInt()}%" else "Descargar todo")
                                 }
                             }
                         }
-                        if (downloadingAll) {
+                        if (queueState.active && queueState.workId == d.summary.id) {
                             LinearProgressIndicator(
-                                progress = { downloadProgress },
+                                progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             )
                         }

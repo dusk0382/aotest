@@ -299,9 +299,7 @@ class Ao3Client {
             "https://archiveofourown.org/works/$workId"
         }
         val page = get(pageUrl)
-        val token = Regex("""name="authenticity_token"\s+value="([^"]+)"""").find(page)?.groupValues?.get(1)
-            ?: Regex("""value="([^"]+)"\s+name="authenticity_token"""").find(page)?.groupValues?.get(1)
-            ?: throw IOException("No se pudo obtener el token de sesión de AO3")
+        val token = extractAuthToken(page)
         val action = Regex("""<form[^>]*action="(/chapters/\d+/comments|/works/\d+/comments)"""").find(page)
             ?.groupValues?.get(1)
             ?: "/works/$workId/comments"
@@ -327,6 +325,44 @@ class Ao3Client {
     }
 
     private fun JsoupText(html: String): String = org.jsoup.Jsoup.parse(html).text().trim()
+
+    // ---- Kudos --------------------------------------------------------------
+
+    /**
+     * Posts an anonymous guest kudo to a work (AO3 has no name/email for kudos).
+     * Returns null on success, or a human-readable AO3 message otherwise
+     * (e.g. "already left kudos" which is not really an error).
+     */
+    suspend fun postKudos(workId: Long): String? {
+        val page = get("https://archiveofourown.org/works/$workId")
+        // Guest kudos are tracked with a cookie; if the form is already gone the
+        // visitor has left kudos before.
+        if (page.contains("You have already left kudos")) {
+            return "Ya habías dejado kudos en esta obra ❤"
+        }
+        val token = extractAuthToken(page)
+        val fields = linkedMapOf(
+            "authenticity_token" to token,
+            "kudo[commentable_id]" to workId.toString(),
+            "kudo[commentable_type]" to "Work",
+            "commit" to "Kudos ♥",
+        )
+        val body = post("https://archiveofourown.org/kudos", fields)
+        return when {
+            body.contains("You have already left kudos") -> "Ya habías dejado kudos en esta obra ❤"
+            body.contains("doesn't exist") -> "La obra ya no existe"
+            Regex("""<div[^>]*class="error[^"]*"""").containsMatchIn(body) ->
+                Regex("""<div[^>]*class="error[^"]*"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
+                    .find(body)?.groupValues?.get(1)?.let { JsoupText(it) }
+                    ?: "AO3 no pudo registrar el kudo"
+            else -> null
+        }
+    }
+
+    private fun extractAuthToken(page: String): String =
+        Regex("""name="authenticity_token"\s+value="([^"]+)"""").find(page)?.groupValues?.get(1)
+            ?: Regex("""value="([^"]+)"\s+name="authenticity_token"""").find(page)?.groupValues?.get(1)
+            ?: throw IOException("No se pudo obtener el token de sesión de AO3")
 }
 
 /** Search outcome: results + whether tag filters were actually applied by AO3. */

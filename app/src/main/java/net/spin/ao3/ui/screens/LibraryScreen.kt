@@ -26,10 +26,12 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -40,8 +42,11 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,8 +57,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import net.spin.ao3.data.AppContainer
 import kotlinx.coroutines.launch
+import net.spin.ao3.data.AppContainer
+import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.ChapterExporter
@@ -70,10 +76,21 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshTick by remember { mutableIntStateOf(0) }
+    val queueState by DownloadQueueService.state.collectAsState()
+    var lastQueueCompletion by remember { mutableLongStateOf(0L) }
+
+    // Live-refresh the Downloads tab while the queue writes chapters, and once
+    // when a queued download finishes.
+    LaunchedEffect(queueState.completedAt) {
+        if (queueState.completedAt > 0 && queueState.completedAt != lastQueueCompletion) {
+            lastQueueCompletion = queueState.completedAt
+            refreshTick++
+        }
+    }
 
     val favorites = remember(refreshTick) { store.savedWorks() }
     val history = remember(refreshTick) { store.history() }
-    val downloads = remember(refreshTick) { store.downloads() }
+    val downloads = remember(refreshTick, queueState) { store.downloads() }
     val semantic = LocalSemanticColors.current
 
     val exporter = ChapterExporter.rememberChapterExporter { msg ->
@@ -245,12 +262,48 @@ private fun DownloadsTab(
 ) {
     val semantic = LocalSemanticColors.current
     var expanded by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    val queueState by DownloadQueueService.state.collectAsState()
 
-    if (downloads.isEmpty()) {
+    if (downloads.isEmpty() && !queueState.active) {
         EmptyHint("Descarga obras o capítulos individuales desde su detalle para leerlos sin conexión.")
         return
     }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (queueState.active) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Descargando: ${queueState.workTitle}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "Capítulo ${queueState.done} de ${queueState.total}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                        )
+                    }
+                }
+            }
+        }
         items(downloads, key = { it.id }) { dl ->
             Surface(
                 shape = RoundedCornerShape(14.dp),

@@ -10,6 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +29,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -66,7 +72,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,12 +86,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.ChapterInfo
+import net.spin.ao3.util.Line
+import net.spin.ao3.util.LineKind
+import net.spin.ao3.util.Segment
 import net.spin.ao3.util.escapeHtml
+import net.spin.ao3.util.htmlToLines
+import net.spin.ao3.util.packPages
 
 private const val BASE_URL = "https://archiveofourown.org"
 
@@ -108,6 +126,8 @@ fun ReaderScreen(
     var serif by remember { mutableStateOf(store.prefs.serif) }
     var lineHeight by remember { mutableFloatStateOf(store.prefs.lineHeight) }
     var margins by remember { mutableIntStateOf(store.prefs.margins) }
+    /** Scroll continuo (WebView) frente a paginado (páginas deslizables). */
+    var paged by remember { mutableStateOf(store.prefs.paged) }
 
     var retryTick by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
@@ -160,6 +180,20 @@ fun ReaderScreen(
     var pendingScroll by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
 
+    // Paginated mode data (only parsed when active).
+    val lines = remember(content, paged) {
+        if (paged) htmlToLines(content ?: "") else emptyList()
+    }
+    val pages = remember(lines, fontSize) {
+        if (paged) {
+            val target = (2300 * (18f / fontSize)).toInt().coerceAtLeast(900)
+            packPages(lines, target)
+        } else {
+            emptyList()
+        }
+    }
+    val pagerState = rememberPagerState(initialPage = 0) { pages.size.coerceAtLeast(1) }
+
     fun currentHistory(): Store.HistoryEntry? =
         store.history().firstOrNull { it.id == workId }
 
@@ -211,13 +245,24 @@ fun ReaderScreen(
         loading = false
     }
 
+    // 2b) Paged mode: restore or reset the page whenever chapter content changes.
+    LaunchedEffect(paged, content, currentIndex) {
+        if (!paged || pages.isEmpty()) return@LaunchedEffect
+        if (pendingScroll > 0f && pages.size > 1) {
+            val target = (pendingScroll * (pages.size - 1)).roundToInt().coerceIn(0, pages.size - 1)
+            pagerState.scrollToPage(target)
+            pendingScroll = 0f
+        } else {
+            pagerState.scrollToPage(0)
+        }
+    }
+
     fun saveProgressNow() {
-        val wv = webView.value ?: return
         val t = workTitle
         if (t.isEmpty()) return
         val a = workAuthor
         val idx = currentIndex
-        readScrollRatio(wv) { ratio ->
+        fun commit(ratio: Float) {
             currentRatio = ratio
             val base = currentHistory()?.chapterProgress.orEmpty().toMutableMap()
             base[idx] = ratio
@@ -233,6 +278,12 @@ fun ReaderScreen(
                     at = System.currentTimeMillis(),
                 ),
             )
+        }
+        if (paged) {
+            commit(if (pages.size > 1) pagerState.currentPage / (pages.size - 1).toFloat() else 0f)
+        } else {
+            val wv = webView.value ?: return
+            readScrollRatio(wv) { commit(it) }
         }
     }
 
@@ -254,7 +305,7 @@ fun ReaderScreen(
 
     BackHandler { saveProgressNow(); onBack() }
 
-    // 3) Render chapter into the WebView whenever content/css changes
+    // 3) Render chapter into the WebView whenever content/css changes (scroll mode only).
     val css = remember(theme, fontSize, serif, lineHeight, margins) { readerCss(theme, fontSize, serif, lineHeight, margins) }
     val html = remember(content, workTitle, currentIndex, chapterTitle, css) {
         buildChapterHtml(workTitle, currentIndex, chapterTitle, content ?: "", css)
@@ -271,29 +322,50 @@ fun ReaderScreen(
     val bgColor = readerBgColor(theme).toArgb()
 
     fun applyPrefs(block: () -> Unit) {
-        val wv = webView.value
-        if (wv != null && content != null) {
-            wv.evaluateJavascript(
-                "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
-            ) { r ->
-                pendingScroll = r?.toFloatOrNull() ?: 0f
+        if (paged) {
+            pendingScroll = if (pages.size > 1) pagerState.currentPage / (pages.size - 1).toFloat() else 0f
+            block()
+        } else {
+            val wv = webView.value
+            if (wv != null && content != null) {
+                wv.evaluateJavascript(
+                    "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
+                ) { r ->
+                    pendingScroll = r?.toFloatOrNull() ?: 0f
+                    block()
+                }
+            } else {
                 block()
             }
-        } else {
-            block()
         }
     }
 
     Box(Modifier.fillMaxSize()) {
-        // WebView (background color avoids white flash)
-        ReaderWebViewHost(
-            webView = webView,
-            modifier = Modifier.fillMaxSize(),
-            backgroundColor = bgColor,
-            onPageFinished = { onPageFinished.value() },
-            onToggleChrome = toggleChrome,
-            htmlToLoad = html,
-        )
+        // Body: paginated pages or the scroll WebView.
+        if (paged && pages.isNotEmpty()) {
+            PagedReaderBody(
+                pages = pages,
+                pagerState = pagerState,
+                theme = theme,
+                fontSize = fontSize,
+                serif = serif,
+                lineHeight = lineHeight,
+                margins = margins,
+                workTitle = workTitle,
+                chapterTitle = chapterTitle,
+                chapterIndex = currentIndex,
+                toggleChrome = toggleChrome,
+            )
+        } else {
+            ReaderWebViewHost(
+                webView = webView,
+                modifier = Modifier.fillMaxSize(),
+                backgroundColor = bgColor,
+                onPageFinished = { onPageFinished.value() },
+                onToggleChrome = toggleChrome,
+                htmlToLoad = html,
+            )
+        }
 
         // Loading overlay
         if (loading) {
@@ -325,7 +397,7 @@ fun ReaderScreen(
                         Text(
                             error ?: "",
                             color = readerFgColor(theme),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(16.dp))
                         Button(onClick = {
@@ -410,14 +482,15 @@ fun ReaderScreen(
                             )
                         }
                         Text(
-                            "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}",
+                            "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}" +
+                                if (paged && pages.size > 1) " · ${pagerState.currentPage + 1}/${pages.size}" else "",
                             color = readerFgColor(theme),
                             style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { showChapters = true }
                                 .padding(vertical = 8.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            textAlign = TextAlign.Center,
                         )
                         IconButton(
                             onClick = { goToChapter(currentIndex + 1) },
@@ -464,6 +537,29 @@ fun ReaderScreen(
             sheetState = sheetState,
         ) {
             Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+                Text("Modo de lectura", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !paged,
+                        onClick = {
+                            applyPrefs { paged = false }
+                            store.prefs.paged = false
+                            store.savePrefs()
+                        },
+                        label = { Text("Scroll continuo") },
+                    )
+                    FilterChip(
+                        selected = paged,
+                        onClick = {
+                            applyPrefs { paged = true }
+                            store.prefs.paged = true
+                            store.savePrefs()
+                        },
+                        label = { Text("Paginado") },
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
                 Text("Tema de lectura", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -538,6 +634,7 @@ fun ReaderScreen(
                         store.prefs.margins = draftMargins
                         store.prefs.theme = theme
                         store.prefs.serif = serif
+                        store.prefs.paged = paged
                         store.savePrefs()
                         fontSize = draftFont
                         lineHeight = draftLineHeight
@@ -634,6 +731,154 @@ fun ReaderScreen(
     DisposableEffect(Unit) {
         onDispose { saveProgressNow() }
     }
+}
+
+// ---- Paginated reader body --------------------------------------------------
+
+@Composable
+private fun PagedReaderBody(
+    pages: List<List<Line>>,
+    pagerState: PagerState,
+    theme: Store.ReaderTheme,
+    fontSize: Int,
+    serif: Boolean,
+    lineHeight: Float,
+    margins: Int,
+    workTitle: String,
+    chapterTitle: String,
+    chapterIndex: Int,
+    toggleChrome: () -> Unit,
+) {
+    val (bgHex, fgHex, accentHex) = readerPalette(theme)
+    val bg = Color(android.graphics.Color.parseColor(bgHex))
+    val fg = Color(android.graphics.Color.parseColor(fgHex))
+    val accent = Color(android.graphics.Color.parseColor(accentHex))
+    val family = if (serif) FontFamily.Serif else FontFamily.SansSerif
+    val horizontalPad = when (margins) {
+        0 -> 16.dp
+        2 -> 34.dp
+        else -> 24.dp
+    }
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        beyondViewportPageCount = 1,
+    ) { page ->
+        Surface(
+            color = bg,
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = toggleChrome,
+                ),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = horizontalPad, vertical = 16.dp),
+            ) {
+                if (page == 0) {
+                    Text(
+                        workTitle,
+                        fontSize = (fontSize * 0.82f).sp,
+                        color = fg.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Capítulo ${chapterIndex + 1}${if (chapterTitle.isNotBlank()) ": $chapterTitle" else ""}",
+                        fontSize = (fontSize * 1.1f).sp,
+                        fontWeight = FontWeight.Bold,
+                        color = fg,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                    )
+                }
+                Text(
+                    text = linesToAnnotated(pages[page], fontSize, fg, accent),
+                    style = TextStyle(
+                        color = fg,
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineHeight).sp,
+                        fontFamily = family,
+                    ),
+                )
+                Text(
+                    "· ${page + 1} de ${pages.size} ·",
+                    fontSize = (fontSize * 0.8f).sp,
+                    color = fg.copy(alpha = 0.5f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 30.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Converts paginated [Line]s into a styled AnnotatedString using the reader palette. */
+private fun linesToAnnotated(lines: List<Line>, fontSize: Int, fg: Color, accent: Color): AnnotatedString {
+    val builder = AnnotatedString.Builder()
+    lines.forEachIndexed { i, line ->
+        if (i > 0) builder.append("\n\n")
+        when (line.kind) {
+            LineKind.SEPARATOR -> builder.append("  ✦   ✦   ✦  ")
+            LineKind.HEADING -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = (fontSize + 2).sp))
+                line.segments.forEach { builder.append(it.text) }
+                builder.pop()
+            }
+            LineKind.QUOTE -> {
+                builder.pushStyle(SpanStyle(color = fg.copy(alpha = 0.85f)))
+                builder.append("“")
+                line.segments.forEach { seg ->
+                    val pushed = pushSegmentStyle(builder, seg, accent)
+                    builder.append(seg.text)
+                    repeat(pushed) { builder.pop() }
+                }
+                builder.append("”")
+                builder.pop()
+            }
+            LineKind.LIST -> {
+                builder.append("•  ")
+                line.segments.forEach { seg ->
+                    val pushed = pushSegmentStyle(builder, seg, accent)
+                    builder.append(seg.text)
+                    repeat(pushed) { builder.pop() }
+                }
+            }
+            LineKind.CODE -> {
+                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = accent))
+                builder.append(line.segments.firstOrNull()?.text ?: "")
+                builder.pop()
+            }
+            else -> line.segments.forEach { seg ->
+                val pushed = pushSegmentStyle(builder, seg, accent)
+                builder.append(seg.text)
+                repeat(pushed) { builder.pop() }
+            }
+        }
+    }
+    return builder.toAnnotatedString()
+}
+
+private fun pushSegmentStyle(builder: AnnotatedString.Builder, seg: Segment, accent: Color): Int {
+    var pushed = 0
+    if (seg.bold) {
+        builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+        pushed++
+    }
+    if (seg.italic) {
+        builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+        pushed++
+    }
+    if (seg.link) {
+        builder.pushStyle(SpanStyle(color = accent))
+        pushed++
+    }
+    return pushed
 }
 
 // ---- WebView host -----------------------------------------------------------

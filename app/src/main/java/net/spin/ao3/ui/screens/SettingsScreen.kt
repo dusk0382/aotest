@@ -53,6 +53,7 @@ fun SettingsScreen(
     var serif by remember { mutableStateOf(prefs.serif) }
     var lineHeight by remember { mutableFloatStateOf(prefs.lineHeight) }
     var margins by remember { mutableIntStateOf(prefs.margins) }
+    var paged by remember { mutableStateOf(prefs.paged) }
     var commentName by remember { mutableStateOf(prefs.commentName) }
     var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
 
@@ -99,13 +100,40 @@ fun SettingsScreen(
 
             // ---- Lector (valores por defecto) ----
             SettingsSection("Lector (por defecto)") {
+                Text("Modo de lectura", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !paged,
+                        onClick = {
+                            paged = false
+                            prefs.paged = false
+                            store.savePrefs()
+                        },
+                        label = { Text("Scroll continuo") },
+                    )
+                    FilterChip(
+                        selected = paged,
+                        onClick = {
+                            paged = true
+                            prefs.paged = true
+                            store.savePrefs()
+                        },
+                        label = { Text("Paginado") },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
                 Text("Tema de lectura", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Store.ReaderTheme.entries.forEach { option ->
                         FilterChip(
                             selected = theme == option,
-                            onClick = { theme = option },
+                            onClick = {
+                                theme = option
+                                prefs.theme = option
+                                store.savePrefs()
+                            },
                             label = { Text(option.label) },
                         )
                     }
@@ -118,6 +146,10 @@ fun SettingsScreen(
                     Slider(
                         value = fontSize.toFloat(),
                         onValueChange = { fontSize = it.toInt() },
+                        onValueChangeFinished = {
+                            prefs.fontSizeSp = fontSize
+                            store.savePrefs()
+                        },
                         valueRange = 13f..28f,
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
@@ -137,6 +169,10 @@ fun SettingsScreen(
                     Slider(
                         value = lineHeight,
                         onValueChange = { lineHeight = it },
+                        onValueChangeFinished = {
+                            prefs.lineHeight = lineHeight
+                            store.savePrefs()
+                        },
                         valueRange = 1.2f..2.4f,
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
@@ -156,7 +192,11 @@ fun SettingsScreen(
                     listOf(0 to "Estrechos", 1 to "Normales", 2 to "Amplios").forEach { (value, label) ->
                         FilterChip(
                             selected = margins == value,
-                            onClick = { margins = value },
+                            onClick = {
+                                margins = value
+                                prefs.margins = value
+                                store.savePrefs()
+                            },
                             label = { Text(label) },
                         )
                     }
@@ -166,8 +206,24 @@ fun SettingsScreen(
                 Text("Tipografía", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = serif, onClick = { serif = true }, label = { Text("Serif") })
-                    FilterChip(selected = !serif, onClick = { serif = false }, label = { Text("Sans serif") })
+                    FilterChip(
+                        selected = serif,
+                        onClick = {
+                            serif = true
+                            prefs.serif = true
+                            store.savePrefs()
+                        },
+                        label = { Text("Serif") },
+                    )
+                    FilterChip(
+                        selected = !serif,
+                        onClick = {
+                            serif = false
+                            prefs.serif = false
+                            store.savePrefs()
+                        },
+                        label = { Text("Sans serif") },
+                    )
                 }
             }
 
@@ -199,7 +255,7 @@ fun SettingsScreen(
             // ---- Acerca de ----
             SettingsSection("Acerca de") {
                 Text(
-                    "AO3 Lector · v0.3.0\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
+                    "AO3 Lector · v0.4.0\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

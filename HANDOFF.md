@@ -496,3 +496,72 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
 ### Release publicado
 - **v0.3.0** (versionCode 3): GitHub Release con `app-release.apk` firmado (2.05 MB, key rotada `ab7ba84e...`).
   Creado con `git tag v0.3.0` + push (el job `release` del workflow publica el APK automáticamente).
+## 16. v0.4.0 — Lector paginado, cola de descargas + notificación, kudos y marcadores
+
+### Lector paginado (activable, no sustituye al scroll)
+- Nuevo pref `Store.Prefs.paged` (persistido). Toggle "Scroll continuo / Paginado" en el panel de
+  ajustes del lector y en Ajustes → Lector (por defecto).
+- `util/ReaderPaging.kt` (funciones puras JVM, probadas): `htmlToLines(html)` convierte el HTML del
+  capítulo en bloques (`Line`/`Segment`) conservando párrafos, encabezados, citas, listas, código,
+  `hr` y énfasis (b/i/u/a); `packPages(lines, targetChars)` los empaqueta en páginas **sin partir
+  párrafos** (presupuesto ≈ 2300 chars, escala con el tamaño de letra).
+- `ReaderScreen`: en modo paginado se muestra un `HorizontalPager` (beyondViewportPageCount=1) con
+  una página por elemento; cada página es un `Text` con `AnnotatedString` (estilos inline) usando la
+  paleta del tema del lector. El swipe horizontal cambia de página; el vertical desplaza dentro de la
+  página. Cabecera (obra + capítulo) solo en la página 1; pie "· X de Y ·".
+- Progreso: el ratio de lectura se guarda igual que el scroll (`scrollRatio` 0..1) — en paginado se
+  deriva de `currentPage/(pages-1)` y se restaura al abrir/cambiar de capítulo. La barra inferior
+  muestra "cap X de Y · pág P de Z". Tap en el texto sigue alternando chrome/full-screen.
+- Tests: `ReaderPagingTest` (5 tests): párrafos/estilos/separadores, párrafos vacíos, presupuesto sin
+  partir líneas, página única, entrada vacía.
+
+### Cola de descargas + notificación
+- `data/DownloadQueueService.kt` (nuevo): foreground service con cola FIFO. `WorkDetailScreen` →
+  "Descargar todo" enqueuea el trabajo con `enqueueIntent(context, workId, title, chapters)`
+  (capítulos serializados a JSON en los extras del Intent). El servicio descarga capítulo a capítulo
+  vía `Ao3Client.getChapter` (politely: serializado con delays), guarda con
+  `store.addDownloadedChapter` y actualiza la notificación de progreso ("Capítulo X de Y", barra).
+  Al terminar: notificación "Descarga completada" que **persiste** (`stopForeground(STOP_FOREGROUND_DETACH)`
+  + `stopSelf()` — ¡importante: sin el stopSelf el servicio queda en foreground para siempre!).
+- Estado en vivo: `companion object state: MutableStateFlow<QueueState>` (active/workId/title/done/
+  total/completedAt) que las pantallas observan con `collectAsState()`.
+- `WorkDetailScreen`: el botón "Descargar todo" muestra "X/Y" + barra mientras corre (y pide
+  `POST_NOTIFICATIONS` en API 33+). Al completarse, snackbar "Descarga completada: N capítulos".
+- `LibraryScreen`: banner con progreso en la pestaña Descargas mientras hay cola activa, y **refresh
+  en vivo** de la lista (observa `queueState` — sin esto la pestaña no muestra los capítulos nuevos
+  hasta re-entrar).
+- Manifest: `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` +
+  `<service android:name=".data.DownloadQueueService" android:foregroundServiceType="dataSync">`.
+
+### Kudos (invitado anónimo)
+- AO3 no pide nombre/email para kudos: `POST /kudos` con `authenticity_token`,
+  `kudo[commentable_id]`, `kudo[commentable_type]=Work`, `commit=Kudos ♥`. Verificado: el formulario
+  real solo tiene esos campos; un POST a un work inexistente devuelve 404 (path de error).
+- `Ao3Client.postKudos(workId)`: GET del work page (token + detección de "You have already left
+  kudos"), POST, y parseo del resultado (éxito → null; ya dado → mensaje; errores → mensaje).
+- UI: botón "Dar kudos" en el detalle (corazón), deshabilitado tras el envío ("Kudo enviado") y
+  mientras procesa. Verificado en dispositivo con obra real (el kudo anónimo queda registrado).
+
+### Marcadores (decisión del usuario: sin login)
+- Los marcadores de AO3 **exigen cuenta** (`/bookmarks/new?work_id=X` → 302 a login para invitados).
+  El usuario eligió NO implementar login: el botón "Marcar en AO3" abre la página de marcador en el
+  navegador del sistema (`Intent.ACTION_VIEW` a `/bookmarks/new?work_id=X`). Verificado (abre el
+  resolver de apps).
+- Si algún día se quiere login: el formulario de AO3 es `POST /users/login` con `authenticity_token`,
+  `user[login]`, `user[password]`, `user[remember_me]` (verificado); los marcadores se crean con
+  `POST /bookmarks` (autenticado, necesita extraer los campos del form).
+
+### Extras
+- Bug fix: los "Lector (por defecto)" de Ajustes **no persistían** (cambiaban estado local sin
+  guardar). Ahora cada control persiste al cambiar.
+- Versión 0.4.0 (versionCode 4). Tests JVM 12/12 (3 comentarios + 4 parser + 5 paginación).
+
+### Verificación en dispositivo (MIUI, Android 10)
+- Paginado: lector → ajustes → "Paginado": "1/29 · 1/16", swipe horizontal → "2/16". ✓
+- Cola: "Descargar todo" en obra con 4/29 capítulos publicados → notificación "Capítulo 2 de 4" →
+  "Descarga completada" persistente → servicio detenido (dumpsys sin ServiceRecord) → Biblioteca →
+  Descargas se actualiza sola ("4 capítulos · sin conexión"). ✓
+- Kudos: botón → "Kudo enviado" (kudo real en obra ajena, como invitado). ✓
+- Marcar: abre el navegador. ✓
+- Nota: el work page de obras con "N/M" capítulos lista solo los N publicados — la cola descarga
+  exactamente esos N (no es un bug).
