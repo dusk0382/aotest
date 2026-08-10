@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
+import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.WorkCard
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -202,7 +203,12 @@ fun AuthorScreen(
                 }
                 if (p.works.isEmpty()) {
                     item {
-                        EmptyHint("No se encontraron obras en la primera página.")
+                        EmptyState(
+                            icon = Icons.Default.OpenInNew,
+                            title = "Sin obras visibles",
+                            description = "No se encontraron obras de ${p.displayName} en la primera página.",
+                            compact = true,
+                        )
                     }
                 } else {
                     items(p.works, key = { it.id }) { work ->

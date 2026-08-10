@@ -1,33 +1,60 @@
 package net.spin.ao3.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.model.WorkSummary
+import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.formatCount
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Work card redesigned for dense scanning (M3):
+ *  - Title top-left (16sp SemiBold) with the rating capsule pinned top-right.
+ *  - Author prefixed by a small pen icon in [secondary].
+ *  - Tags in one scrolling row, capped at 3 visible + a "+N más" chip that
+ *    opens a bottom sheet with every tag grouped by category.
+ *  - A stats bar (surfaceContainerLow) with icons for words / chapters /
+ *    views / kudos, so cards stay compact.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkCard(
     work: WorkSummary,
@@ -36,55 +63,101 @@ fun WorkCard(
     onAuthorClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val semantic = LocalSemanticColors.current
+    val colorScheme = MaterialTheme.colorScheme
+    var showAllTags by remember { mutableStateOf(false) }
+
+    val tagGroups = buildList {
+        if (work.fandoms.isNotEmpty()) add(TagGroup("Fandoms", work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
+        if (work.characters.isNotEmpty()) add(TagGroup("Personajes", work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
+        if (work.relationships.isNotEmpty()) add(TagGroup("Relaciones", work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
+        if (work.otherTags.isNotEmpty()) add(TagGroup("Etiquetas", work.otherTags, AdditionalColor, TagChipVariant.OUTLINED))
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                text = work.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = work.author,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = if (onAuthorClick != null) {
-                    Modifier.clickable(onClick = onAuthorClick)
-                } else {
-                    Modifier
-                },
-            )
-            Spacer(Modifier.height(10.dp))
+            // ---- Header: title + author (left), rating capsule (top-right) ----
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = work.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = null,
+                            tint = colorScheme.secondary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = work.author,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (onAuthorClick != null) {
+                                Modifier.clickable(onClick = onAuthorClick)
+                            } else {
+                                Modifier
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                work.rating?.let {
+                    TagChip(it, ratingColor(work.ratingKey), variant = TagChipVariant.TINTED)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
 
-            // Chips: rating + completion are tinted; the rest carry a category dot.
+            // ---- Tags: scrolling row, 3 visible + "+N más" overflow ----
             val chips = buildList {
-                work.rating?.let { add(Triple(it, ratingColor(work.ratingKey), true)) }
-                if (work.isCompleted) add(Triple("Completada", Color(0xFF2E7D32), true))
-                work.fandoms.take(2).forEach { add(Triple(it, FandomColor, false)) }
-                work.characters.take(3).forEach { add(Triple(it, CharacterColor, false)) }
-                work.relationships.take(1).forEach { add(Triple(it, RelationshipColor, false)) }
+                if (work.isCompleted) add(Triple("Completada", semantic.success, TagChipVariant.TINTED))
+                work.fandoms.forEach { add(Triple(it, FandomColor, TagChipVariant.FILLED_SECONDARY)) }
+                work.characters.forEach { add(Triple(it, CharacterColor, TagChipVariant.FILLED_TERTIARY)) }
+                work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
             }
             if (chips.isNotEmpty()) {
-                FlowRow(
+                // The "+N más" overflow chip must stay visible without scrolling, so
+                // only the first 3 chips live inside the scrollable strip.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    chips.forEach { (text, color, tinted) ->
+                    Row(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        chips.take(3).forEach { (text, color, variant) ->
+                            TagChip(
+                                text = text,
+                                color = color,
+                                variant = variant,
+                                onClick = onTagClick?.let { cb -> { cb(text) } },
+                            )
+                        }
+                    }
+                    if (chips.size > 3) {
                         TagChip(
-                            text = text,
-                            color = color,
-                            tinted = tinted,
-                            onClick = onTagClick?.let { cb -> { cb(text) } },
+                            text = "+${chips.size - 3} más",
+                            color = colorScheme.secondary,
+                            variant = TagChipVariant.TINTED,
+                            onClick = { showAllTags = true },
                         )
                     }
                 }
@@ -95,44 +168,121 @@ fun WorkCard(
                 Text(
                     text = work.summary,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colorScheme.onSurfaceVariant,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(12.dp))
             }
 
+            // ---- Stats bar with icons ----
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colorScheme.surfaceContainerLow)
+                    .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StatCell("${formatCount(work.words)}", "palabras", Modifier.weight(1f))
+                StatCell(Icons.Filled.Description, "${formatCount(work.words)}", "palabras", Modifier.weight(1f))
                 CellDivider()
                 StatCell(
+                    Icons.Filled.Layers,
                     if (work.chapterTotal == null) "${work.chapterCount}+" else "${work.chapterCount}/${work.chapterTotal}",
                     "caps",
                     Modifier.weight(1f),
                 )
                 CellDivider()
-                StatCell("${formatCount(work.hits)}", "visitas", Modifier.weight(1f))
+                StatCell(Icons.Filled.Visibility, "${formatCount(work.hits)}", "visitas", Modifier.weight(1f))
                 CellDivider()
-                StatCell("${formatCount(work.kudos)}", "kudos", Modifier.weight(1f))
+                StatCell(Icons.Filled.Favorite, "${formatCount(work.kudos)}", "kudos", Modifier.weight(1f))
             }
             work.updated?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = "Actualizado: $it",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 )
+            }
+        }
+    }
+
+    if (showAllTags) {
+        AllTagsSheet(
+            groups = tagGroups,
+            onTagClick = { tag ->
+                showAllTags = false
+                onTagClick?.invoke(tag)
+            },
+            onDismiss = { showAllTags = false },
+        )
+    }
+}
+
+private data class TagGroup(
+    val name: String,
+    val tags: List<String>,
+    val color: androidx.compose.ui.graphics.Color,
+    val variant: TagChipVariant,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AllTagsSheet(
+    groups: List<TagGroup>,
+    onTagClick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 40.dp),
+        ) {
+            Text("Todos los tags", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Toca un tag para explorar más obras de ese tag.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            groups.forEach { group ->
+                Spacer(Modifier.height(14.dp))
+                Text(group.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    group.tags.forEach { tag ->
+                        TagChip(
+                            text = tag,
+                            color = group.color,
+                            variant = group.variant,
+                            onClick = { onTagClick(tag) },
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
+private fun StatCell(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.height(2.dp))
         Text(
             text = value,
             style = MaterialTheme.typography.labelLarge,

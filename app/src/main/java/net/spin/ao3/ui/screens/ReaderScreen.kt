@@ -10,6 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -544,6 +546,22 @@ fun ReaderScreen(
                                 tint = if (searchOpen) readerAccentColor(theme) else readerFgColor(theme),
                             )
                         }
+                        IconButton(onClick = {
+                            val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
+                                Store.ReaderTheme.BLACK
+                            } else {
+                                Store.ReaderTheme.LIGHT
+                            }
+                            applyPrefs { theme = target }
+                            store.prefs.theme = target
+                            store.savePrefs()
+                        }) {
+                            Icon(
+                                Icons.Default.DarkMode,
+                                contentDescription = "Tema claro/oscuro",
+                                tint = readerFgColor(theme),
+                            )
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
                         }
@@ -710,7 +728,12 @@ fun ReaderScreen(
             onDismissRequest = { showSettings = false },
             sheetState = sheetState,
         ) {
-            Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp),
+            ) {
                 Text("Modo de lectura", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -745,6 +768,16 @@ fun ReaderScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(20.dp))
+                Text("Vista previa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                ReaderPreview(
+                    theme = theme,
+                    fontSize = draftFont,
+                    lineHeight = draftLineHeight,
+                    serif = serif,
+                    margins = draftMargins,
+                )
                 Spacer(Modifier.height(20.dp))
                 Text("Tamaño de letra", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1313,6 +1346,55 @@ private fun readerBgColor(theme: Store.ReaderTheme): Color = Color(android.graph
 private fun readerFgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).second))
 
 private fun readerAccentColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).third))
+
+// ---- Live typography preview (settings sheet) --------------------------------
+
+@Composable
+private fun ReaderPreview(
+    theme: Store.ReaderTheme,
+    fontSize: Int,
+    lineHeight: Float,
+    serif: Boolean,
+    margins: Int,
+) {
+    val (bgHex, fgHex, _) = readerPalette(theme)
+    val bg = Color(android.graphics.Color.parseColor(bgHex))
+    val fg = Color(android.graphics.Color.parseColor(fgHex))
+    val family = if (serif) FontFamily.Serif else FontFamily.SansSerif
+    val horizontalPad = when (margins) {
+        0 -> 12.dp
+        2 -> 26.dp
+        else -> 18.dp
+    }
+    Surface(
+        color = bg,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, fg.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
+    ) {
+        Column(Modifier.padding(horizontal = horizontalPad, vertical = 14.dp)) {
+            Text(
+                "La carta llegó al amanecer",
+                fontSize = (fontSize * 0.95f).sp,
+                fontWeight = FontWeight.Bold,
+                color = fg,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Hermione la leyó dos veces antes de guardarla. El viento movía las cortinas " +
+                    "y, en la mesa, el té ya estaba frío. —¿Vas a responderle? —preguntó Ron, " +
+                    "apoyando la barbilla en la mano. Ella sonrió sin apartar la vista de la página.",
+                fontSize = (fontSize * 0.88f).sp,
+                lineHeight = (fontSize * 0.88f * lineHeight).sp,
+                fontFamily = family,
+                color = fg,
+            )
+        }
+    }
+}
 
 private fun marginPadding(margins: Int): Pair<String, String> = when (margins) {
     0 -> "12px 14px 48px" to "22px 26px 58px"

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -69,6 +70,7 @@ import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WARNING_OPTIONS
 import net.spin.ao3.data.model.WorkSummary
+import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.usernameFromAuthorUrl
@@ -209,11 +211,16 @@ fun SearchScreen(
                     }
                 }
             }
-            results.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(
-                    "Sin resultados. Prueba a quitar filtros.",
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            results.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding)) {
+                val hasFilters = activeFilterCount(currentFilters) > 0
+                EmptyState(
+                    icon = Icons.Default.Search,
+                    title = "Sin resultados",
+                    description = "No encontramos obras con esa combinación. Prueba a quitar filtros o a cambiar la búsqueda.",
+                    actionLabel = if (hasFilters) "Limpiar filtros" else null,
+                    onAction = {
+                        currentFilters = SearchFilters(query = currentFilters.query, tag = currentFilters.tag)
+                    },
                 )
             }
             else -> LazyColumn(

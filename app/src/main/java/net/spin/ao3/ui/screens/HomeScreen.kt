@@ -1,6 +1,7 @@
 package net.spin.ao3.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -48,7 +49,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.SortOption
+import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.TagChip
+import net.spin.ao3.ui.components.TagChipVariant
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -107,23 +110,36 @@ fun HomeScreen(
             Spacer(Modifier.height(22.dp))
 
             SectionTitle("Explorar fandoms")
-            FlowRow(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("Naruto", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Naruto") })
-                TagChip("Harry Potter", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Harry Potter") })
-                TagChip("Marvel", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Marvel") })
-                TagChip("DCU", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("DCU") })
-                TagChip("My Hero Academia", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("My Hero Academia") })
-                TagChip("One Piece", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("One Piece") })
-                TagChip("Sherlock", MaterialTheme.colorScheme.primary, onClick = { onBrowseTag("Sherlock (TV)") })
+                listOf(
+                    "Naruto", "Harry Potter", "Marvel", "DCU",
+                    "My Hero Academia", "One Piece", "Sherlock (TV)",
+                ).forEach { fandom ->
+                    TagChip(
+                        fandom,
+                        MaterialTheme.colorScheme.secondary,
+                        variant = TagChipVariant.FILLED_SECONDARY,
+                        onClick = { onBrowseTag(fandom) },
+                    )
+                }
             }
             Spacer(Modifier.height(22.dp))
 
             SectionTitle("Continuar leyendo")
             if (history.isEmpty()) {
-                EmptyHint("Todavía no has leído nada.\nBusca un fandom o explora las tendencias.")
+                EmptyState(
+                    icon = Icons.Default.PlayArrow,
+                    title = "Nada que continuar",
+                    description = "Busca un fandom o explora las tendencias para empezar a leer.",
+                    actionLabel = "Explorar tendencias",
+                    onAction = { onSearch("", SortOption.KUDOS) },
+                    compact = true,
+                )
             } else {
                 history.forEach { entry ->
                     val read = entry.chapterProgress.count { it.value >= 0.97f }
@@ -208,22 +224,4 @@ internal fun SectionTitle(text: String) {
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(bottom = 10.dp),
     )
-}
-
-@Composable
-internal fun EmptyHint(text: String) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(16.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
 }

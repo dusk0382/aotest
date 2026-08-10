@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,6 +62,7 @@ import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.ChapterInfo
+import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.ChapterExporter
 
@@ -70,6 +72,7 @@ fun LibraryScreen(
     container: AppContainer,
     onOpenDetail: (Long) -> Unit,
     onOpenReader: (Long, Int) -> Unit,
+    onExplore: () -> Unit,
 ) {
     val store = container.store
     val snackbar = remember { SnackbarHostState() }
@@ -129,6 +132,7 @@ fun LibraryScreen(
                         refreshTick++
                         scope.launch { snackbar.showSnackbar("Quitado de favoritos") }
                     },
+                    onExplore = onExplore,
                 )
                 1 -> HistoryTab(
                     history = history,
@@ -141,6 +145,7 @@ fun LibraryScreen(
                         store.clearHistory()
                         refreshTick++
                     },
+                    onExplore = onExplore,
                 )
                 else -> DownloadsTab(
                     downloads = downloads,
@@ -157,6 +162,7 @@ fun LibraryScreen(
                         scope.launch { snackbar.showSnackbar("Descarga eliminada") }
                     },
                     exporter = exporter,
+                    onExplore = onExplore,
                 )
             }
         }
@@ -168,10 +174,17 @@ private fun FavoritesTab(
     favorites: List<net.spin.ao3.data.Store.SavedWork>,
     onOpen: (Long) -> Unit,
     onRemove: (Long) -> Unit,
+    onExplore: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
     if (favorites.isEmpty()) {
-        EmptyHint("Marca obras con la estrella ⭐ en su detalle para tenerlas aquí.")
+        EmptyState(
+            icon = Icons.Default.Star,
+            title = "Sin favoritos todavía",
+            description = "Marca obras con la estrella en su detalle para tenerlas aquí, siempre a mano.",
+            actionLabel = "Explorar tendencias",
+            onAction = onExplore,
+        )
         return
     }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -210,9 +223,16 @@ private fun HistoryTab(
     onOpen: (Long, Int) -> Unit,
     onRemove: (Long) -> Unit,
     onClearAll: () -> Unit,
+    onExplore: () -> Unit,
 ) {
     if (history.isEmpty()) {
-        EmptyHint("Las obras que leas aparecerán aquí con tu progreso.")
+        EmptyState(
+            icon = Icons.Default.History,
+            title = "Tu historial está vacío",
+            description = "Las obras que leas aparecerán aquí con tu progreso, lista para continuar.",
+            actionLabel = "Explorar tendencias",
+            onAction = onExplore,
+        )
         return
     }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -259,13 +279,20 @@ private fun DownloadsTab(
     onDeleteChapter: (Long, Int) -> Unit,
     onDeleteDownload: (Long) -> Unit,
     exporter: (String, Int, String, String?) -> Unit,
+    onExplore: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
     var expanded by remember { mutableStateOf<Set<Long>>(emptySet()) }
     val queueState by DownloadQueueService.state.collectAsState()
 
     if (downloads.isEmpty() && !queueState.active) {
-        EmptyHint("Descarga obras o capítulos individuales desde su detalle para leerlos sin conexión.")
+        EmptyState(
+            icon = Icons.Default.Download,
+            title = "Nada descargado",
+            description = "Descarga obras completas o capítulos individuales desde su detalle para leer sin conexión.",
+            actionLabel = "Explorar tendencias",
+            onAction = onExplore,
+        )
         return
     }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

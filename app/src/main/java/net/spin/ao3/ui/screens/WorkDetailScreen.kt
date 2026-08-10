@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -92,6 +94,7 @@ import net.spin.ao3.ui.components.CharacterColor
 import net.spin.ao3.ui.components.FandomColor
 import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.TagChip
+import net.spin.ao3.ui.components.TagChipVariant
 import net.spin.ao3.ui.components.WarningColor
 import net.spin.ao3.ui.components.ratingColor
 import net.spin.ao3.ui.theme.LocalSemanticColors
@@ -350,10 +353,10 @@ fun WorkDetailScreen(
                             )
                             Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), tinted = true) }
-                                if (d.summary.isCompleted) TagChip("Completada", semantic.success, tinted = true)
-                                d.summary.warnings.take(2).forEach { TagChip(it, WarningColor) }
-                                d.summary.categories.forEach { TagChip(it, CategoryColor) }
+                                d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), variant = TagChipVariant.TINTED) }
+                                if (d.summary.isCompleted) TagChip("Completada", semantic.success, variant = TagChipVariant.TINTED)
+                                d.summary.warnings.take(2).forEach { TagChip(it, WarningColor, variant = TagChipVariant.TINTED) }
+                                d.summary.categories.forEach { TagChip(it, CategoryColor, variant = TagChipVariant.OUTLINED) }
                             }
                             Spacer(Modifier.height(14.dp))
                             Surface(
@@ -485,16 +488,16 @@ fun WorkDetailScreen(
                     }
 
                     if (d.relationships.isNotEmpty()) {
-                        item { TagSection("Relaciones", d.relationships, RelationshipColor, onOpenTag) }
+                        item { TagSection("Relaciones", d.relationships, RelationshipColor, TagChipVariant.OUTLINED, onOpenTag) }
                     }
                     if (d.characters.isNotEmpty()) {
-                        item { TagSection("Personajes", d.characters, CharacterColor, onOpenTag) }
+                        item { TagSection("Personajes", d.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY, onOpenTag) }
                     }
                     if (d.additionalTags.isNotEmpty()) {
-                        item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, onOpenTag) }
+                        item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, TagChipVariant.OUTLINED, onOpenTag) }
                     }
                     if (d.summary.fandoms.isNotEmpty()) {
-                        item { TagSection("Fandoms", d.summary.fandoms, FandomColor, onOpenTag) }
+                        item { TagSection("Fandoms", d.summary.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY, onOpenTag) }
                     }
 
                     item {
@@ -790,12 +793,24 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TagSection(title: String, tags: List<String>, color: androidx.compose.ui.graphics.Color, onOpenTag: (String) -> Unit) {
+private fun TagSection(
+    title: String,
+    tags: List<String>,
+    color: androidx.compose.ui.graphics.Color,
+    variant: TagChipVariant,
+    onOpenTag: (String) -> Unit,
+) {
     Section(title) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            tags.take(24).forEach { TagChip(it, color, onClick = { onOpenTag(it) }) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            tags.take(24).forEach {
+                TagChip(it, color, variant = variant, onClick = { onOpenTag(it) })
+            }
         }
     }
 }

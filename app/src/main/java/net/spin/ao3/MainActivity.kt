@@ -20,9 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +34,8 @@ import androidx.compose.ui.platform.LocalContext
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.Route
+import net.spin.ao3.ui.components.BottomBarDestination
+import net.spin.ao3.ui.components.CapsuleBottomBar
 import net.spin.ao3.ui.rememberNavController
 import net.spin.ao3.ui.screens.AuthorScreen
 import net.spin.ao3.ui.screens.HomeScreen
@@ -57,7 +56,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /** The three top-level destinations of the bottom navigation bar. */
-enum class AppTab(val label: String, val icon: ImageVector) {
+enum class AppTab(override val label: String, override val icon: ImageVector) : BottomBarDestination {
     HOME("Inicio", Icons.Filled.Home),
     LIBRARY("Biblioteca", Icons.Filled.List),
     SETTINGS("Ajustes", Icons.Filled.Settings),
@@ -89,16 +88,11 @@ private fun AppRoot() {
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
                 if (showTabs) {
-                    NavigationBar {
-                        AppTab.entries.forEach { t ->
-                            NavigationBarItem(
-                                selected = tab == t,
-                                onClick = { tab = t },
-                                icon = { Icon(t.icon, contentDescription = null) },
-                                label = { Text(t.label) },
-                            )
-                        }
-                    }
+                    CapsuleBottomBar(
+                        items = AppTab.entries,
+                        selected = tab,
+                        onSelect = { tab = it },
+                    )
                 }
             },
         ) { padding ->
@@ -124,6 +118,7 @@ private fun AppRoot() {
                                 container = container,
                                 onOpenDetail = { nav.push(Route.Detail(it)) },
                                 onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
+                                onExplore = { tab = AppTab.HOME },
                             )
                             AppTab.SETTINGS -> SettingsScreen(
                                 container = container,
