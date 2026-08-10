@@ -10,19 +10,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * How a tag chip is rendered. One hue per metadata category keeps results
@@ -49,7 +47,7 @@ fun TagChip(
     onClick: (() -> Unit)? = null,
     variant: TagChipVariant = TagChipVariant.NEUTRAL,
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    val shape = MaterialTheme.shapes.small
     val (bg, fg, dot) = when (variant) {
         TagChipVariant.NEUTRAL -> Triple(
             MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -96,8 +94,7 @@ fun TagChip(
             }
             Text(
                 text = text,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -105,7 +102,9 @@ fun TagChip(
     }
     if (onClick != null) {
         Surface(
-            modifier = modifier,
+            // M3 requires a 48x48dp minimum touch target even though the chip
+            // itself stays 32dp tall (visual size is not the touch size).
+            modifier = modifier.minimumInteractiveComponentSize(),
             shape = shape,
             color = bg,
             contentColor = fg,

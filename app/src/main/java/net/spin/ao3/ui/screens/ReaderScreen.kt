@@ -35,7 +35,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -105,6 +105,7 @@ import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.ChapterInfo
+import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.Line
 import net.spin.ao3.util.LineKind
 import net.spin.ao3.util.SearchMatch
@@ -703,7 +704,7 @@ fun ReaderScreen(
         if (!chromeVisible && showHint) {
             Surface(
                 color = Color.Black.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(50),
+                shape = CircleShape,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 28.dp),
@@ -781,14 +782,14 @@ fun ReaderScreen(
                 Spacer(Modifier.height(20.dp))
                 Text("Tamaño de letra", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("A", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(
                         value = draftFont.toFloat(),
                         onValueChange = { draftFont = it.toInt() },
                         valueRange = 13f..28f,
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
-                    Text("A", fontSize = 22.sp)
+                    Text("A", style = MaterialTheme.typography.titleLarge)
                 }
                 Text(
                     "${draftFont} sp",
@@ -914,7 +915,7 @@ fun ReaderScreen(
                             Icon(
                                 Icons.Default.Check,
                                 contentDescription = "Descargado",
-                                tint = Color(0xFF2E7D32),
+                                tint = LocalSemanticColors.current.success,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(8.dp))
@@ -1368,10 +1369,10 @@ private fun ReaderPreview(
     }
     Surface(
         color = bg,
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, fg.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
+            .border(1.dp, fg.copy(alpha = 0.14f), MaterialTheme.shapes.medium),
     ) {
         Column(Modifier.padding(horizontal = horizontalPad, vertical = 14.dp)) {
             Text(

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -191,7 +190,7 @@ private fun FavoritesTab(
         items(favorites, key = { it.id }) { sw ->
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { onOpen(sw.id) },
-                shape = RoundedCornerShape(14.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
                 Row(
@@ -246,7 +245,7 @@ private fun HistoryTab(
         items(history, key = { it.id }) { entry ->
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { onOpen(entry.id, entry.chapterIndex) },
-                shape = RoundedCornerShape(14.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
                 Row(
@@ -299,7 +298,7 @@ private fun DownloadsTab(
         if (queueState.active) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -333,7 +332,7 @@ private fun DownloadsTab(
         }
         items(downloads, key = { it.id }) { dl ->
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
                 Column {
@@ -411,10 +410,10 @@ private fun ChapterDownloadRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onExport, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onExport) {
             Icon(Icons.Default.FileDownload, contentDescription = "Exportar .txt", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onDelete) {
             Icon(Icons.Default.DeleteOutline, contentDescription = "Quitar capítulo", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
     }

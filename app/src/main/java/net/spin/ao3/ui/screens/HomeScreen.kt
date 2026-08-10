@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -90,7 +90,7 @@ fun HomeScreen(
                 placeholder = { Text("Busca por título, fandom, autor, tag…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
+                shape = CircleShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
                     onSearch = { if (query.isNotBlank()) onSearch(query.trim(), SortOption.BEST_MATCH) },
@@ -148,7 +148,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .padding(bottom = 8.dp)
                             .clickable { onOpenReader(entry.id, entry.chapterIndex) },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     ) {
                         Row(
@@ -200,7 +200,7 @@ fun HomeScreen(
 @Composable
 private fun QuickChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(50),
+        shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         onClick = onClick,

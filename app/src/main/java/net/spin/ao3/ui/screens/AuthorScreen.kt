@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.OpenInNew
@@ -170,7 +169,7 @@ fun AuthorScreen(
                         Spacer(Modifier.height(16.dp))
                         if (p.bio.isNotBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {

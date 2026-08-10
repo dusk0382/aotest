@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -360,7 +359,7 @@ fun WorkDetailScreen(
                             }
                             Spacer(Modifier.height(14.dp))
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -883,7 +882,7 @@ private fun ChapterRow(
             Spacer(Modifier.width(4.dp))
         }
         // Export .txt
-        IconButton(onClick = onExport, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onExport) {
             Icon(
                 Icons.Default.FileDownload,
                 contentDescription = "Exportar .txt",
@@ -895,7 +894,7 @@ private fun ChapterRow(
         if (downloading) {
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
         } else {
-            IconButton(onClick = if (downloaded) onRemoveDownload else onDownload, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = if (downloaded) onRemoveDownload else onDownload) {
                 Icon(
                     if (downloaded) Icons.Default.Check else Icons.Default.Download,
                     contentDescription = if (downloaded) "Descargado (toca para quitar)" else "Descargar capítulo",

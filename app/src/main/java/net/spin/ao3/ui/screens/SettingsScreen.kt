@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -34,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.ui.theme.AppThemeMode
@@ -142,7 +140,7 @@ fun SettingsScreen(
 
                 Text("Tamaño de letra", style = MaterialTheme.typography.bodyMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("A", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(
                         value = fontSize.toFloat(),
                         onValueChange = { fontSize = it.toInt() },
@@ -153,7 +151,7 @@ fun SettingsScreen(
                         valueRange = 13f..28f,
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
-                    Text("A", fontSize = 22.sp)
+                    Text("A", style = MaterialTheme.typography.titleLarge)
                 }
                 Text(
                     "${fontSize} sp",
@@ -255,7 +253,7 @@ fun SettingsScreen(
             // ---- Acerca de ----
             SettingsSection("Acerca de") {
                 Text(
-                    "AO3 Lector · v0.5.5\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
+                    "AO3 Lector · v0.5.6\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -269,7 +267,7 @@ fun SettingsScreen(
 private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
     ) {
         Column(Modifier.padding(16.dp)) {

@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -100,8 +101,12 @@ private fun AppRoot() {
                 AnimatedContent(
                     targetState = if (showTabs) NavTarget.Tab(tab) else NavTarget.Screen(nav.current),
                     transitionSpec = {
-                        (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 5 }) togetherWith
-                            (fadeOut(tween(160)) + slideOutHorizontally(tween(160)) { -it / 5 })
+                        // MD3 standard motion: decelerate (ease-out) on enter,
+                        // accelerate (ease-in) on exit, 300/220ms.
+                        (fadeIn(tween(300, easing = StandardDecelerate)) +
+                            slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 5 }) togetherWith
+                            (fadeOut(tween(220, easing = StandardAccelerate)) +
+                                slideOutHorizontally(tween(220, easing = StandardAccelerate)) { -it / 5 })
                     },
                     label = "nav",
                 ) { target ->
@@ -169,3 +174,8 @@ private sealed interface NavTarget {
     data class Tab(val tab: AppTab) : NavTarget
     data class Screen(val route: Route) : NavTarget
 }
+
+// MD3 standard motion easing: cubic-bezier(0,0,0,1) for enter (decelerate),
+// cubic-bezier(0.3,0,1,1) for exit (accelerate).
+private val StandardDecelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
+private val StandardAccelerate = CubicBezierEasing(0.3f, 0f, 1f, 1f)

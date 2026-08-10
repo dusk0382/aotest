@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -68,7 +68,7 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
                     contentAlignment = Alignment.Center,
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = CircleShape,
                         color = if (isSelected) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
