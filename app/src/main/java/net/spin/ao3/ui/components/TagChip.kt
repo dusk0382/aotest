@@ -2,7 +2,9 @@ package net.spin.ao3.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -20,7 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.spin.ao3.ui.theme.Ao3Theme
 
 /**
  * How a tag chip is rendered. One hue per metadata category keeps results
@@ -151,5 +155,22 @@ fun ratingColor(key: String?): Color {
         "explicit" -> Color(0xFFC62828)
         "not-rated" -> if (light) Color(0xFF616161) else Color(0xFF9E9E9E)
         else -> RatingColor
+    }
+}
+
+@Preview
+@Composable
+private fun TagChipPreview() {
+    Ao3Theme {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TagChip("Fandom · Harry Potter", FandomColor, variant = TagChipVariant.FILLED_SECONDARY, onClick = {})
+            TagChip("Personaje · Hermione", CharacterColor, variant = TagChipVariant.FILLED_TERTIARY, onClick = {})
+            TagChip("Relación · Draco/Hermione", RelationshipColor, variant = TagChipVariant.OUTLINED, onClick = {})
+            TagChip("Advertencia · Muerte", WarningColor, variant = TagChipVariant.TINTED)
+            TagChip("Etiqueta libre", AdditionalColor)
+        }
     }
 }

@@ -768,7 +768,7 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuth
             color = MaterialTheme.colorScheme.onSurface,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onReply(comment.id) }, modifier = Modifier.height(28.dp)) {
+            TextButton(onClick = { onReply(comment.id) }) {
                 Text("Responder", style = MaterialTheme.typography.labelMedium)
             }
             if (comment.id != 0L) {

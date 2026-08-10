@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.spin.ao3.ui.theme.Ao3Theme
 
 /**
  * Friendly empty state: an icon inside a soft circle, a title, a description and
@@ -116,5 +120,22 @@ private fun IconCircle(icon: ImageVector, large: Boolean = false) {
             tint = colorScheme.primary,
             modifier = Modifier.size(iconSize),
         )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 400)
+@Composable
+private fun EmptyStateCompactPreview() {
+    Ao3Theme {
+        Column(Modifier.padding(12.dp)) {
+            EmptyState(
+                icon = Icons.Filled.Star,
+                title = "Sin favoritos todavía",
+                description = "Marca obras con la estrella en su detalle para tenerlas aquí, siempre a mano.",
+                actionLabel = "Explorar tendencias",
+                onAction = {},
+                compact = true,
+            )
+        }
     }
 }

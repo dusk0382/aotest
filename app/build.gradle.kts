@@ -14,8 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.5.6"
+        versionCode = 22
+        versionName = "0.5.7"
     }
 
     signingConfigs {
@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.okhttp)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    implementation("androidx.compose.ui:ui-tooling-preview")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -1,5 +1,6 @@
 package net.spin.ao3.ui.screens
 
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -19,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -42,10 +44,12 @@ import net.spin.ao3.ui.theme.AppThemeMode
 fun SettingsScreen(
     container: AppContainer,
     onThemeModeChanged: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
 ) {
     val store = container.store
     val prefs = store.prefs
     var mode by remember { mutableStateOf(AppThemeMode.from(prefs.appThemeMode)) }
+    var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
     var fontSize by remember { mutableIntStateOf(prefs.fontSizeSp) }
     var theme by remember { mutableStateOf(prefs.theme) }
     var serif by remember { mutableStateOf(prefs.serif) }
@@ -94,6 +98,34 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Colores dinámicos", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                "Usa los colores de tu fondo de pantalla (Material You)."
+                            } else {
+                                "Tu dispositivo no soporta colores dinámicos (requiere Android 12+)."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = dynamicColor,
+                        enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+                        onCheckedChange = {
+                            dynamicColor = it
+                            prefs.dynamicColor = it
+                            store.savePrefs()
+                            onDynamicColorChanged(it)
+                        },
+                    )
+                }
             }
 
             // ---- Lector (valores por defecto) ----
@@ -253,7 +285,7 @@ fun SettingsScreen(
             // ---- Acerca de ----
             SettingsSection("Acerca de") {
                 Text(
-                    "AO3 Lector · v0.5.6\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
+                    "AO3 Lector · v0.5.7\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

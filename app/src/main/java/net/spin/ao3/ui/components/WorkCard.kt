@@ -39,8 +39,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.model.WorkSummary
+import net.spin.ao3.ui.theme.Ao3Theme
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.formatCount
 
@@ -303,4 +305,41 @@ private fun CellDivider() {
         modifier = Modifier.width(1.dp).height(30.dp),
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
     )
+}
+
+@Preview(showBackground = true, widthDp = 400)
+@Composable
+private fun WorkCardPreview() {
+    Ao3Theme {
+        WorkCard(
+            work = WorkSummary(
+                id = 1,
+                title = "La carta que nunca se envió",
+                author = "Vichan",
+                authorUrl = null,
+                fandoms = listOf("Harry Potter"),
+                rating = "Teen And Up Audiences",
+                ratingKey = "teen-and-up-audiences",
+                warnings = listOf("No Archive Warnings Apply"),
+                categories = listOf("M/M"),
+                otherTags = listOf("Fluff", "Post-Canon", "Slow Burn"),
+                relationships = listOf("Draco Malfoy/Hermione Granger"),
+                characters = listOf("Hermione Granger", "Draco Malfoy"),
+                summary = "Una carta encuentra su camino años después de la guerra, y con ella una verdad que cambia todo.",
+                words = 12_453,
+                chapterCount = 3,
+                chapterTotal = 12,
+                hits = 2_301,
+                kudos = 210,
+                comments = 34,
+                bookmarks = 8,
+                published = "2024-01-01",
+                updated = "2026-08-01",
+                url = "",
+            ),
+            onClick = {},
+            onTagClick = {},
+            modifier = Modifier.padding(12.dp),
+        )
+    }
 }

@@ -1,16 +1,20 @@
 package net.spin.ao3.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -170,19 +174,29 @@ val Ao3Shapes = Shapes(
 @Composable
 fun Ao3Theme(
     mode: AppThemeMode = AppThemeMode.SYSTEM,
+    /** Material You: wallpaper-derived colors on Android 12+ (opt-in). */
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
     val systemDark = isSystemInDarkTheme()
     val dark = when (mode) {
         AppThemeMode.SYSTEM -> systemDark
         AppThemeMode.LIGHT -> false
         AppThemeMode.DARK -> true
     }
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        dark -> DarkColors
+        else -> LightColors
+    }
     CompositionLocalProvider(
         LocalSemanticColors provides (if (dark) DarkSemantic else LightSemantic),
     ) {
         MaterialTheme(
-            colorScheme = if (dark) DarkColors else LightColors,
+            colorScheme = colorScheme,
             typography = Ao3Typography,
             shapes = Ao3Shapes,
             content = content,

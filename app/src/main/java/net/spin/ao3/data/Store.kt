@@ -37,6 +37,8 @@ class Store(context: Context) {
         /** Modo de lectura: false = scroll continuo (WebView), true = paginado. */
         var paged: Boolean = false
         var appThemeMode: String = "SYSTEM"
+        /** Wallpaper-derived Material You colors on Android 12+ (opt-in). */
+        var dynamicColor: Boolean = false
         var commentName: String = ""
         var commentEmail: String = ""
     }
@@ -300,6 +302,7 @@ class Store(context: Context) {
             prefs.margins = p?.optInt("margins", 1) ?: 1
             prefs.paged = p?.optBoolean("paged", false) ?: false
             prefs.appThemeMode = p?.optString("appThemeMode", "SYSTEM") ?: "SYSTEM"
+            prefs.dynamicColor = p?.optBoolean("dynamicColor", false) ?: false
             prefs.commentName = p?.optString("commentName", "") ?: ""
             prefs.commentEmail = p?.optString("commentEmail", "") ?: ""
             obj
@@ -317,6 +320,7 @@ class Store(context: Context) {
             put("margins", prefs.margins)
             put("paged", prefs.paged)
             put("appThemeMode", prefs.appThemeMode)
+            put("dynamicColor", prefs.dynamicColor)
             put("commentName", prefs.commentName)
             put("commentEmail", prefs.commentEmail)
         })

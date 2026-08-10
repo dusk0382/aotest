@@ -71,6 +71,7 @@ private fun AppRoot() {
 
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
+    var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
 
     // Stack for Search / Detail / Reader (full-screen, hidden bottom bar).
     val nav = rememberNavController()
@@ -82,7 +83,7 @@ private fun AppRoot() {
         if (nav.canGoBack) nav.pop() else tab = AppTab.HOME
     }
 
-    Ao3Theme(mode = themeMode) {
+    Ao3Theme(mode = themeMode, dynamicColor = dynamicColor) {
         Scaffold(
             // Every screen draws its own status-bar insets (TopAppBar etc.);
             // consuming them here too would double the top padding.
@@ -128,6 +129,7 @@ private fun AppRoot() {
                             AppTab.SETTINGS -> SettingsScreen(
                                 container = container,
                                 onThemeModeChanged = { mode -> themeMode = mode },
+                                onDynamicColorChanged = { dc -> dynamicColor = dc },
                             )
                         }
                         is NavTarget.Screen -> when (val route = target.route) {
