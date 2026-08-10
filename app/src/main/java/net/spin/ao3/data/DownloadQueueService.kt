@@ -53,7 +53,7 @@ class DownloadQueueService : Service() {
         if (intent?.action == ACTION_DOWNLOAD) {
             val job = intent.toJob()
             if (job != null) {
-                pending += job
+                synchronized(pending) { pending += job }
                 if (!foregroundStarted) {
                     startForegroundCompat(
                         baseNotification(job)
@@ -72,6 +72,11 @@ class DownloadQueueService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        // If the system kills us mid-queue (force-stop, OEM battery management),
+        // reset the live state so the UI doesn't stay stuck on "active".
+        if (processing) {
+            state.value = QueueState()
+        }
         super.onDestroy()
     }
 
@@ -80,8 +85,8 @@ class DownloadQueueService : Service() {
         processing = true
         scope.launch {
             try {
-                while (pending.isNotEmpty()) {
-                    val job = pending.removeFirst()
+                while (true) {
+                    val job = synchronized(pending) { pending.removeFirstOrNull() } ?: break
                     runJob(job)
                 }
             } finally {
@@ -100,11 +105,13 @@ class DownloadQueueService : Service() {
 
     private suspend fun runJob(job: Job) {
         val total = job.chapters.size
+        var okCount = 0
         state.value = QueueState(active = true, workId = job.workId, workTitle = job.title, done = 0, total = total)
         job.chapters.forEachIndexed { i, chapter ->
             try {
                 val ready = if (chapter.content != null) chapter else client.getChapter(job.workId, chapter)
                 store.addDownloadedChapter(job.workId, job.title, ready)
+                okCount++
             } catch (_: Exception) {
                 // Keep going with the next chapter; partial downloads are fine.
             }
@@ -125,7 +132,13 @@ class DownloadQueueService : Service() {
             NOTIFICATION_ID,
             baseNotification(job)
                 .setContentTitle("Descarga completada")
-                .setContentText("$total ${if (total == 1) "capítulo" else "capítulos"} guardados · ${job.title}")
+                .setContentText(
+                    if (okCount == total) {
+                        "$total ${if (total == 1) "capítulo" else "capítulos"} guardados · ${job.title}"
+                    } else {
+                        "$okCount de $total capítulos guardados · ${job.title}"
+                    },
+                )
                 .setProgress(0, 0, false)
                 .build(),
         )
@@ -149,7 +162,7 @@ class DownloadQueueService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_download)
             .setContentIntent(contentIntent)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setOnlyAlertOnce(true)

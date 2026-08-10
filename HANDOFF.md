@@ -565,3 +565,8 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
 - Marcar: abre el navegador. ✓
 - Nota: el work page de obras con "N/M" capítulos lista solo los N publicados — la cola descarga
   exactamente esos N (no es un bug).
+
+### v0.4.1 (hotfix tras revisión)
+- Servicio de cola: `onDestroy` resetea el estado si muere a mitad (evita banner/botón "activo" colgados);
+  cola sincronizada (race entre hilo principal y corutina IO); notificación final cuenta éxitos
+  ("N de M capítulos guardados" si hubo fallos); icono de notificación drawable vectorial (no mipmap).
