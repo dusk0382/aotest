@@ -220,6 +220,58 @@ class Store(context: Context) {
         persist()
     }
 
+    // ---- Pending download queue (persists across app restarts) --------------
+
+    /** A queued download waiting to run (survives process death). */
+    data class PendingJob(
+        val workId: Long,
+        val title: String,
+        val chapters: List<ChapterInfo>,
+    )
+
+    fun pendingJobs(): List<PendingJob> = root.optJSONArray("pending")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            PendingJob(
+                workId = o.optLong("workId"),
+                title = o.optString("title", ""),
+                chapters = o.optJSONArray("chapters")?.let { ca ->
+                    (0 until ca.length()).mapNotNull { j -> ca.optJSONObject(j)?.toChapter() }
+                }.orEmpty(),
+            )
+        }
+    }.orEmpty()
+
+    /** Adds a job, replacing any pending job for the same work. */
+    fun addPendingJob(job: PendingJob) {
+        val arr = root.optJSONArray("pending") ?: JSONArray()
+        val filtered = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i)
+            if (o?.optLong("workId") != job.workId) filtered.put(o)
+        }
+        filtered.put(JSONObject().apply {
+            put("workId", job.workId)
+            put("title", job.title)
+            put("chapters", JSONArray().apply {
+                job.chapters.forEach { ch -> put(ch.toJson()) }
+            })
+        })
+        root.put("pending", filtered)
+        persist()
+    }
+
+    fun removePendingJob(workId: Long) {
+        val arr = root.optJSONArray("pending") ?: return
+        val filtered = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i)
+            if (o?.optLong("workId") != workId) filtered.put(o)
+        }
+        root.put("pending", filtered)
+        persist()
+    }
+
     // ---- Persistence --------------------------------------------------------
 
     private fun load(): JSONObject {

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,24 +51,46 @@ class DownloadQueueService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_DOWNLOAD) {
-            val job = intent.toJob()
-            if (job != null) {
-                synchronized(pending) { pending += job }
-                if (!foregroundStarted) {
-                    startForegroundCompat(
-                        baseNotification(job)
-                            .setContentTitle("Descargas")
-                            .setContentText("Preparando descarga…")
-                            .setOngoing(true)
-                            .build(),
-                    )
-                    foregroundStarted = true
+        when (intent?.action) {
+            ACTION_DOWNLOAD -> {
+                val job = intent.toJob()
+                if (job != null) {
+                    // Persist first so the queue survives process death.
+                    store.addPendingJob(job.toPending())
+                    synchronized(pending) { pending += job }
+                    ensureForeground(job)
+                    processPending()
                 }
-                processPending()
+            }
+            ACTION_RESUME -> {
+                // Restore the persisted queue (e.g. after the app was killed
+                // mid-download) and keep downloading.
+                if (pending.isEmpty()) {
+                    val restored = store.pendingJobs().map { it.toJob() }
+                    synchronized(pending) { pending.addAll(restored) }
+                }
+                val first = synchronized(pending) { pending.firstOrNull() }
+                if (first != null) {
+                    ensureForeground(first)
+                    processPending()
+                } else {
+                    stopSelf()
+                }
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun ensureForeground(job: Job) {
+        if (foregroundStarted) return
+        startForegroundCompat(
+            baseNotification(job)
+                .setContentTitle("Descargas")
+                .setContentText("Preparando descarga…")
+                .setOngoing(true)
+                .build(),
+        )
+        foregroundStarted = true
     }
 
     override fun onDestroy() {
@@ -126,6 +149,7 @@ class DownloadQueueService : Service() {
                     .build(),
             )
         }
+        store.removePendingJob(job.workId)
         state.value = QueueState(active = false, workTitle = job.title, total = total, done = total, completedAt = System.currentTimeMillis())
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(
@@ -186,8 +210,15 @@ class DownloadQueueService : Service() {
         return Job(workId, title, chapters)
     }
 
+    private fun Job.toPending(): Store.PendingJob =
+        Store.PendingJob(workId, title, chapters)
+
+    private fun Store.PendingJob.toJob(): Job =
+        Job(workId, title, chapters)
+
     companion object {
         const val ACTION_DOWNLOAD = "net.spin.ao3.action.DOWNLOAD"
+        const val ACTION_RESUME = "net.spin.ao3.action.RESUME"
         private const val CHANNEL_ID = "descargas"
         const val NOTIFICATION_ID = 42
 
@@ -210,6 +241,22 @@ class DownloadQueueService : Service() {
             val title: String,
             val chapters: List<ChapterInfo>,
         )
+
+        /**
+         * Starts the service if there are persisted jobs waiting (used at app
+         * launch so an interrupted download resumes automatically).
+         */
+        fun startIfPending(context: Context) {
+            val app = context.applicationContext as Ao3App
+            if (app.container.store.pendingJobs().isNotEmpty()) {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, DownloadQueueService::class.java).apply {
+                        action = ACTION_RESUME
+                    },
+                )
+            }
+        }
 
         fun enqueueIntent(
             context: Context,

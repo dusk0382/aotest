@@ -12,15 +12,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.components.TagChip
-import net.spin.ao3.ui.theme.LocalSemanticColors
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -58,7 +62,6 @@ fun HomeScreen(
     val store = container.store
     val history = remember { store.history() }
     var query by rememberSaveable { mutableStateOf("") }
-    val semantic = LocalSemanticColors.current
 
     Scaffold(
         topBar = {
@@ -96,10 +99,10 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip("⭐ Tendencias", semantic.info, tinted = true, onClick = { onSearch("", SortOption.KUDOS) })
-                TagChip("🔥 Lo nuevo", semantic.info, tinted = true, onClick = { onSearch("", SortOption.UPDATED) })
-                TagChip("📖 Más leídas", semantic.info, tinted = true, onClick = { onSearch("", SortOption.HITS) })
-                TagChip("✍️ Más largas", semantic.info, tinted = true, onClick = { onSearch("", SortOption.WORDS) })
+                QuickChip(Icons.Filled.TrendingUp, "Tendencias") { onSearch("", SortOption.KUDOS) }
+                QuickChip(Icons.Filled.NewReleases, "Lo nuevo") { onSearch("", SortOption.UPDATED) }
+                QuickChip(Icons.Filled.Visibility, "Más leídas") { onSearch("", SortOption.HITS) }
+                QuickChip(Icons.Filled.FormatListNumbered, "Más largas") { onSearch("", SortOption.WORDS) }
             }
             Spacer(Modifier.height(22.dp))
 
@@ -174,6 +177,25 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun QuickChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
         }
     }
 }

@@ -78,6 +78,56 @@ fun packPages(lines: List<Line>, targetChars: Int): List<List<Line>> {
     return pages
 }
 
+/** A text match inside a paginated chapter: [page] index + char offsets. */
+data class SearchMatch(
+    val page: Int,
+    val start: Int,
+    val end: Int,
+)
+
+/**
+ * Renders a page's [Line]s exactly like the reader does (same separators,
+ * bullets, quote marks and spacing) so offsets line up with the rendered text.
+ */
+fun pagePlainText(lines: List<Line>): String = buildString {
+    lines.forEachIndexed { i, line ->
+        if (i > 0) append("\n\n")
+        when (line.kind) {
+            LineKind.SEPARATOR -> append("  ✦   ✦   ✦  ")
+            LineKind.HEADING -> line.segments.forEach { append(it.text) }
+            LineKind.QUOTE -> {
+                append("“")
+                line.segments.forEach { append(it.text) }
+                append("”")
+            }
+            LineKind.LIST -> {
+                append("•  ")
+                line.segments.forEach { append(it.text) }
+            }
+            LineKind.CODE -> append(line.segments.firstOrNull()?.text ?: "")
+            else -> line.segments.forEach { append(it.text) }
+        }
+    }
+}
+
+/** Finds all case-insensitive occurrences of [query] across the [pages]. */
+fun findInPages(pages: List<List<Line>>, query: String): List<SearchMatch> {
+    val q = query.lowercase()
+    if (q.isEmpty()) return emptyList()
+    val matches = mutableListOf<SearchMatch>()
+    pages.forEachIndexed { pageIndex, lines ->
+        val text = pagePlainText(lines).lowercase()
+        var from = 0
+        while (true) {
+            val idx = text.indexOf(q, from)
+            if (idx < 0) break
+            matches += SearchMatch(pageIndex, idx, idx + q.length)
+            from = idx + q.length
+        }
+    }
+    return matches
+}
+
 private fun inlineChildren(el: Element): List<Segment> =
     el.childNodes().flatMap { inlineSegments(it) }
 

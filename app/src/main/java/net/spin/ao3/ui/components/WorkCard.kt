@@ -1,6 +1,6 @@
 package net.spin.ao3.ui.components
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -33,14 +33,14 @@ fun WorkCard(
     work: WorkSummary,
     modifier: Modifier = Modifier,
     onTagClick: ((String) -> Unit)? = null,
+    onAuthorClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -58,6 +58,11 @@ fun WorkCard(
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = if (onAuthorClick != null) {
+                    Modifier.clickable(onClick = onAuthorClick)
+                } else {
+                    Modifier
+                },
             )
             Spacer(Modifier.height(10.dp))
 

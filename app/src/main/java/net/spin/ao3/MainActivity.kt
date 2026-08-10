@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,7 @@ import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.Route
 import net.spin.ao3.ui.rememberNavController
+import net.spin.ao3.ui.screens.AuthorScreen
 import net.spin.ao3.ui.screens.HomeScreen
 import net.spin.ao3.ui.screens.LibraryScreen
 import net.spin.ao3.ui.screens.ReaderScreen
@@ -82,6 +84,9 @@ private fun AppRoot() {
 
     Ao3Theme(mode = themeMode) {
         Scaffold(
+            // Every screen draws its own status-bar insets (TopAppBar etc.);
+            // consuming them here too would double the top padding.
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
                 if (showTabs) {
                     NavigationBar {
@@ -133,12 +138,21 @@ private fun AppRoot() {
                                 onBack = { nav.pop() },
                                 onOpenDetail = { nav.push(Route.Detail(it)) },
                                 onOpenTag = { tag -> browseTag(tag) },
+                                onOpenAuthor = { name -> nav.push(Route.Author(name)) },
                             )
                             is Route.Detail -> WorkDetailScreen(
                                 container = container,
                                 workId = route.workId,
                                 onBack = { nav.pop() },
                                 onOpenChapter = { ch -> nav.push(Route.Reader(route.workId, ch)) },
+                                onOpenTag = { tag -> browseTag(tag) },
+                                onOpenAuthor = { name -> nav.push(Route.Author(name)) },
+                            )
+                            is Route.Author -> AuthorScreen(
+                                container = container,
+                                username = route.username,
+                                onBack = { nav.pop() },
+                                onOpenDetail = { nav.push(Route.Detail(it)) },
                                 onOpenTag = { tag -> browseTag(tag) },
                             )
                             is Route.Reader -> ReaderScreen(

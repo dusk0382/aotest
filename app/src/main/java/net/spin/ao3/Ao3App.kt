@@ -2,6 +2,7 @@ package net.spin.ao3
 
 import android.app.Application
 import net.spin.ao3.data.AppContainer
+import net.spin.ao3.data.DownloadQueueService
 
 class Ao3App : Application() {
     lateinit var container: AppContainer
@@ -10,5 +11,7 @@ class Ao3App : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // Resume an interrupted download queue (persisted jobs) on app launch.
+        DownloadQueueService.startIfPending(this)
     }
 }

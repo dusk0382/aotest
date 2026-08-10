@@ -238,3 +238,16 @@ data class Ao3Comment(
     val text: String,
     val depth: Int,
 )
+
+/** A user/pseud profile on AO3 (bio, registration date and works). */
+data class AuthorProfile(
+    val username: String,
+    val displayName: String,
+    /** "2010-01-12" or null when the page doesn't show it. */
+    val joined: String? = null,
+    val pseuds: List<String> = emptyList(),
+    val bio: String = "",
+    /** Number of works, when the works page shows it ("11 Works by …"). */
+    val worksCount: Int? = null,
+    val works: List<WorkSummary> = emptyList(),
+)

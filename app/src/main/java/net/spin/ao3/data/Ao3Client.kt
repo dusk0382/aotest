@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import net.spin.ao3.data.model.Ao3Comment
+import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
@@ -31,6 +32,10 @@ import java.util.concurrent.TimeUnit
  *    treated as retryable failures;
  *  - the "Adult Content Warning" interstitial (served to visitors without the
  *    `view_adult` cookie) is followed like a browser would.
+ *
+ * Parsed results are cached in memory (LRU, small) so navigating back to a
+ * screen already visited (search results, work detail, comments, author
+ * profiles, chapters) is instant and does not hit AO3 again.
  */
 class Ao3Client {
 
@@ -69,8 +74,9 @@ class Ao3Client {
 
     private suspend fun get(url: String, headers: Map<String, String> = emptyMap()): String = gate.withLock {
         var lastError: Exception? = null
-        repeat(5) { attempt ->
-            delay(if (attempt == 0) 400 else 1200L * attempt)
+        repeat(7) { attempt ->
+            // First attempt goes out right away; back off between retries.
+            if (attempt > 0) delay(700L * attempt)
             try {
                 val body = fetch(url, headers)
                 // AO3 shows an age gate to visitors without the view_adult cookie.
@@ -149,6 +155,32 @@ class Ao3Client {
     // Cache of tag name -> canonical tag_id (avoids a page fetch per pagination).
     private val canonicalTagCache = java.util.concurrent.ConcurrentHashMap<String, String?>()
 
+    // ---- In-memory result caches (LRU) -------------------------------------
+    // Bounded so memory stays small; keyed by the exact request so a back
+    // navigation hits the cache instead of AO3.
+    private val workCache = LruCache<Long, WorkDetail>(40)
+    private val searchCache = LruCache<String, SearchResult>(30)
+    private val chapterCache = LruCache<String, ChapterInfo>(120)
+    private val commentsCache = LruCache<Long, List<Ao3Comment>>(30)
+    private val authorCache = LruCache<String, AuthorProfile>(30)
+
+    /** Simple thread-safe LRU map (insertion order -> evicts oldest). */
+    private class LruCache<K, V>(private val maxSize: Int) {
+        private val map = object : LinkedHashMap<K, V>(maxSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean =
+                size > maxSize
+        }
+
+        @Synchronized fun get(key: K): V? = map[key]
+        @Synchronized fun put(key: K, value: V) {
+            map[key] = value
+        }
+        @Synchronized fun invalidate(key: K) {
+            map.remove(key)
+        }
+        @Synchronized fun invalidateAll() = map.clear()
+    }
+
     /**
      * Searches works.
      *
@@ -160,6 +192,14 @@ class Ao3Client {
      *    free-text query.
      */
     suspend fun search(filters: SearchFilters, page: Int = 1, sort: SortOption = SortOption.BEST_MATCH): SearchResult {
+        val cacheKey = "${filters.serialize()}|$page|${sort.name}"
+        searchCache.get(cacheKey)?.let { return it }
+        val result = searchFresh(filters, page, sort)
+        searchCache.put(cacheKey, result)
+        return result
+    }
+
+    private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         if (tag != null && tag.isNotBlank()) {
             val canonical = resolveCanonicalTag(tag)
@@ -255,29 +295,81 @@ class Ao3Client {
     }
 
     suspend fun getWork(id: Long): WorkDetail {
+        workCache.get(id)?.let { return it }
         val html = get("https://archiveofourown.org/works/$id")
-        return Ao3Parser.parseWorkDetail(html, id)
+        val detail = Ao3Parser.parseWorkDetail(html, id)
             ?: throw IOException("No se pudo interpretar la obra $id")
+        workCache.put(id, detail)
+        return detail
+    }
+
+    /**
+     * Loads a user's profile (bio, join date, pseuds) plus their works list.
+     *
+     * Both pages are fetched; Cloudflare occasionally fails one of the two
+     * with a transient 5xx, so a partial profile (works without bio, or bio
+     * without works) is still returned — only a double failure throws.
+     */
+    suspend fun getAuthorProfile(username: String): AuthorProfile {
+        authorCache.get(username)?.let { return it }
+        val base = HttpUrl.Builder()
+            .scheme("https")
+            .host("archiveofourown.org")
+            .addPathSegment("users")
+            .addPathSegment(username)
+        val profileUrl = base.addPathSegment("profile").build().toString()
+        val worksUrl = base.addPathSegment("works").build().toString()
+
+        val profileHtml = runCatching { get(profileUrl) }
+        val worksHtml = runCatching { get(worksUrl) }
+
+        val profile = profileHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorProfile(it, username) }.getOrNull() }
+        val works = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) }.getOrNull() }
+
+        val result = (profile ?: AuthorProfile(username = username, displayName = username))
+            .copy(worksCount = works?.first, works = works?.second.orEmpty())
+        if (profileHtml.isFailure && worksHtml.isFailure) {
+            throw profileHtml.exceptionOrNull() ?: worksHtml.exceptionOrNull()!!
+        }
+        android.util.Log.i(
+            "AO3Lector",
+            "AuthorProfile username=$username display=${result.displayName} worksCount=${result.worksCount} worksParsed=${result.works.size} joined=${result.joined} pseuds=${result.pseuds} bio=${result.bio.length}ch" +
+                (if (profileHtml.isFailure) " profileError=${profileHtml.exceptionOrNull()?.message}" else "") +
+                (if (worksHtml.isFailure) " worksError=${worksHtml.exceptionOrNull()?.message}" else ""),
+        )
+        authorCache.put(username, result)
+        return result
     }
 
     /** Fetches a chapter's content; falls back to the work page when no chapter URL is known. */
     suspend fun getChapter(workId: Long, chapter: ChapterInfo): ChapterInfo {
         val url = chapter.url ?: "https://archiveofourown.org/works/$workId"
+        val cacheKey = "$workId#${chapter.index}"
+        chapterCache.get(cacheKey)?.let { return it }
         val html = get(url)
         val (content, title) = Ao3Parser.parseChapter(html)
-        return chapter.copy(
+        val ready = chapter.copy(
             title = title ?: chapter.title,
             content = content ?: chapter.content ?: "",
         )
+        chapterCache.put(cacheKey, ready)
+        return ready
     }
 
     // ---- Comments -----------------------------------------------------------
 
     /** Loads a chapter's comment thread via AO3's AJAX endpoint. */
     suspend fun getComments(chapterId: Long): List<Ao3Comment> {
+        commentsCache.get(chapterId)?.let { return it }
         val url = "https://archiveofourown.org/comments/show_comments?chapter_id=$chapterId"
         val js = get(url, mapOf("X-Requested-With" to "XMLHttpRequest", "Accept" to "text/javascript, */*"))
-        return Ao3Parser.parseComments(js)
+        val comments = Ao3Parser.parseComments(js)
+        android.util.Log.i(
+            "AO3Lector",
+            "Comments chapter=$chapterId count=${comments.size} maxDepth=${comments.maxOfOrNull { it.depth } ?: -1} authors=${comments.map { it.author }.distinct().take(5)}",
+        )
+        commentsCache.put(chapterId, comments)
+        return comments
     }
 
     /**
@@ -314,10 +406,11 @@ class Ao3Client {
         fields["commit"] = "Comment"
 
         val body = post("https://archiveofourown.org$action", fields)
-        // AO3 re-renders the page with validation errors inline on failure.
-        val err = Regex("""(?:class="error"|error explanation|We couldn't submit|can't be blank|is invalid|are required)""")
+        // A new comment invalidates the cached thread for that chapter.
+        val error = Regex("""(?:class="error"|error explanation|We couldn't submit|can't be blank|is invalid|are required)""")
             .find(body)
-        return err?.let {
+        if (error == null && chapterId != null) commentsCache.invalidate(chapterId)
+        return error?.let {
             Regex("<div[^>]*class=\"error[^\"]*\"[^>]*>(.*?)</div>", RegexOption.DOT_MATCHES_ALL)
                 .find(body)?.groupValues?.get(1)?.let { m -> JsoupText(m) }
                 ?: "AO3 rechazó el comentario. Revisa que nombre y email sean válidos."

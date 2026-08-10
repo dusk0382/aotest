@@ -1,6 +1,7 @@
 package net.spin.ao3.data
 
 import net.spin.ao3.data.model.Ao3Comment
+import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
@@ -261,19 +262,83 @@ object Ao3Parser {
     private fun extractChapterTitle(doc: Document): String? =
         doc.selectFirst("div#chapters h3.title")?.text()?.trim()?.substringAfter(":")?.trim()?.ifEmpty { null }
 
+    // ---- Author profile -----------------------------------------------------
+
+    /**
+     * Parses the profile page (/users/{name}/profile): display name, join date,
+     * pseuds and bio. The bio block is optional (many accounts have none).
+     */
+    fun parseAuthorProfile(html: String, username: String): AuthorProfile {
+        val doc = Jsoup.parse(html, BASE)
+        val displayName = doc.selectFirst("h2.heading")?.text()?.trim() ?: username
+        val metaDl = doc.selectFirst("dl.meta")
+        var joined: String? = null
+        val pseuds = mutableListOf<String>()
+        metaDl?.select("dt")?.forEach { dt ->
+            val label = dt.text().lowercase()
+            val dd = dt.nextElementSibling()
+            when {
+                label.contains("joined") -> joined = dd?.text()?.trim()?.ifEmpty { null }
+                label.contains("pseud") -> dd?.select("a")?.forEach { a ->
+                    a.text().trim().takeIf { it.isNotBlank() }?.let { pseuds += it }
+                }
+            }
+        }
+        if (pseuds.isEmpty()) {
+            // Older layout: plain dd text.
+            metaDl?.select("dt")?.forEach { dt ->
+                if (dt.text().lowercase().contains("pseud")) {
+                    dt.nextElementSibling()?.text()?.split(Regex("\\s+(?:and|&)\\s+"))
+                        ?.map { it.trim() }?.filter { it.isNotBlank() }?.let { pseuds += it }
+                }
+            }
+        }
+        val bioEl = doc.selectFirst("div#bio, dd.bio, div.bio, .userstuff#bio, #bio")
+        val bio = bioEl?.text()?.trim() ?: ""
+        return AuthorProfile(
+            username = username,
+            displayName = displayName,
+            joined = joined,
+            pseuds = pseuds,
+            bio = bio,
+        )
+    }
+
+    /** Parses /users/{name}/works: works count (from the h2) + blurb list. */
+    fun parseAuthorWorks(html: String): Pair<Int?, List<WorkSummary>> {
+        val doc = Jsoup.parse(html, BASE)
+        val works = doc.select("ol.work.index.group > li.work.blurb").mapNotNull { parseBlurb(it) }
+        val count = Regex("""(\d+)\s+Works?""")
+            .find(doc.selectFirst("h2.heading")?.text() ?: "")
+            ?.groupValues?.get(1)?.toIntOrNull()
+        return count to works
+    }
+
     // ---- Comments -----------------------------------------------------------
 
     /**
-     * AO3's modern template loads comments via AJAX from
-     * /comments/show_comments?chapter_id=... which answers a small JS snippet
-     * whose appended HTML contains the <ol class="thread">. This extracts the
-     * HTML, unescapes it and flattens the nested thread into a list with depth.
+     * Parses a chapter's comment thread. AO3 currently answers
+     * /comments/show_comments?chapter_id=... with either a small JS snippet
+     * (old template: $j("#comments_placeholder").append("...")) or with the
+     * full thread HTML directly (new template). Both are handled here.
+     *
+     * IMPORTANT: replies nest inside the parent comment as
+     * `<li>… <ol class="thread"> <li class="comment group">…</ol> </li>` — a
+     * plain `ol.thread > li.comment.group` selector would match BOTH the root
+     * comments and every reply (jsoup evaluates every ol.thread in the doc),
+     * flattening the thread. Root comments must come from the FIRST ol.thread
+     * only; replies are collected recursively.
      */
-    fun parseComments(jsFragment: String): List<Ao3Comment> {
-        val html = extractThreadHtml(jsFragment) ?: return emptyList()
+    fun parseComments(fragment: String): List<Ao3Comment> {
+        val html = extractThreadHtml(fragment) ?: run {
+            // New template: the response already is the thread HTML (or a full page).
+            if (fragment.contains("class=\"thread\"") || fragment.contains("<ol class=\"thread\">")) fragment else return emptyList()
+        }
         val doc = Jsoup.parseBodyFragment(html, BASE)
         val out = mutableListOf<Ao3Comment>()
-        doc.select("ol.thread > li.comment.group").forEach { li -> parseComment(li, 0, out) }
+        val root = doc.selectFirst("ol.thread") ?: return out
+        root.children().filter { it is Element && it.tagName() == "li" && it.hasClass("comment") && it.hasClass("group") }
+            .forEach { li -> parseComment(li as Element, 0, out) }
         return out
     }
 
@@ -285,19 +350,62 @@ object Ao3Parser {
         val end = js.indexOf("\");", begin).takeIf { it >= 0 } ?: return null
         val raw = js.substring(begin, end)
         if (raw.isBlank()) return null
-        return raw
-            .replace("\\\"", "\"")
-            .replace("\\/", "/")
-            .replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .replace("\\\\", "\\")
+        return unescapeJs(raw)
+    }
+
+    /**
+     * Properly unescapes a JS double-quoted string (the comment HTML is served
+     * inside $j(...).append("...")). Chained String.replace calls get the
+     * escape order wrong (e.g. \\' and \\\"); this walks the string once.
+     */
+    private fun unescapeJs(s: String): String {
+        val sb = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '\\' && i + 1 < s.length) {
+                when (val n = s[i + 1]) {
+                    '"' -> sb.append('"')
+                    '\'' -> sb.append('\'')
+                    '/' -> sb.append('/')
+                    'n' -> sb.append('\n')
+                    't' -> sb.append('\t')
+                    'r' -> sb.append('\r')
+                    'b' -> sb.append('\b')
+                    'f' -> sb.append('\u000C')
+                    '\\' -> sb.append('\\')
+                    'u' -> {
+                        val hex = s.substring(i + 2, minOf(i + 6, s.length))
+                        hex.toIntOrNull(16)?.let { sb.append(it.toChar()) } ?: sb.append("\\u$hex")
+                        i += 4
+                    }
+                    else -> {
+                        sb.append(c)
+                        sb.append(n)
+                    }
+                }
+                i += 2
+            } else {
+                sb.append(c)
+                i++
+            }
+        }
+        return sb.toString()
     }
 
     private fun parseComment(li: Element, depth: Int, out: MutableList<Ao3Comment>) {
         val id = li.attr("id").removePrefix("comment_").toLongOrNull() ?: 0L
         val byline = li.selectFirst("h4.heading.byline")
-        val authorEl = byline?.selectFirst("a[rel=author]") ?: byline?.selectFirst("a")
+        // The commenter link is the first <a> of the byline NOT inside the
+        // "on Chapter N" parent span. Newer JS template omits rel=author.
+        val authorEl = byline?.selectFirst("a[rel=author]")
+            ?: byline?.select("a")?.firstOrNull { link ->
+                link.parents().none { p -> p.hasClass("parent") }
+            }
         val author = authorEl?.text()?.trim()
+            // Guest comments have no link: take the first plain span (skipping
+            // "(Guest)" role and "on Chapter N" parent annotations).
+            ?: byline?.select("span")?.firstOrNull { !it.hasClass("role") && !it.hasClass("parent") }?.text()?.trim()
             ?: byline?.ownText()?.trim()?.ifEmpty { byline.text().trim() }
             ?: "Anónimo"
         val date = byline?.selectFirst("span.posted.datetime")?.text()?.trim() ?: ""
@@ -317,9 +425,27 @@ object Ao3Parser {
                 ),
             )
         }
-        // Replies live in a nested <ol class="comment children"> (or ol.comment).
-        li.select("> ol.comment.children > li.comment.group, > ol.comment > li.comment.group")
-            .forEach { child -> parseComment(child, depth + 1, out) }
+        // Replies are NOT nested inside the comment <li>: AO3 emits them in the
+        // FOLLOWING sibling <li> (a bare wrapper) that contains its own
+        // <ol class="thread">. IMPORTANT: only the FIRST ol.thread of the wrapper
+        // belongs to this comment — deeper ones are replies of replies and are
+        // reached through recursion (selectAll would duplicate them).
+        // Legacy selectors kept as fallbacks.
+        val wrapper = li.nextElementSibling()
+        if (wrapper != null && wrapper.tagName() == "li" && !wrapper.hasClass("comment")) {
+            wrapper.selectFirst("ol.thread")?.let { thread ->
+                thread.children()
+                    .filter { it is Element && it.tagName() == "li" && it.hasClass("comment") && it.hasClass("group") }
+                    .forEach { child -> parseComment(child as Element, depth + 1, out) }
+            }
+        }
+        // Legacy: replies nested directly inside the comment <li>.
+        li.select(
+            "> ol.thread > li.comment.group, " +
+                "> ol.comment.children > li.comment.group, " +
+                "> ol.comment > li.comment.group, " +
+                "> ol.children > li.comment.group",
+        ).forEach { child -> parseComment(child, depth + 1, out) }
     }
 
     // ---- Helpers ------------------------------------------------------------

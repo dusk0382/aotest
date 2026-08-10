@@ -13,12 +13,14 @@ sealed class Route {
     data class Search(val filters: SearchFilters, val sort: SortOption) : Route()
     data class Detail(val workId: Long) : Route()
     data class Reader(val workId: Long, val chapterIndex: Int) : Route()
+    data class Author(val username: String) : Route()
 
     fun serialize(): String = when (this) {
         Home -> "home"
         is Search -> "search\u0001${filters.serialize()}\u0001${sort.name}"
         is Detail -> "detail\u0001$workId"
         is Reader -> "reader\u0001$workId\u0001$chapterIndex"
+        is Author -> "author\u0001$username"
     }
 
     companion object {
@@ -34,6 +36,7 @@ sealed class Route {
                     p.getOrNull(1)?.toLongOrNull() ?: 0L,
                     p.getOrNull(2)?.toIntOrNull() ?: 0,
                 )
+                "author" -> Route.Author(p.getOrNull(1) ?: "")
                 else -> Route.Home
             }
         }

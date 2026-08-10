@@ -255,7 +255,7 @@ fun SettingsScreen(
             // ---- Acerca de ----
             SettingsSection("Acerca de") {
                 Text(
-                    "AO3 Lector · v0.4.1\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
+                    "AO3 Lector · v0.5.2\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

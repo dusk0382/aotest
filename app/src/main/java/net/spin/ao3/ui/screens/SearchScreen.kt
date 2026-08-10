@@ -71,6 +71,7 @@ import net.spin.ao3.data.model.WARNING_OPTIONS
 import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WorkCard
+import net.spin.ao3.util.usernameFromAuthorUrl
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -81,6 +82,7 @@ fun SearchScreen(
     onBack: () -> Unit,
     onOpenDetail: (Long) -> Unit,
     onOpenTag: (String) -> Unit,
+    onOpenAuthor: (String) -> Unit = {},
 ) {
     var currentFilters by remember { mutableStateOf(filters) }
     var currentSort by remember { mutableStateOf(sort) }
@@ -240,7 +242,12 @@ fun SearchScreen(
                     }
                 }
                 items(results, key = { it.id }) { work ->
-                    WorkCard(work = work, onTagClick = onOpenTag, onClick = { onOpenDetail(work.id) })
+                    WorkCard(
+                        work = work,
+                        onTagClick = onOpenTag,
+                        onAuthorClick = usernameFromAuthorUrl(work.authorUrl)?.let { name -> { onOpenAuthor(name) } },
+                        onClick = { onOpenDetail(work.id) },
+                    )
                 }
                 item {
                     if (error != null) {

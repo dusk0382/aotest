@@ -97,6 +97,7 @@ import net.spin.ao3.ui.components.ratingColor
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.ChapterExporter
 import net.spin.ao3.util.formatCount
+import net.spin.ao3.util.usernameFromAuthorUrl
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -106,6 +107,7 @@ fun WorkDetailScreen(
     onBack: () -> Unit,
     onOpenChapter: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
+    onOpenAuthor: (String) -> Unit = {},
 ) {
     val store = container.store
     val snackbar = remember { SnackbarHostState() }
@@ -335,10 +337,16 @@ fun WorkDetailScreen(
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(d.summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(4.dp))
+                            val authorUser = usernameFromAuthorUrl(d.summary.authorUrl)
                             Text(
                                 d.summary.author,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.primary,
+                                modifier = if (authorUser != null) {
+                                    Modifier.clickable { onOpenAuthor(authorUser) }
+                                } else {
+                                    Modifier
+                                },
                             )
                             Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -531,6 +539,7 @@ fun WorkDetailScreen(
                                     replyTo = id
                                     showCommentForm = true
                                 },
+                                onOpenAuthor = onOpenAuthor,
                             )
                         }
                     }
@@ -659,6 +668,7 @@ private fun CommentSection(
     onRetry: () -> Unit,
     onOpenForm: () -> Unit,
     onReply: (Long) -> Unit,
+    onOpenAuthor: (String) -> Unit = {},
 ) {
     if (chapters.size > 1) {
         var open by remember { mutableStateOf(false) }
@@ -701,7 +711,7 @@ private fun CommentSection(
         )
         else -> {
             comments.forEach { comment ->
-                CommentItem(comment, onReply)
+                CommentItem(comment, onReply, onOpenAuthor)
             }
         }
     }
@@ -714,7 +724,8 @@ private fun CommentSection(
 }
 
 @Composable
-private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit) {
+private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuthor: (String) -> Unit = {}) {
+    val commentUser = usernameFromAuthorUrl(comment.authorUrl)
     Column(
         Modifier
             .fillMaxWidth()
@@ -728,7 +739,11 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit) {
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (commentUser != null) Modifier.clickable { onOpenAuthor(commentUser) } else Modifier,
+                    ),
             )
             if (comment.depth > 0) {
                 Text(

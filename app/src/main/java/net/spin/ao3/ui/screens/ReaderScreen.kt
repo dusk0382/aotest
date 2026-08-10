@@ -9,6 +9,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -34,12 +35,18 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +57,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -75,9 +84,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,10 +105,13 @@ import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.util.Line
 import net.spin.ao3.util.LineKind
+import net.spin.ao3.util.SearchMatch
 import net.spin.ao3.util.Segment
 import net.spin.ao3.util.escapeHtml
+import net.spin.ao3.util.findInPages
 import net.spin.ao3.util.htmlToLines
 import net.spin.ao3.util.packPages
+import net.spin.ao3.util.pagePlainText
 
 private const val BASE_URL = "https://archiveofourown.org"
 
@@ -132,6 +146,15 @@ fun ReaderScreen(
     var retryTick by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+
+    // Find-in-chapter search.
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchMatches by remember { mutableStateOf<List<SearchMatch>>(emptyList()) }
+    var searchIndex by remember { mutableIntStateOf(-1) }
+    // Scroll mode: WebView's native find reports the active/total matches.
+    var findCount by remember { mutableIntStateOf(0) }
+    var findActive by remember { mutableIntStateOf(0) }
 
     // Reading progress (per chapter, saved to Store).
     var currentRatio by remember { mutableFloatStateOf(0f) }
@@ -193,6 +216,7 @@ fun ReaderScreen(
         }
     }
     val pagerState = rememberPagerState(initialPage = 0) { pages.size.coerceAtLeast(1) }
+    val pageScroll = rememberScrollState()
 
     fun currentHistory(): Store.HistoryEntry? =
         store.history().firstOrNull { it.id == workId }
@@ -255,6 +279,11 @@ fun ReaderScreen(
         } else {
             pagerState.scrollToPage(0)
         }
+    }
+
+    // Start each page at the top (unless the search bar is navigating).
+    LaunchedEffect(pagerState.currentPage, paged) {
+        if (paged && !searchOpen) pageScroll.scrollTo(0)
     }
 
     fun saveProgressNow() {
@@ -340,12 +369,61 @@ fun ReaderScreen(
         }
     }
 
+    fun clearSearch() {
+        searchQuery = ""
+        searchMatches = emptyList()
+        searchIndex = -1
+        findCount = 0
+        findActive = 0
+        webView.value?.evaluateJavascript(jsClearFind(), null)
+    }
+
+    // Recompute matches (paged) or ask the WebView to find (scroll) on query change.
+    LaunchedEffect(searchQuery, paged, content) {
+        if (paged && searchQuery.isNotBlank()) {
+            searchMatches = findInPages(pages, searchQuery)
+            searchIndex = if (searchMatches.isEmpty()) -1 else 0
+            if (searchMatches.isNotEmpty()) goToSearchMatch(
+                paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+            )
+        } else if (!paged) {
+            val wv = webView.value
+            if (wv != null) {
+                // JS find (WebView's findAllAsync is unreliable with data: HTML).
+                wv.evaluateJavascript(jsClearFind(), null)
+                if (searchQuery.isNotBlank()) {
+                    wv.evaluateJavascript(jsFindInPage(searchQuery), null)
+                }
+            }
+            searchMatches = emptyList()
+            searchIndex = -1
+        }
+    }
+
+    // Scroll-mode: counter + navigation arrive asynchronously from the JS.
+    DisposableEffect(webView) {
+        onDispose { webView.value?.evaluateJavascript(jsClearFind(), null) }
+    }
+
+    val highlights = if (paged && searchQuery.isNotBlank()) {
+        searchMatches
+            .filter { it.page == pagerState.currentPage }
+            .map { m ->
+                val isCurrent = searchIndex in searchMatches.indices && searchMatches[searchIndex] == m
+                (m.start until m.end) to if (isCurrent) 0.6f else 0.28f
+            }
+    } else {
+        emptyList()
+    }
+
     Box(Modifier.fillMaxSize()) {
         // Body: paginated pages or the scroll WebView.
         if (paged && pages.isNotEmpty()) {
             PagedReaderBody(
                 pages = pages,
                 pagerState = pagerState,
+                pageScroll = pageScroll,
+                highlights = highlights,
                 theme = theme,
                 fontSize = fontSize,
                 serif = serif,
@@ -363,7 +441,15 @@ fun ReaderScreen(
                 backgroundColor = bgColor,
                 onPageFinished = { onPageFinished.value() },
                 onToggleChrome = toggleChrome,
+                onFindResult = { active, total ->
+                    findActive = active
+                    findCount = total
+                },
                 htmlToLoad = html,
+                onJsFindResult = { count ->
+                    findCount = count
+                    findActive = 0
+                },
             )
         }
 
@@ -412,7 +498,7 @@ fun ReaderScreen(
             }
         }
 
-        // Top bar (hidden with a tap on the text)
+        // Top chrome: title bar + (optional) search bar. Hidden with a tap on the text.
         if (chromeVisible) {
             Surface(
                 color = readerBgColor(theme).copy(alpha = 0.97f),
@@ -421,34 +507,122 @@ fun ReaderScreen(
                     .align(Alignment.TopCenter)
                     .windowInsetsPadding(WindowInsets.statusBars),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { saveProgressNow(); onBack() }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver",
-                            tint = readerFgColor(theme),
-                        )
+                Column {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { saveProgressNow(); onBack() }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Volver",
+                                tint = readerFgColor(theme),
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                workTitle.ifBlank { "Cargando…" },
+                                color = readerFgColor(theme),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                if (chapters.isNotEmpty()) "Capítulo ${currentIndex + 1} de ${chapters.size}" else " ",
+                                color = readerFgColor(theme).copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        IconButton(onClick = {
+                            searchOpen = !searchOpen
+                            if (!searchOpen) clearSearch()
+                        }) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Buscar en el capítulo",
+                                tint = if (searchOpen) readerAccentColor(theme) else readerFgColor(theme),
+                            )
+                        }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
+                        }
                     }
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            workTitle.ifBlank { "Cargando…" },
-                            color = readerFgColor(theme),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            if (chapters.isNotEmpty()) "Capítulo ${currentIndex + 1} de ${chapters.size}" else " ",
-                            color = readerFgColor(theme).copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
+                    if (searchOpen) {
+                        HorizontalDivider(color = readerFgColor(theme).copy(alpha = 0.12f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = readerFgColor(theme).copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = {
+                                    Text("Buscar en el capítulo…", color = readerFgColor(theme).copy(alpha = 0.45f))
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(color = readerFgColor(theme), fontSize = 14.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = readerFgColor(theme),
+                                    unfocusedTextColor = readerFgColor(theme),
+                                    cursorColor = readerFgColor(theme),
+                                    focusedBorderColor = readerFgColor(theme).copy(alpha = 0.4f),
+                                    unfocusedBorderColor = readerFgColor(theme).copy(alpha = 0.25f),
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                ),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = {
+                                    searchIndex = nextSearchIndex(searchIndex, searchMatches.size)
+                                    goToSearchMatch(
+                                        paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                                    )
+                                }),
+                                modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                            )
+                            val total = if (paged) searchMatches.size else findCount
+                            val current = if (paged) searchIndex + 1 else findActive + 1
+                            Text(
+                                if (searchQuery.isBlank() || total <= 0) "0/0" else "$current/$total",
+                                color = readerFgColor(theme).copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 6.dp),
+                            )
+                            IconButton(
+                            onClick = { searchIndex = prevSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
+                                paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                            ) },
+                            enabled = searchMatches.isNotEmpty(),
+                        ) {
+                                Icon(
+                                    Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Anterior",
+                                    tint = readerFgColor(theme),
+                                )
+                            }
+                            IconButton(
+                                onClick = { searchIndex = nextSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
+                                    paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                                ) },
+                                enabled = searchMatches.isNotEmpty(),
+                            ) {
+                                Icon(
+                                    Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Siguiente",
+                                    tint = readerFgColor(theme),
+                                )
+                            }
+                            IconButton(onClick = { clearSearch(); searchOpen = false }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Cerrar búsqueda", tint = readerFgColor(theme))
+                            }
+                        }
                     }
                 }
             }
@@ -733,12 +907,57 @@ fun ReaderScreen(
     }
 }
 
+// ---- Find-in-chapter helpers (file-level so LaunchedEffects can call them) --
+
+private fun goToSearchMatch(
+    paged: Boolean,
+    pages: List<List<Line>>,
+    pageScroll: ScrollState,
+    matches: List<SearchMatch>,
+    index: Int,
+    webView: MutableState<WebView?>,
+    query: String,
+    scope: kotlinx.coroutines.CoroutineScope,
+    pagerState: PagerState,
+) {
+    val m = matches.getOrNull(index) ?: return
+    if (paged) {
+        scope.launch {
+            pagerState.scrollToPage(m.page)
+            delay(100)
+            val textLen = pagePlainText(pages.getOrNull(m.page) ?: emptyList()).length
+            if (textLen > 0 && pageScroll.maxValue > 0) {
+                pageScroll.animateScrollTo(
+                    (pageScroll.maxValue * m.start / textLen).toInt().coerceIn(0, pageScroll.maxValue),
+                )
+            }
+        }
+    } else {
+        val wv = webView.value
+        if (wv != null && query.isNotBlank()) {
+            wv.evaluateJavascript(jsGoToMatch(index), null)
+        }
+    }
+}
+
+private fun nextSearchIndex(index: Int, size: Int): Int {
+    if (size <= 0) return -1
+    return (index + 1) % size
+}
+
+private fun prevSearchIndex(index: Int, size: Int): Int {
+    if (size <= 0) return -1
+    return (index - 1 + size) % size
+}
+
 // ---- Paginated reader body --------------------------------------------------
 
 @Composable
 private fun PagedReaderBody(
     pages: List<List<Line>>,
     pagerState: PagerState,
+    pageScroll: ScrollState,
+    highlights: List<Pair<IntRange, Float>>,
     theme: Store.ReaderTheme,
     fontSize: Int,
     serif: Boolean,
@@ -777,7 +996,7 @@ private fun PagedReaderBody(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(pageScroll)
                     .padding(horizontal = horizontalPad, vertical = 16.dp),
             ) {
                 if (page == 0) {
@@ -798,7 +1017,7 @@ private fun PagedReaderBody(
                     )
                 }
                 Text(
-                    text = linesToAnnotated(pages[page], fontSize, fg, accent),
+                    text = linesToAnnotated(pages[page], fontSize, fg, accent, highlights),
                     style = TextStyle(
                         color = fg,
                         fontSize = fontSize.sp,
@@ -819,7 +1038,13 @@ private fun PagedReaderBody(
 }
 
 /** Converts paginated [Line]s into a styled AnnotatedString using the reader palette. */
-private fun linesToAnnotated(lines: List<Line>, fontSize: Int, fg: Color, accent: Color): AnnotatedString {
+private fun linesToAnnotated(
+    lines: List<Line>,
+    fontSize: Int,
+    fg: Color,
+    accent: Color,
+    highlights: List<Pair<IntRange, Float>> = emptyList(),
+): AnnotatedString {
     val builder = AnnotatedString.Builder()
     lines.forEachIndexed { i, line ->
         if (i > 0) builder.append("\n\n")
@@ -861,7 +1086,18 @@ private fun linesToAnnotated(lines: List<Line>, fontSize: Int, fg: Color, accent
             }
         }
     }
-    return builder.toAnnotatedString()
+    val base = builder.toAnnotatedString()
+    if (highlights.isEmpty()) return base
+    return buildAnnotatedString {
+        append(base)
+        highlights.forEach { (range, alpha) ->
+            addStyle(
+                SpanStyle(background = accent.copy(alpha = alpha)),
+                range.first.coerceIn(0, base.length),
+                range.last.coerceIn(0, base.length),
+            )
+        }
+    }
 }
 
 private fun pushSegmentStyle(builder: AnnotatedString.Builder, seg: Segment, accent: Color): Int {
@@ -892,10 +1128,14 @@ private fun ReaderWebViewHost(
     htmlToLoad: String,
     onPageFinished: () -> Unit,
     onToggleChrome: () -> Unit,
+    onFindResult: (Int, Int) -> Unit,
+    onJsFindResult: (Int) -> Unit,
 ) {
     val currentOnPageFinished by rememberUpdatedState(onPageFinished)
     val currentToggleChrome by rememberUpdatedState(onToggleChrome)
     val currentHtml by rememberUpdatedState(htmlToLoad)
+    val currentOnFindResult by rememberUpdatedState(onFindResult)
+    val currentOnJsFindResult by rememberUpdatedState(onJsFindResult)
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -907,11 +1147,19 @@ private fun ReaderWebViewHost(
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
                 setBackgroundColor(backgroundColor)
+                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                    Handler(Looper.getMainLooper()).post { currentOnFindResult(activeMatchOrdinal, numberOfMatches) }
+                }
                 addJavascriptInterface(
                     object {
                         @JavascriptInterface
                         fun toggleChrome() {
                             Handler(Looper.getMainLooper()).post { currentToggleChrome() }
+                        }
+
+                        @JavascriptInterface
+                        fun onJsFindResult(count: Int) {
+                            Handler(Looper.getMainLooper()).post { currentOnJsFindResult(count) }
                         }
                     },
                     "Reader",
@@ -950,6 +1198,91 @@ private fun ReaderWebViewHost(
     }
 }
 
+// ---- JS find-in-page (works with data: HTML, unlike findAllAsync) -----------
+
+/** Highlights all occurrences of [query] and reports the count via Reader.onJsFindResult. */
+private fun jsFindInPage(query: String): String {
+    val q = query.replace("\\", "\\\\").replace("'", "\\'")
+    return """
+        (function(){
+          try {
+            window.__find = [];
+            var q = '$q';
+            if (!q) { if (window.Reader) window.Reader.onJsFindResult(0); return; }
+            var root = document.querySelector('.content') || document.body;
+            var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            var nodes = [];
+            while (walker.nextNode()) {
+              var t = walker.currentNode.nodeValue;
+              var lower = t.toLowerCase();
+              var lq = q.toLowerCase();
+              var idx = lower.indexOf(lq);
+              while (idx >= 0) {
+                window.__find.push({node: walker.currentNode, start: idx, end: idx + lq.length});
+                idx = lower.indexOf(lq, idx + lq.length);
+              }
+            }
+            if (window.CSS && CSS.highlights) {
+              try { CSS.highlights.delete('ao3find'); } catch(e) {}
+              var r = new Highlight();
+              for (var i = 0; i < window.__find.length; i++) {
+                var m = window.__find[i];
+                try {
+                  var range = document.createRange();
+                  range.setStart(m.node, m.start);
+                  range.setEnd(m.node, m.end);
+                  r.add(range);
+                } catch(e) {}
+              }
+              try { CSS.highlights.set('ao3find', r); } catch(e) {}
+            } else {
+              for (var i = 0; i < window.__find.length; i++) {
+                var m = window.__find[i];
+                var mark = document.createElement('mark');
+                mark.className = 'ao3findmark';
+                var after = m.node.splitText(m.end);
+                var mid = m.node.splitText(m.start);
+                m.node.parentNode.replaceChild(mark, mid);
+                mark.appendChild(m.node);
+              }
+            }
+            if (window.Reader) window.Reader.onJsFindResult(window.__find.length);
+          } catch (e) {
+            if (window.Reader) window.Reader.onJsFindResult(0);
+          }
+        })();
+    """
+}
+
+/** Scrolls to the [index]-th match (WebView adds ~100px of bottom chrome). */
+private fun jsGoToMatch(index: Int): String = """
+    (function(){
+      try {
+        if (!window.__find || index >= window.__find.length) return;
+        var m = window.__find[$index];
+        var el = m.node.parentNode;
+        var rect = el.getBoundingClientRect();
+        var y = window.scrollY + rect.top - 140;
+        window.scrollTo(0, Math.max(0, y));
+      } catch (e) {}
+    })();
+"""
+
+/** Removes highlights and cached matches. */
+private fun jsClearFind(): String = """
+    (function(){
+      try {
+        window.__find = [];
+        var marks = document.querySelectorAll('mark.ao3findmark');
+        for (var i = 0; i < marks.length; i++) {
+          var m = marks[i];
+          m.parentNode.replaceChild(document.createTextNode(m.textContent), m);
+        }
+        if (window.CSS && CSS.highlights) { try { CSS.highlights.delete('ao3find'); } catch(e) {} }
+      } catch (e) {}
+    })();
+"""
+
 // ---- Scroll helpers ---------------------------------------------------------
 
 private fun readScrollRatio(wv: WebView, cb: (Float) -> Unit) {
@@ -969,15 +1302,17 @@ private fun restoreScroll(wv: WebView, ratio: Float) {
 // ---- Reader theming ---------------------------------------------------------
 
 private fun readerPalette(theme: Store.ReaderTheme): Triple<String, String, String> = when (theme) {
-    Store.ReaderTheme.LIGHT -> Triple("#ffffff", "#1c1c1e", "#8a5a00")
-    Store.ReaderTheme.SEPIA -> Triple("#f6edd9", "#433422", "#8a5a00")
-    Store.ReaderTheme.DARK -> Triple("#1b1b1f", "#d6d3d0", "#e0b06a")
-    Store.ReaderTheme.BLACK -> Triple("#000000", "#d4d4d4", "#b98a4a")
+    Store.ReaderTheme.LIGHT -> Triple("#ffffff", "#1c1c1e", "#2F6B35")
+    Store.ReaderTheme.SEPIA -> Triple("#f6edd9", "#433422", "#4F7A3A")
+    Store.ReaderTheme.DARK -> Triple("#1b1b1f", "#d6d3d0", "#9AD8A6")
+    Store.ReaderTheme.BLACK -> Triple("#000000", "#d4d4d4", "#8FCF9E")
 }
 
 private fun readerBgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).first))
 
 private fun readerFgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).second))
+
+private fun readerAccentColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).third))
 
 private fun marginPadding(margins: Int): Pair<String, String> = when (margins) {
     0 -> "12px 14px 48px" to "22px 26px 58px"
@@ -1022,6 +1357,8 @@ private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lin
         .content a { color: $accent; text-decoration: none; }
         .content a:hover { text-decoration: underline; }
         .content img { max-width: 100%; height: auto; border-radius: 6px; }
+        mark.ao3findmark { background: $accent; color: #ffffff; border-radius: 2px; padding: 0 1px; }
+        ::highlight(ao3find) { background-color: ${accent}66; }
         .content center { display: block; text-align: center; }
         .content .userstuff, .content div { line-height: inherit; }
         blockquote.notes { margin-left: 0; }
