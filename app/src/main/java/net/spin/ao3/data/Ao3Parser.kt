@@ -33,6 +33,13 @@ object Ao3Parser {
         return doc.select("ol.work.index.group > li.work.blurb").mapNotNull { parseBlurb(it) }
     }
 
+    /** "2,304 Works found" / "19,997 Works in Naruto" → total match count. */
+    fun parseResultCount(html: String): Int? {
+        val heading = Jsoup.parse(html).selectFirst("h2.heading")?.text() ?: return null
+        return Regex("""(\d[\d,]*)\s+Works?""").find(heading)
+            ?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull()
+    }
+
     private fun parseBlurb(li: Element): WorkSummary? {
         val id = li.attr("id").removePrefix("work_").toLongOrNull() ?: return null
         val titleEl = li.selectFirst("h4.heading a[href*='/works/']") ?: return null

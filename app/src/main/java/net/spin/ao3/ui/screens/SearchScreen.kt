@@ -1,8 +1,18 @@
 package net.spin.ao3.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,14 +21,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -26,10 +37,11 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +49,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +71,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,8 +85,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
@@ -89,6 +106,7 @@ import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WorkCard
+import net.spin.ao3.util.formatCount
 import net.spin.ao3.util.usernameFromAuthorUrl
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -114,6 +132,8 @@ fun SearchScreen(
     var showFilters by remember { mutableStateOf(false) }
     // Sidebar facets (suggested tags with counts) of the current listing.
     var facets by remember { mutableStateOf<FilterFacets?>(null) }
+    // Total number of matching works ("N Works found"), for the results header.
+    var totalResults by remember { mutableStateOf<Int?>(null) }
     // Editable copy of the query shown in the search field below the bar.
     var queryDraft by remember(currentFilters.query) { mutableStateOf(currentFilters.query) }
     val scope = rememberCoroutineScope()
@@ -128,6 +148,7 @@ fun SearchScreen(
                 results = result.works
                 filtersNotApplied = !result.filtersApplied
                 facets = result.facets
+                totalResults = result.total
                 page = 1
                 noMorePages = false
             } catch (e: Exception) {
@@ -182,69 +203,104 @@ fun SearchScreen(
                     }
                 },
                 title = {
-                    // The query itself IS the search field: tap it to keep
-                    // typing (it stays fully editable), no extra input below.
+                    // The query itself IS the search field — but it must READ as
+                    // one: a subtle pill (surface + 1dp outline) keeps it
+                    // compact while signaling "tap to edit" (critique P1).
                     var focused by remember { mutableStateOf(false) }
+                    val focusRequester = remember { FocusRequester() }
+                    val pillShape = RoundedCornerShape(20.dp)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(pillShape)
+                            .background(
+                                if (focused) {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                },
+                            )
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, pillShape)
+                            .heightIn(min = 40.dp)
+                            // The whole pill reads as a field: tapping anywhere
+                            // (not just the text) focuses it.
+                            .clickable { focusRequester.requestFocus() },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    BasicTextField(
-                        value = queryDraft,
-                        onValueChange = { queryDraft = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .onFocusChanged { focused = it.isFocused },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { submitQuery() }),
-                        decorationBox = { inner ->
-                            Box {
-                                if (queryDraft.isBlank() && !focused) {
-                                    Text(
-                                        "Buscar…",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                        Spacer(Modifier.width(12.dp))
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = if (focused) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        BasicTextField(
+                            value = queryDraft,
+                            onValueChange = { queryDraft = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { focused = it.isFocused },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { submitQuery() }),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (queryDraft.isBlank() && !focused) {
+                                        Text(
+                                            "Buscar…",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    inner()
                                 }
-                                inner()
+                            },
+                        )
+                        if (queryDraft.isNotBlank()) {
+                            IconButton(onClick = { queryDraft = ""; submitQuery() }) {
+                                Icon(
+                                    Icons.Default.Clear,
+                                    contentDescription = "Limpiar búsqueda",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
                             }
-                        },
-                    )
-                    if (queryDraft.isNotBlank()) {
-                        IconButton(onClick = { queryDraft = ""; submitQuery() }) {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = "Limpiar búsqueda",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
-                    }
+                        Spacer(Modifier.width(4.dp))
                     }
                 },
                 actions = {
                     // Filters: Tune icon + badge with the active-filter count.
+                    // The count is exposed via the button's contentDescription so
+                    // TalkBack reads "Filtros, N activos"; the badge itself is
+                    // decorative (clearAndSetSemantics).
                     Box {
                         IconButton(onClick = { showFilters = true }) {
                             Icon(
                                 Icons.Default.Tune,
-                                contentDescription = "Filtros",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                contentDescription = if (activeFilterCount > 0) {
+                                    "Filtros, $activeFilterCount activos"
+                                } else {
+                                    "Filtros"
+                                },
+                                tint = if (activeFilterCount > 0) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                         if (activeFilterCount > 0) {
@@ -254,7 +310,8 @@ fun SearchScreen(
                                     .padding(top = 4.dp, end = 4.dp)
                                     .size(16.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clearAndSetSemantics {},
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
@@ -266,14 +323,20 @@ fun SearchScreen(
                             }
                         }
                     }
-                    // Sort: SwapVert icon + dropdown with the current option checked.
+                    // Sort: A-Z icon (reads as "sort" better than SwapVert) +
+                    // dropdown with the current option checked; the icon tints
+                    // primary when the order differs from the default.
                     var menuOpen by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(
-                                Icons.Default.SwapVert,
+                                Icons.Default.Sort,
                                 contentDescription = "Ordenar: ${currentSort.label}",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = if (currentSort != SortOption.BEST_MATCH) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -341,6 +404,23 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            totalResults?.let { "${formatCount(it.toLong())} obras" } ?: "${results.size} resultados",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "Página $page",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
                     ActiveFilterSummary(currentFilters, currentSort)
                 }
                 if (filtersNotApplied) {
@@ -536,14 +616,25 @@ private fun FilterSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 40.dp),
         ) {
-            Text("Filtros de búsqueda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Los mismos filtros del sidebar de AO3. Puedes incluir y excluir a la vez.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Filtros de búsqueda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Los mismos filtros del sidebar de AO3. Puedes incluir y excluir a la vez.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (activeFilterCount(f) > 0) {
+                    TextButton(onClick = { f = SearchFilters(query = f.query, tag = f.tag) }) {
+                        Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Limpiar todo")
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
 
             OutlinedTextField(
                 value = f.tag ?: "",
@@ -552,119 +643,121 @@ private fun FilterSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
-            if (suggestionsLoading) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Cargando tags relacionados…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-            }
-            if (suggestionGroups.isNotEmpty()) {
-                Text("Sugerencias de tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "Tags relacionados con esta búsqueda (los mismos del sidebar de AO3). Toca + para incluir o − para excluir.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                suggestionGroups.forEach { g ->
-                    Text(
-                        g.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        g.include.take(10).forEach { item ->
-                            TagIncludeExcludeChip(
-                                label = item.label,
-                                count = item.count,
-                                included = facetIncluded(f, g.kind, item.id),
-                                excluded = facetExcluded(f, g.kind, item.id),
-                                onInclude = { f = toggleFacet(f, g.kind, item.id, include = true) },
-                                onExclude = { f = toggleFacet(f, g.kind, item.id, include = false) },
+            if (suggestionsLoading || suggestionGroups.isNotEmpty()) {
+                CollapsibleSection(
+                    title = "Sugerencias de tags",
+                    subtitle = "Toca + para incluir o − para excluir",
+                    initiallyExpanded = true,
+                ) {
+                    if (suggestionsLoading) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Cargando tags relacionados…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-                    if (g.include.size > 10) {
+                    suggestionGroups.forEach { g ->
                         Text(
-                            "…y ${g.include.size - 10} más (búscalos con el campo de texto de abajo)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
+                            g.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
                         )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            g.include.take(10).forEach { item ->
+                                TagIncludeExcludeChip(
+                                    label = item.label,
+                                    count = item.count,
+                                    included = facetIncluded(f, g.kind, item.id),
+                                    excluded = facetExcluded(f, g.kind, item.id),
+                                    onInclude = { f = toggleFacet(f, g.kind, item.id, include = true) },
+                                    onExclude = { f = toggleFacet(f, g.kind, item.id, include = false) },
+                                )
+                            }
+                        }
+                        if (g.include.size > 10) {
+                            Text(
+                                "…y ${g.include.size - 10} más (búscalos en el bloque Avanzado)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(6.dp))
                 }
-                Spacer(Modifier.height(14.dp))
             }
 
-            SectionLabel("Rating")
-            IncExSection(
-                items = ratingItems,
-                included = { id -> f.rating == id },
-                excluded = { id -> f.excludeRating == id },
-                onToggleInclude = { id -> f = f.copy(rating = if (f.rating == id) null else id) },
-                onToggleExclude = { id -> f = f.copy(excludeRating = if (f.excludeRating == id) null else id) },
-            )
-            Spacer(Modifier.height(10.dp))
-
-            SectionLabel("Warnings")
-            IncExSection(
-                items = warningItems,
-                included = { id -> id in f.warnings },
-                excluded = { id -> id in f.excludeWarnings },
-                onToggleInclude = { id -> f = f.copy(warnings = toggle(f.warnings, id)) },
-                onToggleExclude = { id -> f = f.copy(excludeWarnings = toggle(f.excludeWarnings, id)) },
-            )
-            Spacer(Modifier.height(10.dp))
-
-            SectionLabel("Categorías")
-            IncExSection(
-                items = categoryItems,
-                included = { id -> id in f.categories },
-                excluded = { id -> id in f.excludeCategories },
-                onToggleInclude = { id -> f = f.copy(categories = toggle(f.categories, id)) },
-                onToggleExclude = { id -> f = f.copy(excludeCategories = toggle(f.excludeCategories, id)) },
-            )
-            Spacer(Modifier.height(10.dp))
-
-            SectionLabel("Idioma")
-            var langOpen by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(
-                    onClick = { langOpen = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        f.language?.let { l -> LANGUAGE_OPTIONS.firstOrNull { it.code == l }?.label ?: l } ?: "Cualquier idioma",
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
-                }
-                DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Cualquier idioma") },
-                        onClick = { f = f.copy(language = null); langOpen = false },
-                    )
-                    LANGUAGE_OPTIONS.forEach { opt ->
+            CollapsibleSection("Rating", initiallyExpanded = true) {
+                IncExSection(
+                    items = ratingItems,
+                    included = { id -> f.rating == id },
+                    excluded = { id -> f.excludeRating == id },
+                    onToggleInclude = { id -> f = f.copy(rating = if (f.rating == id) null else id) },
+                    onToggleExclude = { id -> f = f.copy(excludeRating = if (f.excludeRating == id) null else id) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            CollapsibleSection("Warnings", initiallyExpanded = true) {
+                IncExSection(
+                    items = warningItems,
+                    included = { id -> id in f.warnings },
+                    excluded = { id -> id in f.excludeWarnings },
+                    onToggleInclude = { id -> f = f.copy(warnings = toggle(f.warnings, id)) },
+                    onToggleExclude = { id -> f = f.copy(excludeWarnings = toggle(f.excludeWarnings, id)) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            CollapsibleSection("Categorías", initiallyExpanded = true) {
+                IncExSection(
+                    items = categoryItems,
+                    included = { id -> id in f.categories },
+                    excluded = { id -> id in f.excludeCategories },
+                    onToggleInclude = { id -> f = f.copy(categories = toggle(f.categories, id)) },
+                    onToggleExclude = { id -> f = f.copy(excludeCategories = toggle(f.excludeCategories, id)) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            CollapsibleSection("Idioma", initiallyExpanded = true) {
+                var langOpen by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(
+                        onClick = { langOpen = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            f.language?.let { l -> LANGUAGE_OPTIONS.firstOrNull { it.code == l }?.label ?: l } ?: "Cualquier idioma",
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text(opt.label) },
-                            onClick = { f = f.copy(language = opt.code); langOpen = false },
+                            text = { Text("Cualquier idioma") },
+                            onClick = { f = f.copy(language = null); langOpen = false },
                         )
+                        LANGUAGE_OPTIONS.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text(opt.label) },
+                                onClick = { f = f.copy(language = opt.code); langOpen = false },
+                            )
+                        }
                     }
                 }
+                Spacer(Modifier.height(6.dp))
             }
-            Spacer(Modifier.height(10.dp))
-
-            SectionLabel("Tags (separados por coma; se requieren TODOS)")
+            CollapsibleSection(
+                title = "Avanzado",
+                subtitle = "Tags, estado, palabras y fechas",
+                initiallyExpanded = false,
+            ) {
+                SectionLabel("Tags (separados por coma; se requieren TODOS)")
             OutlinedTextField(
                 value = f.includeTags,
                 onValueChange = { f = f.copy(includeTags = it) },
@@ -749,28 +842,30 @@ private fun FilterSheet(
             }
             Spacer(Modifier.height(10.dp))
 
-            SectionLabel("Fechas (AAAA-MM-DD)")
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = f.dateFrom,
-                    onValueChange = { f = f.copy(dateFrom = it) },
-                    label = { Text("Desde") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = f.dateTo,
-                    onValueChange = { f = f.copy(dateTo = it) },
-                    label = { Text("Hasta") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
+                SectionLabel("Fechas (AAAA-MM-DD)")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = f.dateFrom,
+                        onValueChange = { f = f.copy(dateFrom = it) },
+                        label = { Text("Desde") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = f.dateTo,
+                        onValueChange = { f = f.copy(dateTo = it) },
+                        label = { Text("Hasta") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
-            Spacer(Modifier.height(16.dp))
 
+            Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextButton(onClick = { onApply(SearchFilters(query = f.query)) }) {
-                    Text("Limpiar")
+                TextButton(onClick = { onApply(SearchFilters(query = f.query, tag = f.tag)) }) {
+                    Text("Restablecer")
                 }
                 Spacer(Modifier.weight(1f))
                 Button(onClick = { onApply(f) }) {
@@ -778,6 +873,53 @@ private fun FilterSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    subtitle: String? = null,
+    initiallyExpanded: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { expanded = !expanded }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                subtitle?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Contraer $title" else "Expandir $title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(200)) + fadeIn(tween(200)),
+            exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                content()
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
 

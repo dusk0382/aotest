@@ -223,7 +223,7 @@ class Ao3Client {
         } else {
             true
         }
-        return SearchResult(works, applied, Ao3Parser.parseFacets(html))
+        return SearchResult(works, applied, Ao3Parser.parseFacets(html), Ao3Parser.parseResultCount(html))
     }
 
     /**
@@ -534,4 +534,6 @@ data class SearchResult(
     val filtersApplied: Boolean,
     /** The "Filters" sidebar (suggested tags) of the listing, when present. */
     val facets: FilterFacets? = null,
+    /** Total number of works matching ("N Works found"), when AO3 shows it. */
+    val total: Int? = null,
 )
