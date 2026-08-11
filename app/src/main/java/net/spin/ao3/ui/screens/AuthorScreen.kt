@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.WorkSummary
+import kotlinx.coroutines.launch
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.AvatarImages
@@ -79,7 +81,33 @@ fun AuthorScreen(
     var worksCount by remember { mutableStateOf<Int?>(null) }
     var worksError by remember { mutableStateOf<String?>(null) }
     var worksLoading by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var worksPage by remember { mutableIntStateOf(1) }
+    var noMoreWorks by remember { mutableStateOf(false) }
     var retryTick by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    /** Loads the next page of the author's works (AO3 paginates at 20/page). */
+    fun loadMoreWorks() {
+        if (loadingMore || worksLoading || noMoreWorks) return
+        loadingMore = true
+        scope.launch {
+            try {
+                val next = container.client.getAuthorWorks(username, worksPage + 1)
+                if (next.works.isEmpty()) {
+                    noMoreWorks = true
+                } else {
+                    worksPage++
+                    works = works + next.works.filter { w -> works.none { it.id == w.id } }
+                    worksCount = next.count ?: worksCount
+                }
+            } catch (_: Exception) {
+                // Keep the button visible so the user can retry.
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
 
     LaunchedEffect(username, retryTick) {
         loading = true
@@ -98,6 +126,8 @@ fun AuthorScreen(
         works = emptyList()
         worksCount = null
         worksError = null
+        worksPage = 1
+        noMoreWorks = false
         worksLoading = true
         try {
             val w = container.client.getAuthorWorks(username)
@@ -264,14 +294,31 @@ fun AuthorScreen(
                             onAction = { retryTick++ },
                         )
                     }
-                    else -> items(works, key = { it.id }) { work ->
-                        WorkCard(
-                            work = work,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            onClick = { onOpenDetail(work.id) },
-                            onTagClick = { tag -> onOpenTag(tag) },
-                            onAuthorClick = null, // ya estamos en el perfil del autor
-                        )
+                    else -> {
+                        items(works, key = { it.id }) { work ->
+                            WorkCard(
+                                work = work,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                onClick = { onOpenDetail(work.id) },
+                                onTagClick = { tag -> onOpenTag(tag) },
+                                onAuthorClick = null, // ya estamos en el perfil del autor
+                            )
+                        }
+                        val count = worksCount
+                        val hasMore = !noMoreWorks && (count == null || works.size < count)
+                        if (hasMore) {
+                            item {
+                                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                    if (loadingMore) {
+                                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        OutlinedButton(onClick = { loadMoreWorks() }) {
+                                            Text("Cargar más obras")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

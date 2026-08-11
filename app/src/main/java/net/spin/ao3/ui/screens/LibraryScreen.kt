@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +79,9 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshTick by remember { mutableIntStateOf(0) }
+    // Keeps each tab's scroll position alive when switching tabs (plain `when`
+    // disposes the old tab, so rememberSaveable alone would lose it).
+    val tabStates = rememberSaveableStateHolder()
     val queueState by DownloadQueueService.state.collectAsState()
     var lastQueueCompletion by remember { mutableLongStateOf(0L) }
 
@@ -122,6 +126,7 @@ fun LibraryScreen(
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Historial") })
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Descargas") })
             }
+            tabStates.SaveableStateProvider(tab) {
             when (tab) {
                 0 -> FavoritesTab(
                     favorites = favorites,
@@ -163,6 +168,7 @@ fun LibraryScreen(
                     exporter = exporter,
                     onExplore = onExplore,
                 )
+            }
             }
         }
     }

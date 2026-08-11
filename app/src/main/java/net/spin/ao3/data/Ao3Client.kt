@@ -21,6 +21,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -38,8 +39,12 @@ import java.util.concurrent.TimeUnit
  * Parsed results are cached in memory (LRU, small) so navigating back to a
  * screen already visited (search results, work detail, comments, author
  * profiles, chapters) is instant and does not hit AO3 again.
+ *
+ * When [cacheDir] is provided, raw HTML is also cached on disk (search pages
+ * with a short TTL, everything else with a long one) so cold starts are fast:
+ * pages visited in a previous session load from disk instead of the network.
  */
-class Ao3Client {
+class Ao3Client(private val cacheDir: File? = null) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
@@ -76,16 +81,34 @@ class Ao3Client {
 
     /** Serialized, polite GET: the whole app funnels through this gate so AO3
      *  only ever sees one in-flight request at a time (site-respect). */
-    private suspend fun get(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 7): String =
-        gate.withLock { getInternal(url, headers, retries) }
+    private suspend fun get(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        retries: Int = 7,
+        disk: DiskCache? = contentDisk,
+    ): String {
+        disk?.get(url)?.let { return it }
+        val body = gate.withLock { getInternal(url, headers, retries) }
+        if (!isAdultGate(body)) disk?.put(url, body)
+        return body
+    }
 
     /** Same retry/backoff logic as [get] but WITHOUT the global gate. Reserved
      *  for tiny bursts to the SAME host (author profile + works), where a
      *  browser would also fire two requests at once. Before this, the two
      *  author pages serialized behind the mutex, so the user waited the SUM of
      *  both requests instead of the slower one. */
-    private suspend fun getConcurrent(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 4): String =
-        getInternal(url, headers, retries)
+    private suspend fun getConcurrent(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        retries: Int = 4,
+        disk: DiskCache? = contentDisk,
+    ): String {
+        disk?.get(url)?.let { return it }
+        val body = getInternal(url, headers, retries)
+        if (!isAdultGate(body)) disk?.put(url, body)
+        return body
+    }
 
     private suspend fun getInternal(url: String, headers: Map<String, String>, retries: Int): String {
         var lastError: Exception? = null
@@ -195,6 +218,14 @@ class Ao3Client {
     private val authorCache = LruCache<String, AuthorProfile>(30)
     private val authorWorksCache = LruCache<String, AuthorWorks>(30)
 
+    // ---- On-disk HTML cache (survives process death) -----------------------
+    private val searchDisk: DiskCache? = cacheDir?.let {
+        DiskCache(File(it, "search"), ttlMs = 30 * 60 * 1000L, maxFiles = 120)
+    }
+    private val contentDisk: DiskCache? = cacheDir?.let {
+        DiskCache(File(it, "content"), ttlMs = 7L * 24 * 60 * 60 * 1000, maxFiles = 300)
+    }
+
     /** Simple thread-safe LRU map (insertion order -> evicts oldest). */
     private class LruCache<K, V>(private val maxSize: Int) {
         private val map = object : LinkedHashMap<K, V>(maxSize, 0.75f, true) {
@@ -235,10 +266,10 @@ class Ao3Client {
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         if (tag != null && tag.isNotBlank()) {
             val canonical = resolveCanonicalTag(tag)
-            if (canonical != null) return get(buildTagFilterUrl(canonical, filters, page, sort))
-            return get(buildSearchUrl(filters, page, sort))
+            if (canonical != null) return get(buildTagFilterUrl(canonical, filters, page, sort), disk = searchDisk)
+            return get(buildSearchUrl(filters, page, sort), disk = searchDisk)
         }
-        return get(buildSearchUrl(filters, page, sort))
+        return get(buildSearchUrl(filters, page, sort), disk = searchDisk)
     }
 
     private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
@@ -273,7 +304,7 @@ class Ao3Client {
             .addPathSegment("works")
             .build()
             .toString()
-        return runCatching { get(url) }.getOrNull()?.also { tagPages[name] = it }
+        return runCatching { get(url, disk = searchDisk) }.getOrNull()?.also { tagPages[name] = it }
     }
 
     private suspend fun resolveCanonicalTag(name: String): String? {
@@ -437,14 +468,18 @@ class Ao3Client {
     }
 
     /** Loads the author's works list page (/users/{name}/works), cached per session. */
-    suspend fun getAuthorWorks(username: String): AuthorWorks {
-        authorWorksCache.get(username)?.let { return it }
-        val url = authorPageUrl(username, "works")
+    /** Works of an author, paged (AO3 shows 20 per page). Page 1 is the URL
+     *  without the query param; later pages use ?page=N. */
+    suspend fun getAuthorWorks(username: String, page: Int = 1): AuthorWorks {
+        val cacheKey = "$username|$page"
+        authorWorksCache.get(cacheKey)?.let { return it }
+        val base = authorPageUrl(username, "works")
+        val url = if (page > 1) "$base?page=$page" else base
         val html = getConcurrent(url, retries = 4)
         val (count, works) = Ao3Parser.parseAuthorWorks(html)
         val result = AuthorWorks(count = count, works = works)
-        android.util.Log.i("AO3Lector", "AuthorWorks username=$username count=$count parsed=${works.size}")
-        authorWorksCache.put(username, result)
+        android.util.Log.i("AO3Lector", "AuthorWorks username=$username page=$page count=$count parsed=${works.size}")
+        authorWorksCache.put(cacheKey, result)
         return result
     }
 

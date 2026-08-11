@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -72,6 +73,8 @@ fun HomeScreen(
     val store = container.store
     val history = remember { store.history() }
     var query by rememberSaveable { mutableStateOf("") }
+    // Scroll position survives tab switches (AnimatedContent disposes the screen).
+    val homeScroll = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
 
     Scaffold(
         topBar = {
@@ -87,7 +90,7 @@ fun HomeScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(homeScroll)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             OutlinedTextField(
