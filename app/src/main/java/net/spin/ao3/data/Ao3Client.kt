@@ -279,14 +279,17 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
         val html = fetchSearchPage(filters, page, sort)
-        val works = Ao3Parser.parseSearchResults(html)
+        // The listing is parsed ONCE (blurbs + facets + total) and always off
+        // the main thread: JSoup parsing of a full results page is the heaviest
+        // CPU work in the app and used to run on the caller's (main) dispatcher.
+        val parsed = withContext(Dispatchers.IO) { Ao3Parser.parseSearchPage(html) }
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         val applied = if (tag != null && tag.isNotBlank()) {
             runCatching { resolveCanonicalTag(tag) }.getOrNull() != null
         } else {
             true
         }
-        return SearchResult(works, applied, Ao3Parser.parseFacets(html), Ao3Parser.parseResultCount(html))
+        return SearchResult(parsed.works, applied, parsed.facets, parsed.total)
     }
 
     /**
@@ -333,7 +336,8 @@ class Ao3Client(private val cacheDir: File? = null) {
         facetsCache[query]?.let { return it }
         val facets = runCatching {
             val canonical = resolveCanonicalTag(query) ?: return@runCatching FilterFacets()
-            Ao3Parser.parseFacets(tagWorksPage(canonical) ?: return@runCatching FilterFacets())
+            val page = tagWorksPage(canonical) ?: return@runCatching FilterFacets()
+            withContext(Dispatchers.IO) { Ao3Parser.parseFacets(page) }
         }.getOrDefault(FilterFacets())
         facetsCache[query] = facets
         return facets
@@ -418,7 +422,7 @@ class Ao3Client(private val cacheDir: File? = null) {
     suspend fun getWork(id: Long): WorkDetail {
         workCache.get(id)?.let { return it }
         val html = get("https://archiveofourown.org/works/$id", disk = workDisk)
-        val detail = Ao3Parser.parseWorkDetail(html, id)
+        val detail = withContext(Dispatchers.IO) { Ao3Parser.parseWorkDetail(html, id) }
             ?: throw IOException("No se pudo interpretar la obra $id")
         workCache.put(id, detail)
         return detail
@@ -462,8 +466,9 @@ class Ao3Client(private val cacheDir: File? = null) {
         // time (like a browser opening both tabs), so the user waits for the
         // slower of the two, not the sum.
         val html = getConcurrent(url, retries = 4)
-        val profile = runCatching { Ao3Parser.parseAuthorProfile(html, username) }.getOrNull()
-            ?: AuthorProfile(username = username, displayName = username)
+        val profile = runCatching {
+            withContext(Dispatchers.IO) { Ao3Parser.parseAuthorProfile(html, username) }
+        }.getOrNull() ?: AuthorProfile(username = username, displayName = username)
         android.util.Log.i(
             "AO3Lector",
             "AuthorProfile username=$username display=${profile.displayName} joined=${profile.joined} pseuds=${profile.pseuds} bio=${profile.bio.length}ch",
@@ -481,7 +486,7 @@ class Ao3Client(private val cacheDir: File? = null) {
         val base = authorPageUrl(username, "works")
         val url = if (page > 1) "$base?page=$page" else base
         val html = getConcurrent(url, retries = 4)
-        val (count, works) = Ao3Parser.parseAuthorWorks(html)
+        val (count, works) = withContext(Dispatchers.IO) { Ao3Parser.parseAuthorWorks(html) }
         val result = AuthorWorks(count = count, works = works)
         android.util.Log.i("AO3Lector", "AuthorWorks username=$username page=$page count=$count parsed=${works.size}")
         authorWorksCache.put(cacheKey, result)
@@ -494,7 +499,7 @@ class Ao3Client(private val cacheDir: File? = null) {
         val cacheKey = "$workId#${chapter.index}"
         chapterCache.get(cacheKey)?.let { return it }
         val html = get(url)
-        val (content, title) = Ao3Parser.parseChapter(html)
+        val (content, title) = withContext(Dispatchers.IO) { Ao3Parser.parseChapter(html) }
         val ready = chapter.copy(
             title = title ?: chapter.title,
             content = content ?: chapter.content ?: "",
@@ -510,7 +515,7 @@ class Ao3Client(private val cacheDir: File? = null) {
         commentsCache.get(chapterId)?.let { return it }
         val url = "https://archiveofourown.org/comments/show_comments?chapter_id=$chapterId"
         val js = get(url, mapOf("X-Requested-With" to "XMLHttpRequest", "Accept" to "text/javascript, */*"))
-        val comments = Ao3Parser.parseComments(js)
+        val comments = withContext(Dispatchers.IO) { Ao3Parser.parseComments(js) }
         android.util.Log.i(
             "AO3Lector",
             "Comments chapter=$chapterId count=${comments.size} maxDepth=${comments.maxOfOrNull { it.depth } ?: -1} authors=${comments.map { it.author }.distinct().take(5)}",

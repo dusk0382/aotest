@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
 /** The three top-level destinations of the bottom navigation bar. */
 enum class AppTab(override val label: String, override val icon: ImageVector) : BottomBarDestination {
     HOME("Inicio", Icons.Filled.Home),
-    LIBRARY("Biblioteca", Icons.Filled.List),
+    LIBRARY("Biblioteca", Icons.AutoMirrored.Filled.List),
     SETTINGS("Ajustes", Icons.Filled.Settings),
 }
 

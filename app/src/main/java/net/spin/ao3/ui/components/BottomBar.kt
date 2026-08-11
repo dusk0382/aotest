@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -127,7 +127,7 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
 
 private enum class PreviewTab(override val label: String, override val icon: ImageVector) : BottomBarDestination {
     HOME("Inicio", Icons.Filled.Home),
-    LIBRARY("Biblioteca", Icons.Filled.List),
+    LIBRARY("Biblioteca", Icons.AutoMirrored.Filled.List),
     SETTINGS("Ajustes", Icons.Filled.Settings),
 }
 

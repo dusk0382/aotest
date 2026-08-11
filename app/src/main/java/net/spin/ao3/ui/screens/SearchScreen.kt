@@ -33,8 +33,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -42,7 +43,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -140,16 +140,14 @@ fun SearchScreen(
     var queryDraft by remember(currentFilters.query) { mutableStateOf(currentFilters.query) }
     val scope = rememberCoroutineScope()
 
-    // Scroll + pagination SURVIVE navigation: rememberSaveable restores this
-    // state when the screen is recreated after opening a work and coming back,
-    // so the list no longer resets to the top with only page 1.
-    // Keyed by the search identity: the custom nav pushes a NEW Route.Search
-    // when browsing a tag from within a search, and both screens compose at the
-    // same position — without a custom key they would share (and corrupt) each
-    // other's restored scroll/page.
-    val restoreKey = "${currentFilters.serialize()}|${currentSort.name}"
-    val listState = rememberSaveable(key = "list-$restoreKey", saver = LazyListState.Saver) { LazyListState() }
-    var page by rememberSaveable(key = "page-$restoreKey") { mutableIntStateOf(1) }
+    // Scroll + pagination SURVIVE navigation: the nav's SaveableStateProvider
+    // scopes this screen's saveable state by a per-instance slot key (two
+    // identical searches get distinct slots), so a plain positional
+    // rememberSaveable is enough — the old custom `key =` was redundant AND
+    // deprecated (it ignored the input varargs). A fresh query resets the
+    // scroll explicitly in fetchFirst().
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var page by rememberSaveable { mutableIntStateOf(1) }
     // Snapshot of the restored position/page taken on FIRST composition (before
     // fetchFirst() resets `page` and before the list clamps the restored index
     // while there are still too few items).
@@ -169,6 +167,9 @@ fun SearchScreen(
                 totalResults = result.total
                 page = 1
                 noMorePages = false
+                // A new/refreshed search starts from the top (the positional
+                // rememberSaveable would otherwise keep the old scroll).
+                listState.scrollToItem(0)
             } catch (e: Exception) {
                 error = e.message ?: "Error de red"
             } finally {
@@ -236,7 +237,7 @@ fun SearchScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 },
                 title = {
@@ -367,7 +368,7 @@ fun SearchScreen(
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(
-                                Icons.Default.Sort,
+                                Icons.AutoMirrored.Filled.Sort,
                                 contentDescription = "Ordenar: ${currentSort.label}",
                                 tint = if (currentSort != SortOption.BEST_MATCH) {
                                     MaterialTheme.colorScheme.primary

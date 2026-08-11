@@ -3,6 +3,9 @@ package net.spin.ao3.data
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -142,7 +145,26 @@ class Store(context: Context) {
             .sortedByDescending { it.at }
     }.orEmpty()
 
+    // The reader saves progress every few seconds; scanning + sorting the whole
+    // history for a single entry each time is wasted work, so single lookups go
+    // through a cache invalidated on every history mutation.
+    private var historyIndex: Map<Long, HistoryEntry>? = null
+
+    /** O(1) lookup of one history entry (the reader's hot path). */
+    fun historyEntry(id: Long): HistoryEntry? =
+        (historyIndex ?: buildHistoryIndex())[id]
+
+    private fun buildHistoryIndex(): Map<Long, HistoryEntry> {
+        val m = root.optJSONArray("history")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.toHistory() }
+                .associateBy { it.id }
+        }.orEmpty()
+        historyIndex = m
+        return m
+    }
+
     fun updateHistory(entry: HistoryEntry) {
+        historyIndex = null
         val arr = root.optJSONArray("history") ?: JSONArray()
         val filtered = JSONArray()
         for (i in 0 until arr.length()) {
@@ -165,6 +187,7 @@ class Store(context: Context) {
     }
 
     fun removeHistory(id: Long) {
+        historyIndex = null
         val arr = root.optJSONArray("history") ?: return
         val filtered = JSONArray()
         for (i in 0 until arr.length()) {
@@ -176,6 +199,7 @@ class Store(context: Context) {
     }
 
     fun clearHistory() {
+        historyIndex = null
         root.put("history", JSONArray())
         persist()
     }
@@ -331,7 +355,17 @@ class Store(context: Context) {
         }
     }
 
-    private fun persist() {
+    private val io = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var persistJob: Job? = null
+
+    /**
+     * Persists the in-memory [root] to disk, debounced with a 300ms coalescing
+     * window: the reader calls this every 3.5s while reading, and rewriting the
+     * whole JSON on each call grows with the library — bursts collapse into one
+     * write of the latest state. [immediate] bypasses the window (settings
+     * apply, so a force-kill right after still keeps the choice).
+     */
+    private fun persist(immediate: Boolean = false) {
         root.put("prefs", JSONObject().apply {
             put("fontSize", prefs.fontSizeSp)
             put("theme", prefs.theme.name)
@@ -345,8 +379,21 @@ class Store(context: Context) {
             put("commentEmail", prefs.commentEmail)
             put("translationLang", prefs.translationLang)
         })
-        // Write asynchronously to keep the UI snappy
-        CoroutineScope(Dispatchers.IO).launch {
+        persistJob?.cancel()
+        if (immediate) {
+            persistJob = null
+            writeNow()
+        } else {
+            persistJob = io.launch {
+                delay(300)
+                writeNow()
+            }
+        }
+    }
+
+    /** Writes [root] once, asynchronously, guarded by the write mutex. */
+    private fun writeNow() {
+        io.launch {
             mutex.withLock {
                 withContext(Dispatchers.IO) {
                     try {
@@ -359,7 +406,7 @@ class Store(context: Context) {
         }
     }
 
-    fun savePrefs() = persist()
+    fun savePrefs() = persist(immediate = true)
 
     // ---- JSON mappers -------------------------------------------------------
 

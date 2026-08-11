@@ -47,8 +47,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -250,8 +250,7 @@ fun ReaderScreen(
     var measuredPages by remember { mutableStateOf<List<List<Line>>>(emptyList()) }
     val pagerState = rememberPagerState(initialPage = 0) { measuredPages.size.coerceAtLeast(1) }
 
-    fun currentHistory(): Store.HistoryEntry? =
-        store.history().firstOrNull { it.id == workId }
+    fun currentHistory(): Store.HistoryEntry? = store.historyEntry(workId)
 
     // 1) Load work metadata + chapter list
     LaunchedEffect(workId, retryTick) {
@@ -321,17 +320,36 @@ fun ReaderScreen(
         }
     }
 
-    // 2b) Paged mode: restore or reset the page whenever chapter content or the
-    // (viewport-packed) page count changes.
+    // 2b) Paged mode: restore / reset / preserve the reading position.
+    //  - pendingScroll (chapter change, settings apply) wins;
+    //  - a PURE repack (only the page count changed, e.g. rotation) keeps the
+    //    relative position instead of snapping back to page 0;
+    //  - a chapter/content change resets to the top.
+    var lastPageSize by remember { mutableIntStateOf(0) }
+    var lastChapterKey by remember { mutableIntStateOf(-1) }
+    var lastContentKey by remember { mutableStateOf<String?>(null) }
+    // True reading ratio captured in the pack SideEffect BEFORE the pager
+    // clamps currentPage to a (smaller) new page count — reading it later in
+    // the effect below would yield a clamped value (shrink case) and land on
+    // the wrong page.
+    var preservedRatio by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(paged, displayContent, currentIndex, measuredPages.size) {
         if (!paged || measuredPages.isEmpty()) return@LaunchedEffect
-        if (pendingScroll > 0f && measuredPages.size > 1) {
-            val target = (pendingScroll * (measuredPages.size - 1)).roundToInt().coerceIn(0, measuredPages.size - 1)
-            pagerState.scrollToPage(target)
-            pendingScroll = 0f
-        } else {
-            pagerState.scrollToPage(0)
+        val newSize = measuredPages.size
+        when {
+            pendingScroll > 0f && newSize > 1 -> {
+                pagerState.scrollToPage((pendingScroll * (newSize - 1)).roundToInt().coerceIn(0, newSize - 1))
+                pendingScroll = 0f
+            }
+            // Same chapter and content: only the page count changed (viewport).
+            lastChapterKey == currentIndex && lastContentKey == displayContent && lastPageSize > 1 -> {
+                pagerState.scrollToPage((preservedRatio * (newSize - 1)).roundToInt().coerceIn(0, (newSize - 1).coerceAtLeast(0)))
+            }
+            else -> pagerState.scrollToPage(0)
         }
+        lastPageSize = newSize
+        lastChapterKey = currentIndex
+        lastContentKey = displayContent
     }
 
     fun saveProgressNow() {
@@ -510,7 +528,18 @@ fun ReaderScreen(
                 val viewportPages = remember(lines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
                     packPagesToViewport(lines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
                 }
-                SideEffect { measuredPages = viewportPages }
+                SideEffect {
+                    // Capture the position BEFORE the pager sees the new page
+                    // count (it clamps currentPage, losing the true ratio when
+                    // the viewport shrinks). Only when nothing else changed.
+                    if (lastPageSize > 1 &&
+                        lastChapterKey == currentIndex &&
+                        lastContentKey == displayContent
+                    ) {
+                        preservedRatio = pagerState.currentPage / (lastPageSize - 1).toFloat()
+                    }
+                    measuredPages = viewportPages
+                }
                 PagedReaderBody(
                     pages = viewportPages,
                     pagerState = pagerState,
@@ -885,7 +914,7 @@ fun ReaderScreen(
                     ) {
                         IconButton(onClick = { goToChapter(currentIndex - 1) }, enabled = currentIndex > 0) {
                             Icon(
-                                Icons.Default.KeyboardArrowLeft,
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                 contentDescription = "Anterior",
                                 tint = if (currentIndex > 0) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
                             )
@@ -906,7 +935,7 @@ fun ReaderScreen(
                             enabled = currentIndex < chapters.size - 1,
                         ) {
                             Icon(
-                                Icons.Default.KeyboardArrowRight,
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = "Siguiente",
                                 tint = if (currentIndex < chapters.size - 1) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
                             )

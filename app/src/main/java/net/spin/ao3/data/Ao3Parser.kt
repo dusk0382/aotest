@@ -34,10 +34,24 @@ object Ao3Parser {
     }
 
     /** "2,304 Works found" / "19,997 Works in Naruto" → total match count. */
-    fun parseResultCount(html: String): Int? {
-        val heading = Jsoup.parse(html).selectFirst("h2.heading")?.text() ?: return null
+    private fun resultCount(doc: Document): Int? {
+        val heading = doc.selectFirst("h2.heading")?.text() ?: return null
         return Regex("""(\d[\d,]*)\s+Works?""").find(heading)
             ?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull()
+    }
+
+    /**
+     * Parses a search/works listing page ONCE (blurbs + facets + total). The
+     * previous code called parseSearchResults + parseFacets + parseResultCount
+     * on the same HTML, re-parsing the whole document three times.
+     */
+    fun parseSearchPage(html: String): SearchPage {
+        val doc = Jsoup.parse(html, BASE)
+        return SearchPage(
+            works = doc.select("ol.work.index.group > li.work.blurb").mapNotNull { parseBlurb(it) },
+            facets = parseFacets(doc),
+            total = resultCount(doc),
+        )
     }
 
     private fun parseBlurb(li: Element): WorkSummary? {
@@ -357,8 +371,9 @@ object Ao3Parser {
      * include_/exclude_ dd blocks; each li has a hidden input with the tag id
      * and a <span>Name (count)</span> label).
      */
-    fun parseFacets(html: String): FilterFacets {
-        val doc = Jsoup.parse(html, BASE)
+    fun parseFacets(html: String): FilterFacets = parseFacets(Jsoup.parse(html, BASE))
+
+    private fun parseFacets(doc: Document): FilterFacets {
         val groups = mutableListOf<FacetGroup>()
         FacetKind.entries.forEach { kind ->
             val suffix = facetDdSuffix(kind)
@@ -610,3 +625,10 @@ object Ao3Parser {
         sb.append(t).append(' ')
     }
 }
+
+/** Everything extracted from one search/works listing page in a single parse pass. */
+data class SearchPage(
+    val works: List<WorkSummary>,
+    val facets: FilterFacets,
+    val total: Int?,
+)
