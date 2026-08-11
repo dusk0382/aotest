@@ -1,7 +1,6 @@
 package net.spin.ao3.ui.screens
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,19 +47,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.WorkCard
+import net.spin.ao3.util.AvatarImages
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,10 +126,7 @@ fun AuthorScreen(
                     // ---- Header ----
                     var avatar by remember(p.avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
                     LaunchedEffect(p.avatarUrl) {
-                        // Blocking OkHttp must NOT run on the main thread.
-                        avatar = withContext(Dispatchers.IO) {
-                            p.avatarUrl?.let { fetchImage(it)?.asImageBitmap() }
-                        }
+                        avatar = p.avatarUrl?.let { AvatarImages.load(it) }
                     }
                     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
@@ -232,6 +225,8 @@ fun AuthorScreen(
                             title = "Sin obras visibles",
                             description = "No se encontraron obras de ${p.displayName} en la primera página.",
                             compact = true,
+                            actionLabel = "Reintentar",
+                            onAction = { retryTick++ },
                         )
                     }
                 } else {
@@ -256,24 +251,4 @@ private fun StatCircle(value: String, label: String) {
         Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-
-// ---- Tiny image loader (profile icons only; keeps the app dependency-free) ---
-
-private val imageClient by lazy {
-    okhttp3.OkHttpClient.Builder()
-        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
-}
-
-private fun fetchImage(url: String): Bitmap? = try {
-    val request = okhttp3.Request.Builder().url(url).build()
-    imageClient.newCall(request).execute().use { resp ->
-        if (!resp.isSuccessful) return null
-        BitmapFactory.decodeStream(resp.body?.byteStream())
-    }
-} catch (_: Exception) {
-    null
 }

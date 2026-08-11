@@ -16,18 +16,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -64,8 +67,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
@@ -163,11 +171,6 @@ fun SearchScreen(
 
     LaunchedEffect(currentFilters, currentSort) { fetchFirst() }
 
-    val title = when {
-        currentFilters.query.isNotBlank() -> "«${currentFilters.query}»"
-        currentFilters.tag != null -> currentFilters.tag!!
-        else -> "Explorar"
-    }
     val activeFilterCount = activeFilterCount(currentFilters)
 
     Scaffold(
@@ -179,31 +182,115 @@ fun SearchScreen(
                     }
                 },
                 title = {
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    // The query itself IS the search field: tap it to keep
+                    // typing (it stays fully editable), no extra input below.
+                    var focused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                },
-                actions = {
-                    Box {
-                        TextButton(onClick = { showFilters = true }) {
-                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (activeFilterCount > 0) "Filtros ($activeFilterCount)" else "Filtros")
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = queryDraft,
+                        onValueChange = { queryDraft = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { focused = it.isFocused },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submitQuery() }),
+                        decorationBox = { inner ->
+                            Box {
+                                if (queryDraft.isBlank() && !focused) {
+                                    Text(
+                                        "Buscar…",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                inner()
+                            }
+                        },
+                    )
+                    if (queryDraft.isNotBlank()) {
+                        IconButton(onClick = { queryDraft = ""; submitQuery() }) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Limpiar búsqueda",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                     }
+                    }
+                },
+                actions = {
+                    // Filters: Tune icon + badge with the active-filter count.
+                    Box {
+                        IconButton(onClick = { showFilters = true }) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "Filtros",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (activeFilterCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 4.dp, end = 4.dp)
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    activeFilterCount.coerceAtMost(9).toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            }
+                        }
+                    }
+                    // Sort: SwapVert icon + dropdown with the current option checked.
                     var menuOpen by remember { mutableStateOf(false) }
                     Box {
-                        TextButton(onClick = { menuOpen = true }) {
-                            Text(currentSort.label)
-                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(
+                                Icons.Default.SwapVert,
+                                contentDescription = "Ordenar: ${currentSort.label}",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             SortOption.entries.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.label) },
+                                    trailingIcon = if (option == currentSort) {
+                                        {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     onClick = {
                                         currentSort = option
                                         menuOpen = false
@@ -220,11 +307,6 @@ fun SearchScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            SearchQueryField(
-                query = queryDraft,
-                onQueryChange = { queryDraft = it },
-                onSearch = { submitQuery() },
-            )
             Box(Modifier.weight(1f)) {
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -326,6 +408,7 @@ fun SearchScreen(
         FilterSheet(
             initial = currentFilters,
             facets = facets,
+            container = container,
             onDismiss = { showFilters = false },
             onApply = { newFilters ->
                 showFilters = false
@@ -333,30 +416,6 @@ fun SearchScreen(
             },
         )
     }
-}
-
-@Composable
-private fun SearchQueryField(query: String, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        placeholder = { Text("Busca por título, fandom, autor, tag…") },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-        trailingIcon = if (query.isNotBlank()) {
-            {
-                IconButton(onClick = { onQueryChange(""); onSearch() }) {
-                    Icon(Icons.Default.Clear, contentDescription = "Limpiar búsqueda")
-                }
-            }
-        } else {
-            null
-        },
-        singleLine = true,
-        shape = CircleShape,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-    )
 }
 
 private fun activeFilterCount(f: SearchFilters): Int {
@@ -423,28 +482,45 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
 private fun FilterSheet(
     initial: SearchFilters,
     facets: FilterFacets?,
+    container: AppContainer,
     onDismiss: () -> Unit,
     onApply: (SearchFilters) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
     var f by remember { mutableStateOf(initial) }
 
+    // For a free-text query AO3's /works search page has NO sidebar, so we
+    // resolve the query to a canonical tag and load THAT tag page's facets on
+    // demand (characters, relationships, freeforms with result counts).
+    var querySuggestions by remember { mutableStateOf<FilterFacets?>(null) }
+    var suggestionsLoading by remember { mutableStateOf(false) }
+    val suggestQuery = initial.tag ?: initial.query.takeIf { it.isNotBlank() }
+    LaunchedEffect(suggestQuery) {
+        querySuggestions = null
+        if (suggestQuery == null) return@LaunchedEffect
+        if (facets?.groups?.isNotEmpty() == true) return@LaunchedEffect
+        suggestionsLoading = true
+        querySuggestions = runCatching { container.client.searchFacets(suggestQuery) }.getOrNull()
+        suggestionsLoading = false
+    }
+    val effectiveFacets = facets?.takeIf { it.groups.isNotEmpty() } ?: querySuggestions
+
     // Prefer the live sidebar facets (with result counts); fall back to the
     // static AO3 option tables when the listing has no filter sidebar.
     fun withCount(label: String, count: Int) = if (count > 0) "$label ($count)" else label
     val ratingItems: List<FilterOption> =
-        facets?.groups?.firstOrNull { it.kind == FacetKind.RATING }?.include
+        effectiveFacets?.groups?.firstOrNull { it.kind == FacetKind.RATING }?.include
             ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
             ?: RATING_OPTIONS
     val warningItems: List<FilterOption> =
-        facets?.groups?.firstOrNull { it.kind == FacetKind.WARNING }?.include
+        effectiveFacets?.groups?.firstOrNull { it.kind == FacetKind.WARNING }?.include
             ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
             ?: WARNING_OPTIONS
     val categoryItems: List<FilterOption> =
-        facets?.groups?.firstOrNull { it.kind == FacetKind.CATEGORY }?.include
+        effectiveFacets?.groups?.firstOrNull { it.kind == FacetKind.CATEGORY }?.include
             ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
             ?: CATEGORY_OPTIONS
-    val suggestionGroups = facets?.groups
+    val suggestionGroups = effectiveFacets?.groups
         ?.filter {
             it.kind == FacetKind.CHARACTER || it.kind == FacetKind.RELATIONSHIP ||
                 it.kind == FacetKind.FREEFORM || it.kind == FacetKind.FANDOM
@@ -478,6 +554,18 @@ private fun FilterSheet(
             )
             Spacer(Modifier.height(12.dp))
 
+            if (suggestionsLoading) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Cargando tags relacionados…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             if (suggestionGroups.isNotEmpty()) {
                 Text("Sugerencias de tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(2.dp))

@@ -102,21 +102,26 @@ private fun AppRoot() {
                 AnimatedContent(
                     targetState = if (showTabs) NavTarget.Tab(tab) else NavTarget.Screen(nav.current),
                     transitionSpec = {
-                        // MD3 standard motion (decelerate enter / accelerate exit).
-                        // Going FORWARD the new screen slides in from the right;
-                        // going BACK (pop) it slides in from the left, matching
-                        // the physical direction the user is moving.
-                        val forward = nav.lastDirection >= 0
-                        if (forward) {
-                            (fadeIn(tween(300, easing = StandardDecelerate)) +
-                                slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 5 }) togetherWith
-                                (fadeOut(tween(220, easing = StandardAccelerate)) +
-                                    slideOutHorizontally(tween(220, easing = StandardAccelerate)) { -it / 5 })
+                        // Tab switches are a plain crossfade (no slide — they are
+                        // not spatial navigation and felt wrong with a slide).
+                        // Screen pushes slide in from the right; pops slide in
+                        // from the left, matching the physical direction.
+                        if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
+                            (fadeIn(tween(200, easing = StandardDecelerate)) togetherWith
+                                fadeOut(tween(120)))
                         } else {
-                            (fadeIn(tween(300, easing = StandardDecelerate)) +
-                                slideInHorizontally(tween(300, easing = StandardDecelerate)) { -it / 5 }) togetherWith
-                                (fadeOut(tween(220, easing = StandardAccelerate)) +
-                                    slideOutHorizontally(tween(220, easing = StandardAccelerate)) { it / 5 })
+                            val forward = nav.lastDirection >= 0
+                            if (forward) {
+                                (fadeIn(tween(240, easing = StandardDecelerate)) +
+                                    slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 3 }) togetherWith
+                                    (fadeOut(tween(180, easing = StandardAccelerate)) +
+                                        slideOutHorizontally(tween(300, easing = StandardAccelerate)) { -it / 4 })
+                            } else {
+                                (fadeIn(tween(240, easing = StandardDecelerate)) +
+                                    slideInHorizontally(tween(300, easing = StandardDecelerate)) { -it / 3 }) togetherWith
+                                    (fadeOut(tween(180, easing = StandardAccelerate)) +
+                                        slideOutHorizontally(tween(300, easing = StandardAccelerate)) { it / 4 })
+                            }
                         }
                     },
                     label = "nav",

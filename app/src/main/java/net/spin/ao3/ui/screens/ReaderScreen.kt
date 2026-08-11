@@ -1080,9 +1080,14 @@ private fun PagedReaderBody(
 
 /**
  * Packs [lines] into pages that fit the measured viewport (px) without ever
- * splitting a paragraph. Each line is measured with the same style the reader
- * uses, so a page break always lands on a real line boundary and the next page
- * starts right where the previous one ended.
+ * splitting a paragraph. For every page we BINARY-SEARCH the largest number of
+ * lines that fits, measuring the exact annotated string the page will render
+ * (same style, same width) — so pages fill the viewport edge-to-edge instead
+ * of leaving a few lines of unused space (which inflated the page count and
+ * showed a visible gap at the bottom of most pages).
+ *
+ * An oversized single line (huge <pre>/heading) still gets its own page; the
+ * per-page scroll fallback in [PagedReaderBody] keeps it reachable.
  */
 private fun packPagesToViewport(
     lines: List<Line>,
@@ -1115,23 +1120,28 @@ private fun packPagesToViewport(
             lineHeight = (fontSize * lineHeight).sp,
             fontFamily = family,
         )
-        val lineHeightPx = (fontSize * lineHeight).sp.toPx().roundToInt()
-        val pages = mutableListOf<List<Line>>()
-        var current = mutableListOf<Line>()
-        var currentHeight = 0
-        for (line in lines) {
-            val annotated = linesToAnnotated(listOf(line), fontSize, Color.Black, Color.Black)
-            val h = measurer.measure(annotated, style = style, constraints = Constraints(maxWidth = widthPx)).size.height
-            val gap = if (current.isEmpty()) 0 else lineHeightPx
-            if (current.isNotEmpty() && currentHeight + gap + h > heightPx) {
-                pages += current
-                current = mutableListOf()
-                currentHeight = 0
-            }
-            current += line
-            currentHeight += h + gap
+        fun fits(from: Int, to: Int): Boolean {
+            // to exclusive; measures EXACTLY the string the page will render.
+            val ann = linesToAnnotated(lines.subList(from, to), fontSize, Color.Black, Color.Black)
+            return measurer.measure(
+                ann,
+                style = style,
+                constraints = Constraints(maxWidth = widthPx),
+            ).size.height <= heightPx
         }
-        if (current.isNotEmpty()) pages += current
+        val pages = mutableListOf<List<Line>>()
+        var i = 0
+        while (i < lines.size) {
+            var lo = i
+            var hi = lines.size
+            while (lo < hi) {
+                val mid = (lo + hi + 1) / 2
+                if (fits(i, mid)) lo = mid else hi = mid - 1
+            }
+            val end = lo.coerceAtLeast(i + 1)
+            pages += lines.subList(i, end)
+            i = end
+        }
         return pages
     }
 }
@@ -1303,39 +1313,59 @@ private fun ReaderWebViewHost(
  * Highlights all occurrences of [query] and reports the count via
  * Reader.onJsFindResult. Uses DOM <mark> wrapping (not the CSS Custom
  * Highlight API) so it behaves identically across every WebView version.
+ *
+ * IMPORTANT: matches are grouped by text node and each node is wrapped from
+ * the LAST match backwards, so the split offsets stay valid. The previous
+ * forward loop (plus an accidental mark.appendChild) corrupted the chapter
+ * text (letters lost/swapped) whenever a text node had two+ matches.
  */
 private fun jsFindInPage(query: String): String {
     val q = query.replace("\\", "\\\\").replace("'", "\\'")
     return """
         (function(){
           try {
-            window.__find = [];
             var q = '$q';
+            window.__find = [];
             if (!q) { if (window.Reader) window.Reader.onJsFindResult(0); return; }
             var root = document.querySelector('.content') || document.body;
             var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            var lq = q.toLowerCase();
+            var matches = [];
             while (walker.nextNode()) {
-              var t = walker.currentNode.nodeValue;
-              var lower = t.toLowerCase();
-              var lq = q.toLowerCase();
+              var node = walker.currentNode;
+              var lower = node.nodeValue.toLowerCase();
               var idx = lower.indexOf(lq);
               while (idx >= 0) {
-                window.__find.push({node: walker.currentNode, start: idx, end: idx + lq.length});
+                matches.push({node: node, start: idx, end: idx + lq.length});
                 idx = lower.indexOf(lq, idx + lq.length);
               }
             }
-            for (var i = 0; i < window.__find.length; i++) {
-              var m = window.__find[i];
-              try {
+            // Group matches per text node (a Map keyed by node IDENTITY — an
+            // object literal would coerce every Text node to "[object Text]"
+            // and collapse all matches onto one node, corrupting the text),
+            // then wrap each node from the last match to the first so the
+            // earlier split offsets stay valid.
+            var byNode = new Map();
+            for (var i = 0; i < matches.length; i++) {
+              var m = matches[i];
+              if (!byNode.has(m.node)) byNode.set(m.node, []);
+              byNode.get(m.node).push(m);
+            }
+            byNode.forEach(function(list, node) {
+              list.sort(function(a, b) { return b.start - a.start; });
+              for (var j = 0; j < list.length; j++) {
+                var mm = list[j];
                 var mark = document.createElement('mark');
                 mark.className = 'ao3findmark';
-                m.node.splitText(m.end);
-                var mid = m.node.splitText(m.start);
-                m.node.parentNode.replaceChild(mark, mid);
-                mark.appendChild(m.node);
-              } catch (e) {}
-            }
-            if (window.Reader) window.Reader.onJsFindResult(window.__find.length);
+                var tail = node.splitText(mm.end);
+                var mid = node.splitText(mm.start);
+                node.parentNode.insertBefore(mark, tail);
+                mark.appendChild(mid);
+                mm.el = mark;
+              }
+            });
+            window.__find = matches;
+            if (window.Reader) window.Reader.onJsFindResult(matches.length);
           } catch (e) {
             if (window.Reader) window.Reader.onJsFindResult(0);
           }
@@ -1349,7 +1379,7 @@ private fun jsGoToMatch(index: Int): String = """
       try {
         if (!window.__find || index >= window.__find.length) return;
         var m = window.__find[$index];
-        var el = m.node.parentNode;
+        var el = m.el || m.node.parentNode;
         var rect = el.getBoundingClientRect();
         var y = window.scrollY + rect.top - 140;
         window.scrollTo(0, Math.max(0, y));

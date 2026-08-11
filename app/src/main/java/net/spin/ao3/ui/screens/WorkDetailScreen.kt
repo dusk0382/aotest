@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +76,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +101,7 @@ import net.spin.ao3.ui.components.TagChipVariant
 import net.spin.ao3.ui.components.WarningColor
 import net.spin.ao3.ui.components.ratingColor
 import net.spin.ao3.ui.theme.LocalSemanticColors
+import net.spin.ao3.util.AvatarImages
 import net.spin.ao3.util.ChapterExporter
 import net.spin.ao3.util.formatCount
 import net.spin.ao3.util.htmlToAnnotated
@@ -748,6 +752,10 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuth
         ) {
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    var avatar by remember(comment.avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
+                    LaunchedEffect(comment.avatarUrl) {
+                        avatar = comment.avatarUrl?.let { AvatarImages.load(it) }
+                    }
                     Box(
                         Modifier
                             .size(28.dp)
@@ -761,16 +769,26 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuth
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            comment.author.firstOrNull()?.uppercase() ?: "?",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isReply) {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            },
-                        )
+                        val bmp = avatar
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "Avatar de ${comment.author}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Text(
+                                comment.author.firstOrNull()?.uppercase() ?: "?",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isReply) {
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                },
+                            )
+                        }
                     }
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {

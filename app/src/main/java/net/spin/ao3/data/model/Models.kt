@@ -290,6 +290,8 @@ data class Ao3Comment(
     /** Plain-text version of the body. */
     val text: String,
     val depth: Int,
+    /** Commenter's icon (img.icon from the thread), null when unset/default. */
+    val avatarUrl: String? = null,
 )
 
 /** A user/pseud profile on AO3 (bio, registration date and works). */

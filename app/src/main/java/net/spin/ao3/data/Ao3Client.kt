@@ -1,6 +1,8 @@
 package net.spin.ao3.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -155,6 +157,7 @@ class Ao3Client {
 
     // Cache of tag name -> canonical tag_id (avoids a page fetch per pagination).
     private val canonicalTagCache = java.util.concurrent.ConcurrentHashMap<String, String?>()
+    private val facetsCache = java.util.concurrent.ConcurrentHashMap<String, FilterFacets>()
 
     // ---- In-memory result caches (LRU) -------------------------------------
     // Bounded so memory stays small; keyed by the exact request so a back
@@ -230,23 +233,47 @@ class Ao3Client {
      * (spaces -> %20). URLEncoder alone is NOT enough: it encodes spaces as '+'
      * which is only valid in query strings — /tags/Harry+Potter/works 404s.
      */
+    /** Fetches (and caches) /tags/{name}/works — shared by tag resolution + facets. */
+    private val tagPages = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private suspend fun tagWorksPage(name: String): String? {
+        tagPages[name]?.let { return it }
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host("archiveofourown.org")
+            .addPathSegment("tags")
+            .addPathSegment(name)
+            .addPathSegment("works")
+            .build()
+            .toString()
+        return runCatching { get(url) }.getOrNull()?.also { tagPages[name] = it }
+    }
+
     private suspend fun resolveCanonicalTag(name: String): String? {
         canonicalTagCache[name]?.let { return it }
-        val resolved = runCatching {
-            val url = HttpUrl.Builder()
-                .scheme("https")
-                .host("archiveofourown.org")
-                .addPathSegment("tags")
-                .addPathSegment(name)
-                .addPathSegment("works")
-                .build()
-            val html = get(url.toString())
+        val resolved = tagWorksPage(name)?.let { html ->
             Regex("""<input[^>]*name="tag_id"[^>]*value="([^"]*)"""").find(html)
                 ?.groupValues?.get(1)
                 ?: Regex("""<input[^>]*value="([^"]*)"[^>]*name="tag_id"""").find(html)?.groupValues?.get(1)
-        }.getOrNull()
+        }
         canonicalTagCache[name] = resolved
         return resolved
+    }
+
+    /**
+     * Suggested tags for a free-text query. AO3's /works search page has NO
+     * filter sidebar, so we resolve the query to a canonical tag and read THAT
+     * tag page's sidebar (characters, relationships, freeforms with counts).
+     */
+    suspend fun searchFacets(query: String): FilterFacets {
+        if (query.isBlank()) return FilterFacets()
+        facetsCache[query]?.let { return it }
+        val facets = runCatching {
+            val canonical = resolveCanonicalTag(query) ?: return@runCatching FilterFacets()
+            Ao3Parser.parseFacets(tagWorksPage(canonical) ?: return@runCatching FilterFacets())
+        }.getOrDefault(FilterFacets())
+        facetsCache[query] = facets
+        return facets
     }
 
     /** Adds the shared work_search[...] params used by both endpoints. */
@@ -354,8 +381,13 @@ class Ao3Client {
         // Author pages occasionally flake behind Cloudflare; keep the retries
         // low so a partial profile (name + avatar) renders quickly instead of
         // waiting out the full 7-attempt backoff before showing anything.
-        val profileHtml = runCatching { get(profileUrl, retries = 4) }
-        val worksHtml = runCatching { get(worksUrl, retries = 4) }
+        // Both pages are fetched IN PARALLEL so the user waits for the slower
+        // of the two, not the sum.
+        val (profileHtml, worksHtml) = coroutineScope {
+            val p = async { runCatching { get(profileUrl, retries = 3) } }
+            val w = async { runCatching { get(worksUrl, retries = 3) } }
+            p.await() to w.await()
+        }
 
         val profile = profileHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorProfile(it, username) }.getOrNull() }
         val works = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) }.getOrNull() }
@@ -371,7 +403,11 @@ class Ao3Client {
                 (if (profileHtml.isFailure) " profileError=${profileHtml.exceptionOrNull()?.message}" else "") +
                 (if (worksHtml.isFailure) " worksError=${worksHtml.exceptionOrNull()?.message}" else ""),
         )
-        authorCache.put(username, result)
+        // Only cache COMPLETE profiles: caching a transient works failure would
+        // keep the works list empty forever on every later visit.
+        if (profileHtml.isSuccess && worksHtml.isSuccess) {
+            authorCache.put(username, result)
+        }
         return result
     }
 

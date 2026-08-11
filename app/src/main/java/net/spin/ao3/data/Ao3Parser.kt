@@ -299,9 +299,10 @@ object Ao3Parser {
         }
         val bioEl = doc.selectFirst("div#bio, dd.bio, div.bio, .userstuff#bio, #bio")
         val bio = bioEl?.text()?.trim() ?: ""
-        // The profile icon is an <img class="icon"> in the header (default
-        // iconsets/default/icon_user.png when the user has none).
-        val avatarUrl = doc.selectFirst("img.icon")?.let { el -> el.absUrl("src") }?.takeIf { it.isNotBlank() }
+        // The profile icon is an <img class="icon"> in the header; the default
+        // iconsets/default/icon_user.png is served when the user has none, in
+        // which case we keep the avatar null and show an initial-letter avatar.
+        val avatarUrl = realIconUrl(doc.selectFirst("img.icon"))
         return AuthorProfile(
             username = username,
             displayName = displayName,
@@ -483,6 +484,7 @@ object Ao3Parser {
                     html = sanitize(html, BASE) ?: "",
                     text = text,
                     depth = depth,
+                    avatarUrl = realIconUrl(li.selectFirst("img.icon")),
                 ),
             )
         }
@@ -507,6 +509,16 @@ object Ao3Parser {
                 "> ol.comment > li.comment.group, " +
                 "> ol.children > li.comment.group",
         ).forEach { child -> parseComment(child, depth + 1, out) }
+    }
+
+    /**
+     * Absolutizes an icon URL, returning null for the anonymous default icon
+     * (iconsets/default/icon_user.png) so the UI shows a nicer initial avatar
+     * instead of the generic gray person.
+     */
+    private fun realIconUrl(el: Element?): String? {
+        val url = el?.absUrl("src")?.takeIf { it.isNotBlank() } ?: return null
+        return if (url.contains("icon_user") || url.contains("/default/")) null else url
     }
 
     // ---- Helpers ------------------------------------------------------------
