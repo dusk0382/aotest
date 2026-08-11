@@ -1,6 +1,8 @@
 package net.spin.ao3.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,10 +39,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,6 +57,9 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,7 +102,6 @@ fun LibraryScreen(
     val favorites = remember(refreshTick) { store.savedWorks() }
     val history = remember(refreshTick) { store.history() }
     val downloads = remember(refreshTick, queueState) { store.downloads() }
-    val semantic = LocalSemanticColors.current
 
     val exporter = ChapterExporter.rememberChapterExporter { msg ->
         scope.launch {
@@ -111,9 +115,9 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            androidx.compose.material3.TopAppBar(
+            TopAppBar(
                 title = { Text("Biblioteca", fontWeight = FontWeight.SemiBold) },
-                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
@@ -121,55 +125,184 @@ fun LibraryScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Favoritos") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Historial") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Descargas") })
-            }
+            LibraryTabSelector(selected = tab, onSelect = { tab = it })
             tabStates.SaveableStateProvider(tab) {
-            when (tab) {
-                0 -> FavoritesTab(
-                    favorites = favorites,
-                    onOpen = onOpenDetail,
-                    onRemove = { id ->
-                        store.removeSaved(id)
-                        refreshTick++
-                        scope.launch { snackbar.showSnackbar("Quitado de favoritos") }
-                    },
-                    onExplore = onExplore,
-                )
-                1 -> HistoryTab(
-                    history = history,
-                    onOpen = onOpenReader,
-                    onRemove = { id ->
-                        store.removeHistory(id)
-                        refreshTick++
-                    },
-                    onClearAll = {
-                        store.clearHistory()
-                        refreshTick++
-                    },
-                    onExplore = onExplore,
-                )
-                else -> DownloadsTab(
-                    downloads = downloads,
-                    onOpenDetail = onOpenDetail,
-                    onOpenChapter = onOpenReader,
-                    onDeleteChapter = { id, index ->
-                        store.removeDownloadedChapter(id, index)
-                        refreshTick++
-                        scope.launch { snackbar.showSnackbar("Capítulo eliminado de la descarga") }
-                    },
-                    onDeleteDownload = { id ->
-                        store.removeDownload(id)
-                        refreshTick++
-                        scope.launch { snackbar.showSnackbar("Descarga eliminada") }
-                    },
-                    exporter = exporter,
-                    onExplore = onExplore,
-                )
+                when (tab) {
+                    0 -> FavoritesTab(
+                        favorites = favorites,
+                        onOpen = onOpenDetail,
+                        onRemove = { id ->
+                            store.removeSaved(id)
+                            refreshTick++
+                            scope.launch { snackbar.showSnackbar("Quitado de favoritos") }
+                        },
+                        onExplore = onExplore,
+                    )
+                    1 -> HistoryTab(
+                        history = history,
+                        onOpen = onOpenReader,
+                        onRemove = { id ->
+                            store.removeHistory(id)
+                            refreshTick++
+                        },
+                        onClearAll = {
+                            store.clearHistory()
+                            refreshTick++
+                        },
+                        onExplore = onExplore,
+                    )
+                    else -> DownloadsTab(
+                        downloads = downloads,
+                        onOpenDetail = onOpenDetail,
+                        onOpenChapter = onOpenReader,
+                        onDeleteChapter = { id, index ->
+                            store.removeDownloadedChapter(id, index)
+                            refreshTick++
+                            scope.launch { snackbar.showSnackbar("Capítulo eliminado de la descarga") }
+                        },
+                        onDeleteDownload = { id ->
+                            store.removeDownload(id)
+                            refreshTick++
+                            scope.launch { snackbar.showSnackbar("Descarga eliminada") }
+                        },
+                        exporter = exporter,
+                        onExplore = onExplore,
+                    )
+                }
             }
+        }
+    }
+}
+
+/** Segmented pill selector (mismo lenguaje que la barra inferior de la app). */
+@Composable
+private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(Modifier.weight(1f)) {
+                LibraryTabPill("Favoritos", Icons.Filled.Star, selected == 0) { onSelect(0) }
             }
+            Box(Modifier.weight(1f)) {
+                LibraryTabPill("Historial", Icons.Filled.History, selected == 1) { onSelect(1) }
+            }
+            Box(Modifier.weight(1f)) {
+                LibraryTabPill("Descargas", Icons.Filled.Download, selected == 2) { onSelect(2) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryTabPill(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        label = "tabBg",
+    )
+    val fg by animateColorAsState(
+        if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        label = "tabFg",
+    )
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = bg,
+        contentColor = fg,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * Fila tipo card con icono en círculo tonal a la izquierda, título + subtítulo
+ * (y opcionalmente una barra de progreso) y acciones al final.
+ */
+@Composable
+private fun LibraryRowCard(
+    icon: ImageVector,
+    iconTint: Color,
+    iconContainer: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    progress: Float? = null,
+    trailing: @Composable () -> Unit = {},
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(iconContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (progress != null) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(CircleShape),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            trailing()
         }
     }
 }
@@ -192,32 +325,25 @@ private fun FavoritesTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(favorites, key = { it.id }) { sw ->
-            Surface(
-                modifier = Modifier.fillMaxWidth().clickable { onOpen(sw.id) },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = semantic.favorite, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(sw.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            LibraryRowCard(
+                icon = Icons.Default.Star,
+                iconTint = semantic.favorite,
+                iconContainer = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                title = sw.title,
+                subtitle = "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
+                onClick = { onOpen(sw.id) },
+                trailing = {
+                    IconButton(onClick = { onRemove(sw.id) }) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Quitar de favoritos",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { onRemove(sw.id) }) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "Quitar de favoritos", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
+                },
+            )
         }
     }
 }
@@ -240,7 +366,7 @@ private fun HistoryTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClearAll) {
@@ -249,29 +375,30 @@ private fun HistoryTab(
             }
         }
         items(history, key = { it.id }) { entry ->
-            Surface(
-                modifier = Modifier.fillMaxWidth().clickable { onOpen(entry.id, entry.chapterIndex) },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(entry.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${entry.author} · Cap. ${entry.chapterIndex + 1}" +
-                                (if (entry.scrollRatio > 0.02f) " · ${(entry.scrollRatio * 100).toInt()}%" else ""),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
+            val finished = progress >= 0.97f
+            LibraryRowCard(
+                icon = Icons.Default.History,
+                iconTint = MaterialTheme.colorScheme.secondary,
+                iconContainer = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                title = entry.title,
+                subtitle = buildString {
+                    append("${entry.author} · Cap. ${entry.chapterIndex + 1}")
+                    if (progress > 0.02f) append(" · ${(progress * 100).toInt()}%")
+                    if (finished) append(" · leído")
+                },
+                progress = if (progress > 0.02f) progress else null,
+                onClick = { onOpen(entry.id, entry.chapterIndex) },
+                trailing = {
+                    IconButton(onClick = { onRemove(entry.id) }) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Quitar del historial",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { onRemove(entry.id) }) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "Quitar del historial", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
+                },
+            )
         }
     }
 }
@@ -300,7 +427,7 @@ private fun DownloadsTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (queueState.active) {
             item {
                 Surface(
@@ -308,10 +435,10 @@ private fun DownloadsTab(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.padding(12.dp)) {
+                    Column(Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(10.dp))
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     "Descargando: ${queueState.workTitle}",
@@ -327,10 +454,10 @@ private fun DownloadsTab(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         LinearProgressIndicator(
                             progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
-                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
                         )
                     }
                 }
@@ -339,34 +466,33 @@ private fun DownloadsTab(
         items(downloads, key = { it.id }) { dl ->
             Surface(
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
                 Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable { onOpenDetail(dl.id) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = semantic.success, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(dl.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · sin conexión",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(onClick = { expanded = if (dl.id in expanded) expanded - dl.id else expanded + dl.id }) {
-                            Icon(
-                                if (dl.id in expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = if (dl.id in expanded) "Contraer" else "Expandir",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(onClick = { onDeleteDownload(dl.id) }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar descarga", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    LibraryRowCard(
+                        icon = Icons.Default.Download,
+                        iconTint = semantic.success,
+                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                        title = dl.title,
+                        subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · sin conexión",
+                        onClick = { onOpenDetail(dl.id) },
+                        trailing = {
+                            IconButton(onClick = { expanded = if (dl.id in expanded) expanded - dl.id else expanded + dl.id }) {
+                                Icon(
+                                    if (dl.id in expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (dl.id in expanded) "Contraer" else "Expandir",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            IconButton(onClick = { onDeleteDownload(dl.id) }) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Eliminar descarga",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                    )
                     AnimatedVisibility(visible = dl.id in expanded) {
                         Column {
                             dl.chapters.sortedBy { it.index }.forEach { ch ->

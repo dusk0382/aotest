@@ -22,10 +22,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Visibility
@@ -33,6 +34,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -71,7 +73,7 @@ fun HomeScreen(
     onOpenReader: (Long, Int) -> Unit,
 ) {
     val store = container.store
-    val history = remember { store.history() }
+    var history by remember { mutableStateOf(store.history()) }
     var query by rememberSaveable { mutableStateOf("") }
     // Scroll position survives tab switches (AnimatedContent disposes the screen).
     val homeScroll = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
@@ -143,7 +145,7 @@ fun HomeScreen(
             SectionTitle("Continuar leyendo")
             if (history.isEmpty()) {
                 EmptyState(
-                    icon = Icons.Default.PlayArrow,
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
                     title = "Nada que continuar",
                     description = "Busca un fandom o explora las tendencias para empezar a leer.",
                     actionLabel = "Explorar tendencias",
@@ -156,7 +158,14 @@ fun HomeScreen(
                 // autor, capítulo, tiempo, progreso) en una lista vertical.
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     history.forEach { entry ->
-                        ContinueReadingRow(entry) { id, ch -> onOpenReader(id, ch) }
+                        ContinueReadingRow(
+                            entry = entry,
+                            onOpen = { id, ch -> onOpenReader(id, ch) },
+                            onRemove = { id ->
+                                store.removeHistory(id)
+                                history = store.history()
+                            },
+                        )
                     }
                 }
             }
@@ -172,7 +181,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ContinueReadingRow(entry: Store.HistoryEntry, onOpen: (Long, Int) -> Unit) {
+private fun ContinueReadingRow(
+    entry: Store.HistoryEntry,
+    onOpen: (Long, Int) -> Unit,
+    onRemove: (Long) -> Unit,
+) {
     val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
     val readCount = entry.chapterProgress.count { it.value >= 0.97f }
     Card(
@@ -183,7 +196,7 @@ private fun ContinueReadingRow(entry: Store.HistoryEntry, onOpen: (Long, Int) ->
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -194,7 +207,7 @@ private fun ContinueReadingRow(entry: Store.HistoryEntry, onOpen: (Long, Int) ->
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.PlayArrow,
+                    Icons.AutoMirrored.Filled.MenuBook,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp),
@@ -241,11 +254,18 @@ private fun ContinueReadingRow(entry: Store.HistoryEntry, onOpen: (Long, Int) ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            // Remove from "Continuar leyendo" (un libro abierto, no un icono de video).
+            IconButton(onClick = { onRemove(entry.id) }) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Quitar de Continuar leyendo",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Icon(
                 Icons.Default.KeyboardArrowRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
     }

@@ -375,7 +375,7 @@ fun ReaderScreen(
                 wv.evaluateJavascript(
                     "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
                 ) { r ->
-                    pendingScroll = r?.toFloatOrNull() ?: 0f
+                    pendingScroll = parseJsRatio(r)
                     block()
                 }
             } else {
@@ -1421,8 +1421,16 @@ private fun jsClearFind(): String = """
 private fun readScrollRatio(wv: WebView, cb: (Float) -> Unit) {
     wv.evaluateJavascript(
         "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
-    ) { r -> cb(r?.toFloatOrNull() ?: 0f) }
+    ) { r -> cb(parseJsRatio(r)) }
 }
+
+/**
+ * WebView.evaluateJavascript returns the JS result JSON-encoded, so a String
+ * comes back quoted ("0.4321"). The old `r?.toFloatOrNull()` always failed on
+ * the quotes and progress was saved as 0 (broken reader restore + 0% bars).
+ */
+internal fun parseJsRatio(r: String?): Float =
+    r?.trim('"')?.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f
 
 private fun restoreScroll(wv: WebView, ratio: Float) {
     if (ratio <= 0f) return
