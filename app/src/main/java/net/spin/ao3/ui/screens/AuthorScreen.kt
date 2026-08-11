@@ -220,10 +220,13 @@ fun AuthorScreen(
                 }
                 if (p.works.isEmpty()) {
                     item {
+                        val worksError = p.worksError
                         EmptyState(
                             icon = Icons.Default.OpenInNew,
-                            title = "Sin obras visibles",
-                            description = "No se encontraron obras de ${p.displayName} en la primera página.",
+                            title = if (worksError != null) "No se pudieron cargar las obras" else "Sin obras visibles",
+                            description = worksError
+                                ?.let { "Error de red al cargar las obras: $it" }
+                                ?: "No se encontraron obras de ${p.displayName} en la primera página.",
                             compact = true,
                             actionLabel = "Reintentar",
                             onAction = { retryTick++ },

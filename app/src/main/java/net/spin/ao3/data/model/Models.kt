@@ -305,6 +305,8 @@ data class AuthorProfile(
     /** Number of works, when the works page shows it ("11 Works by …"). */
     val worksCount: Int? = null,
     val works: List<WorkSummary> = emptyList(),
+    /** Why the works list is empty, when known (network/parse error, null = genuinely empty). */
+    val worksError: String? = null,
     /** The user's profile icon (img.icon on the profile page), absolute URL. */
     val avatarUrl: String? = null,
 )

@@ -85,7 +85,11 @@ class Ao3Client {
                 // AO3 shows an age gate to visitors without the view_adult cookie.
                 if (isAdultGate(body)) {
                     val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
-                    return fetch(adultUrl, headers)
+                    // The gated body already carries the full page (the notice is a
+                    // banner, not a replacement). Only swap it for the refetch when
+                    // that refetch succeeds: never throw away a good response just
+                    // because a redundant refetch hit a Cloudflare 525/timeout.
+                    runCatching { fetch(adultUrl, headers) }.getOrNull()?.let { return it }
                 }
                 return body
             } catch (e: Exception) {
@@ -141,9 +145,19 @@ class Ao3Client {
             body.contains("jschl") ||
             Regex("error code: 5\\d\\d").containsMatchIn(body)
 
-    /** AO3's "Adult Content Warning" interstitial. */
-    private fun isAdultGate(body: String): Boolean =
-        body.contains("view_adult=true") || body.contains("Adult Content Warning")
+    /**
+     * Detects AO3's real adult-content interstitial (a full-page notice that
+     * replaces the content for visitors without the view_adult cookie).
+     *
+     * IMPORTANT: do NOT key on "view_adult=true". Once the view_adult cookie is
+     * set, AO3 echoes that parameter URL-encoded into the login form's
+     * return_to link on EVERY page, which made every request do a redundant
+     * refetch (and routinely die on Cloudflare 525s) - the root cause of
+     * author works lists coming back empty.
+     */
+    internal fun isAdultGate(body: String): Boolean =
+        body.contains("This work could have adult content") ||
+            body.contains("name=\"view_adult\"")
 
     /** Keeps Cloudflare cookies (cf_clearance, view_adult, etc.) across requests. */
     private class InMemoryCookieJar : CookieJar {
@@ -379,21 +393,29 @@ class Ao3Client {
         val worksUrl = base.addPathSegment("works").build().toString()
 
         // Author pages occasionally flake behind Cloudflare; keep the retries
-        // low so a partial profile (name + avatar) renders quickly instead of
-        // waiting out the full 7-attempt backoff before showing anything.
-        // Both pages are fetched IN PARALLEL so the user waits for the slower
-        // of the two, not the sum.
+        // moderate so a partial profile (name + avatar) still renders quickly.
+        // Note: requests are serialized by the shared gate mutex (site-respect),
+        // so worst-case wait is the sum of both retry ladders, not the max.
         val (profileHtml, worksHtml) = coroutineScope {
-            val p = async { runCatching { get(profileUrl, retries = 3) } }
-            val w = async { runCatching { get(worksUrl, retries = 3) } }
+            val p = async { runCatching { get(profileUrl, retries = 4) } }
+            val w = async { runCatching { get(worksUrl, retries = 4) } }
             p.await() to w.await()
         }
 
         val profile = profileHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorProfile(it, username) }.getOrNull() }
-        val works = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) }.getOrNull() }
+        val worksParse = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) } }
+        val works = worksParse?.getOrNull()
+        // Surface WHY the works list is missing (network vs parse) so the UI can
+        // tell a transient Cloudflare failure apart from a genuinely empty list.
+        val worksError = worksHtml.exceptionOrNull()?.message
+            ?: worksParse?.exceptionOrNull()?.message
 
         val result = (profile ?: AuthorProfile(username = username, displayName = username))
-            .copy(worksCount = works?.first, works = works?.second.orEmpty())
+            .copy(
+                worksCount = works?.first,
+                works = works?.second.orEmpty(),
+                worksError = worksError,
+            )
         if (profileHtml.isFailure && worksHtml.isFailure) {
             throw profileHtml.exceptionOrNull() ?: worksHtml.exceptionOrNull()!!
         }
@@ -401,7 +423,7 @@ class Ao3Client {
             "AO3Lector",
             "AuthorProfile username=$username display=${result.displayName} worksCount=${result.worksCount} worksParsed=${result.works.size} joined=${result.joined} pseuds=${result.pseuds} bio=${result.bio.length}ch" +
                 (if (profileHtml.isFailure) " profileError=${profileHtml.exceptionOrNull()?.message}" else "") +
-                (if (worksHtml.isFailure) " worksError=${worksHtml.exceptionOrNull()?.message}" else ""),
+                (if (worksError != null) " worksError=$worksError" else ""),
         )
         // Only cache COMPLETE profiles: caching a transient works failure would
         // keep the works list empty forever on every later visit.
