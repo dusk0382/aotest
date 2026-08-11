@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -48,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -148,14 +148,12 @@ fun HomeScreen(
                     compact = true,
                 )
             } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                // AO3 es un archivo de texto: las obras no tienen portadas, así
+                // que "Continuar leyendo" usa tarjetas de texto limpias (título,
+                // autor, capítulo, tiempo, progreso) en una lista vertical.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     history.forEach { entry ->
-                        ContinueReadingCard(entry) { id, ch -> onOpenReader(id, ch) }
+                        ContinueReadingRow(entry) { id, ch -> onOpenReader(id, ch) }
                     }
                 }
             }
@@ -171,75 +169,56 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ContinueReadingCard(entry: Store.HistoryEntry, onOpen: (Long, Int) -> Unit) {
-    val progress = (entry.chapterProgress[entry.chapterIndex] ?: 0f).coerceIn(0f, 1f)
+private fun ContinueReadingRow(entry: Store.HistoryEntry, onOpen: (Long, Int) -> Unit) {
+    val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
     val readCount = entry.chapterProgress.count { it.value >= 0.97f }
     Card(
         onClick = { onOpen(entry.id, entry.chapterIndex) },
-        modifier = Modifier.width(188.dp),
-        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
     ) {
-        Column {
-            // Cover band: gradient + initial, chapter chip and play badge.
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(88.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.tertiaryContainer,
-                            ),
-                        ),
-                    ),
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    entry.title.firstOrNull()?.uppercase() ?: "📖",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    shape = CircleShape,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                ) {
-                    Text(
-                        "Cap. ${entry.chapterIndex + 1}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
                 Icon(
                     Icons.Default.PlayArrow,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Column(Modifier.padding(10.dp)) {
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
                     entry.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    minLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    entry.author,
+                    listOfNotNull(
+                        entry.author,
+                        "Cap. ${entry.chapterIndex + 1}",
+                        relativeTime(entry.at),
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier
@@ -249,17 +228,35 @@ private fun ContinueReadingCard(entry: Store.HistoryEntry, onOpen: (Long, Int) -
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     buildString {
-                        if (readCount > 0) append("$readCount cap. leídos · ")
-                        append("${(progress * 100).toInt()}%")
+                        append("${(progress * 100).toInt()}% del capítulo")
+                        if (readCount > 0) append(" · $readCount cap. leídos")
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+/** "hace 5 min", "hace 2 h", "hace 3 d"… */
+private fun relativeTime(at: Long): String {
+    val minutes = (System.currentTimeMillis() - at) / 60_000
+    return when {
+        minutes < 1 -> "ahora mismo"
+        minutes < 60 -> "hace $minutes min"
+        minutes < 60 * 24 -> "hace ${minutes / 60} h"
+        minutes < 60 * 24 * 7 -> "hace ${minutes / (60 * 24)} d"
+        else -> "hace ${minutes / (60 * 24 * 7)} sem"
     }
 }
 
