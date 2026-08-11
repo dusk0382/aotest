@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -91,6 +92,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
@@ -123,7 +125,7 @@ fun SearchScreen(
     var currentFilters by remember { mutableStateOf(filters) }
     var currentSort by remember { mutableStateOf(sort) }
     var results by remember { mutableStateOf<List<WorkSummary>>(emptyList()) }
-    var page by remember { mutableStateOf(1) }
+    // `page` is declared with rememberSaveable below, keyed by the search identity.
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var noMorePages by remember { mutableStateOf(false) }
@@ -137,6 +139,22 @@ fun SearchScreen(
     // Editable copy of the query shown in the search field below the bar.
     var queryDraft by remember(currentFilters.query) { mutableStateOf(currentFilters.query) }
     val scope = rememberCoroutineScope()
+
+    // Scroll + pagination SURVIVE navigation: rememberSaveable restores this
+    // state when the screen is recreated after opening a work and coming back,
+    // so the list no longer resets to the top with only page 1.
+    // Keyed by the search identity: the custom nav pushes a NEW Route.Search
+    // when browsing a tag from within a search, and both screens compose at the
+    // same position — without a custom key they would share (and corrupt) each
+    // other's restored scroll/page.
+    val restoreKey = "${currentFilters.serialize()}|${currentSort.name}"
+    val listState = rememberSaveable(key = "list-$restoreKey", saver = LazyListState.Saver) { LazyListState() }
+    var page by rememberSaveable(key = "page-$restoreKey") { mutableIntStateOf(1) }
+    // Snapshot of the restored position/page taken on FIRST composition (before
+    // fetchFirst() resets `page` and before the list clamps the restored index
+    // while there are still too few items).
+    val restoredScroll = remember { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+    val restoredPage = remember { page }
 
     fun fetchFirst() {
         loading = true
@@ -191,6 +209,25 @@ fun SearchScreen(
     }
 
     LaunchedEffect(currentFilters, currentSort) { fetchFirst() }
+
+    // On recreation (back from a work): reload the pages the user had reached
+    // (all cache hits -> near instant) and restore the scroll position. Only
+    // runs once per screen instance; a brand-new search has page = 1 / index 0.
+    LaunchedEffect(Unit) {
+        if (restoredPage > 1) {
+            while (loading) delay(50)
+            // If page 1 itself failed, don't pile page 2+ onto an empty list.
+            if (error != null) return@LaunchedEffect
+            repeat(restoredPage - 1) {
+                if (noMorePages) return@LaunchedEffect
+                fetchMore()
+                while (loadingMore) delay(50)
+            }
+        }
+        if (restoredScroll.first > 0 || restoredScroll.second > 0) {
+            listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+        }
+    }
 
     val activeFilterCount = activeFilterCount(currentFilters)
 
@@ -399,6 +436,7 @@ fun SearchScreen(
                 )
             }
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
