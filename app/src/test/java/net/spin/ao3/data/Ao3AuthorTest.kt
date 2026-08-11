@@ -87,6 +87,23 @@ class Ao3AuthorTest {
     }
 
     @Test
+    fun `author page URLs are built fresh - no leaked path segments`() {
+        // Regression: the old code reused one HttpUrl.Builder, which mutates in
+        // place, so the works URL came out as /users/X/profile/works (404).
+        val client = Ao3Client()
+        assertEquals(
+            "profile URL is clean",
+            "https://archiveofourown.org/users/Sable_Scribe/profile",
+            client.authorPageUrl("Sable_Scribe", "profile"),
+        )
+        assertEquals(
+            "works URL must not inherit the profile segment",
+            "https://archiveofourown.org/users/Sable_Scribe/works",
+            client.authorPageUrl("Sable_Scribe", "works"),
+        )
+    }
+
+    @Test
     fun `isAdultGate is false for a Cloudflare 525 body`() {
         val client = Ao3Client()
         val cf = """<html><body id="cf-error-details"><h1>SSL handshake failed</h1>

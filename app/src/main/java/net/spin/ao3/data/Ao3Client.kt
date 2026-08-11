@@ -382,15 +382,28 @@ class Ao3Client {
      * with a transient 5xx, so a partial profile (works without bio, or bio
      * without works) is still returned — only a double failure throws.
      */
-    suspend fun getAuthorProfile(username: String): AuthorProfile {
-        authorCache.get(username)?.let { return it }
-        val base = HttpUrl.Builder()
+    /**
+     * Builds a user page URL (profile | works | ...) FRESH on every call.
+     *
+     * Never reuse one HttpUrl.Builder for two URLs: addPathSegment mutates the
+     * builder in place, so the second build() would inherit the first page's
+     * segment (e.g. /users/X/profile/works -> HTTP 404). This bug kept author
+     * works lists empty for a long time.
+     */
+    internal fun authorPageUrl(username: String, page: String): String =
+        HttpUrl.Builder()
             .scheme("https")
             .host("archiveofourown.org")
             .addPathSegment("users")
             .addPathSegment(username)
-        val profileUrl = base.addPathSegment("profile").build().toString()
-        val worksUrl = base.addPathSegment("works").build().toString()
+            .addPathSegment(page)
+            .build()
+            .toString()
+
+    suspend fun getAuthorProfile(username: String): AuthorProfile {
+        authorCache.get(username)?.let { return it }
+        val profileUrl = authorPageUrl(username, "profile")
+        val worksUrl = authorPageUrl(username, "works")
 
         // Author pages occasionally flake behind Cloudflare; keep the retries
         // moderate so a partial profile (name + avatar) still renders quickly.
