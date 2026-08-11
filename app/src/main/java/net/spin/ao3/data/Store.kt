@@ -41,6 +41,8 @@ class Store(context: Context) {
         var dynamicColor: Boolean = false
         var commentName: String = ""
         var commentEmail: String = ""
+        /** BCP-47 target language for the reader translator ("" = off). */
+        var translationLang: String = "es"
     }
 
     data class SavedWork(
@@ -302,6 +304,7 @@ class Store(context: Context) {
             appThemeMode = "SYSTEM"
             commentName = ""
             commentEmail = ""
+            translationLang = "es"
         }
         if (!file.exists()) return JSONObject()
         return try {
@@ -321,6 +324,7 @@ class Store(context: Context) {
             prefs.dynamicColor = p?.optBoolean("dynamicColor", false) ?: false
             prefs.commentName = p?.optString("commentName", "") ?: ""
             prefs.commentEmail = p?.optString("commentEmail", "") ?: ""
+            prefs.translationLang = p?.optString("translationLang", "es") ?: "es"
             obj
         } catch (_: Exception) {
             JSONObject()
@@ -339,6 +343,7 @@ class Store(context: Context) {
             put("dynamicColor", prefs.dynamicColor)
             put("commentName", prefs.commentName)
             put("commentEmail", prefs.commentEmail)
+            put("translationLang", prefs.translationLang)
         })
         // Write asynchronously to keep the UI snappy
         CoroutineScope(Dispatchers.IO).launch {

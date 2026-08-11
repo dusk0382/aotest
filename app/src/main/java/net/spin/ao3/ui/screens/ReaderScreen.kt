@@ -52,9 +52,11 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,6 +85,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -110,6 +113,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
@@ -158,6 +162,16 @@ fun ReaderScreen(
     var retryTick by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+
+    // Chapter translation (unofficial gtx endpoint, per-chapter on demand).
+    var translationLang by remember { mutableStateOf(store.prefs.translationLang) }
+    var translatedHtml by remember { mutableStateOf<String?>(null) }
+    var translationOn by remember { mutableStateOf(false) }
+    var translating by remember { mutableStateOf(false) }
+    var translateProgress by remember { mutableStateOf(0 to 0) }
+    var translateError by remember { mutableStateOf<String?>(null) }
+    var showLangPicker by remember { mutableStateOf(false) }
+    var translateJob by remember { mutableStateOf<Job?>(null) }
 
     // Find-in-chapter search.
     var searchOpen by remember { mutableStateOf(false) }
@@ -224,9 +238,11 @@ fun ReaderScreen(
     // Chapters whose NEXT chapter has already been prefetched (per reader session).
     var prefetched by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
-    // Paginated mode data (only parsed when active).
-    val lines = remember(content, paged) {
-        if (paged) htmlToLines(content ?: "") else emptyList()
+    // Paginated mode data (only parsed when active). The chapter body is
+    // either the original or the cached translation (per chapter + language).
+    val displayContent = if (translationOn) translatedHtml ?: content else content
+    val lines = remember(displayContent, paged) {
+        if (paged) htmlToLines(displayContent ?: "") else emptyList()
     }
     // Pages are packed to the exact viewport inside PagedReaderBody's
     // BoxWithConstraints; this mirror lets progress/search/bottom-bar read
@@ -283,6 +299,13 @@ fun ReaderScreen(
                 error = e.message ?: "No se pudo cargar el capítulo"
             }
         }
+        // New chapter: reset the translation display (cached translations stay
+        // on disk keyed per chapter + language and are reused on return) and
+        // cancel any in-flight translation of the previous chapter.
+        translateJob?.cancel()
+        translatedHtml = null
+        translationOn = false
+        translateError = null
         loading = false
         // Prefetch the next chapter (best-effort, only after a successful load)
         // so advancing is instant: the call fills chapterCache + the on-disk
@@ -300,7 +323,7 @@ fun ReaderScreen(
 
     // 2b) Paged mode: restore or reset the page whenever chapter content or the
     // (viewport-packed) page count changes.
-    LaunchedEffect(paged, content, currentIndex, measuredPages.size) {
+    LaunchedEffect(paged, displayContent, currentIndex, measuredPages.size) {
         if (!paged || measuredPages.isEmpty()) return@LaunchedEffect
         if (pendingScroll > 0f && measuredPages.size > 1) {
             val target = (pendingScroll * (measuredPages.size - 1)).roundToInt().coerceIn(0, measuredPages.size - 1)
@@ -357,12 +380,46 @@ fun ReaderScreen(
         currentIndex = index
     }
 
+    /** Translates the CURRENT chapter into [translationLang] (cached per chapter). */
+    fun translateChapter() {
+        val c = content ?: return
+        if (translating) return
+        val lang = translationLang
+        // Capture the chapter at launch: the job survives chapter navigation
+        // (rememberCoroutineScope), so a stale result must not be applied to a
+        // chapter the user already left.
+        val chapterAtLaunch = currentIndex
+        val key = "w${workId}_c${chapterAtLaunch}_$lang"
+        translating = true
+        translateError = null
+        translateProgress = 0 to 0
+        translateJob = scope.launch {
+            try {
+                val result = container.translator.translateChapterHtml(key, c, lang) { done, total ->
+                    translateProgress = done to total
+                }
+                if (currentIndex == chapterAtLaunch) {
+                    translatedHtml = result
+                    translationOn = true
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancel (button or chapter switch) must stay silent.
+                throw e
+            } catch (e: Exception) {
+                translateError = e.message ?: "No se pudo traducir el capítulo"
+            } finally {
+                translating = false
+                translateJob = null
+            }
+        }
+    }
+
     BackHandler { saveProgressNow(); onBack() }
 
     // 3) Render chapter into the WebView whenever content/css changes (scroll mode only).
     val css = remember(theme, fontSize, serif, lineHeight, margins) { readerCss(theme, fontSize, serif, lineHeight, margins) }
-    val html = remember(content, workTitle, currentIndex, chapterTitle, css) {
-        buildChapterHtml(workTitle, currentIndex, chapterTitle, content ?: "", css)
+    val html = remember(displayContent, workTitle, currentIndex, chapterTitle, css) {
+        buildChapterHtml(workTitle, currentIndex, chapterTitle, displayContent ?: "", css)
     }
 
     val onPageFinished = rememberUpdatedState {
@@ -407,7 +464,7 @@ fun ReaderScreen(
     }
 
     // Recompute matches (paged) or ask the WebView to find (scroll) on query change.
-    LaunchedEffect(searchQuery, paged, content) {
+    LaunchedEffect(searchQuery, paged, displayContent) {
         if (paged && searchQuery.isNotBlank()) {
             searchMatches = findInPages(measuredPages, searchQuery)
             searchIndex = if (searchMatches.isEmpty()) -1 else 0
@@ -530,6 +587,80 @@ fun ReaderScreen(
             }
         }
 
+        // Translation progress overlay / error
+        if (translating) {
+            Surface(
+                color = readerBgColor(theme).copy(alpha = 0.92f),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Traduciendo capítulo…",
+                            color = readerFgColor(theme),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        val done = translateProgress.first
+                        val total = translateProgress.second
+                        if (total > 0) {
+                            LinearProgressIndicator(
+                                progress = { done.toFloat() / total },
+                                modifier = Modifier.fillMaxWidth(0.7f).height(4.dp),
+                                color = readerAccentColor(theme),
+                                trackColor = readerFgColor(theme).copy(alpha = 0.15f),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "$done / $total",
+                                color = readerFgColor(theme).copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        } else {
+                            androidx.compose.material3.CircularProgressIndicator(color = readerAccentColor(theme))
+                        }
+                        if (translateJob != null) {
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                "Cancelar",
+                                color = readerAccentColor(theme),
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier
+                                    .clickable { translateJob?.cancel() }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (translateError != null) {
+            Surface(
+                color = readerBgColor(theme).copy(alpha = 0.95f),
+                shape = MaterialTheme.shapes.medium,
+                onClick = { translateError = null },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        translateError ?: "",
+                        color = readerFgColor(theme),
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Toca para cerrar",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = readerFgColor(theme).copy(alpha = 0.55f),
+                    )
+                }
+            }
+        }
+
         // Top chrome: title bar + (optional) search bar. Hidden with a tap on the text.
         if (chromeVisible) {
             Surface(
@@ -589,6 +720,13 @@ fun ReaderScreen(
                                 tint = if (searchOpen) readerAccentColor(theme) else readerFgColor(theme),
                             )
                         }
+                        IconButton(onClick = { showLangPicker = true }) {
+                            Icon(
+                                Icons.Default.Translate,
+                                contentDescription = "Traducir capítulo",
+                                tint = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
+                            )
+                        }
                         IconButton(onClick = {
                             val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
                                 Store.ReaderTheme.BLACK
@@ -607,6 +745,42 @@ fun ReaderScreen(
                         }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
+                        }
+                    }
+                    if (translatedHtml != null && !searchOpen) {
+                        HorizontalDivider(color = readerFgColor(theme).copy(alpha = 0.12f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Ver:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = readerFgColor(theme).copy(alpha = 0.6f),
+                            )
+                            FilterChip(
+                                selected = !translationOn,
+                                onClick = { translationOn = false },
+                                label = { Text("Original") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = Color.Transparent,
+                                    labelColor = readerFgColor(theme),
+                                    selectedContainerColor = readerAccentColor(theme).copy(alpha = 0.25f),
+                                    selectedLabelColor = readerFgColor(theme),
+                                ),
+                            )
+                            FilterChip(
+                                selected = translationOn,
+                                onClick = { translationOn = true },
+                                label = { Text("Traducción") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = Color.Transparent,
+                                    labelColor = readerFgColor(theme),
+                                    selectedContainerColor = readerAccentColor(theme).copy(alpha = 0.25f),
+                                    selectedLabelColor = readerFgColor(theme),
+                                ),
+                            )
                         }
                     }
                     if (searchOpen) {
@@ -978,9 +1152,87 @@ fun ReaderScreen(
         }
     }
 
+    // ---- Language picker sheet ----
+    if (showLangPicker) {
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showLangPicker = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp),
+            ) {
+                Text(
+                    "Traducir capítulo",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    "Se traduce solo este capítulo y se guarda en el dispositivo: " +
+                        "no se vuelve a traducir por segunda vez.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                TranslationLang.entries.forEach { option ->
+                    val selected = translationLang == option.code
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .clickable {
+                                translationLang = option.code
+                                store.prefs.translationLang = option.code
+                                store.savePrefs()
+                                showLangPicker = false
+                                translateChapter()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { saveProgressNow() }
     }
+}
+
+/** Target languages for the chapter translator (BCP-47 codes for gtx). */
+private enum class TranslationLang(val code: String, val label: String) {
+    ES("es", "Español"),
+    EN("en", "English"),
+    FR("fr", "Français"),
+    DE("de", "Deutsch"),
+    PT("pt", "Português"),
+    IT("it", "Italiano"),
+    RU("ru", "Русский"),
+    JA("ja", "日本語"),
+    ZH("zh-CN", "中文"),
+    KO("ko", "한국어"),
+    AR("ar", "العربية"),
+    HI("hi", "हिन्दी"),
 }
 
 // ---- Find-in-chapter helpers (file-level so LaunchedEffects can call them) --

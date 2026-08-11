@@ -14,8 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 34
-        versionName = "0.7.1"
+        versionCode = 35
+        versionName = "0.7.2"
     }
 
     signingConfigs {
@@ -95,4 +95,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json on the test classpath (the Android stub throws on
+    // local unit tests): used by Translator.parseGtx.
+    testImplementation("org.json:json:20231013")
 }

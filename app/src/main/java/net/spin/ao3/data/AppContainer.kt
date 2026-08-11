@@ -7,4 +7,14 @@ import java.io.File
 class AppContainer(context: Context) {
     val store = Store(context)
     val client = Ao3Client(cacheDir = File(context.cacheDir, "ao3_http"))
+
+    /** Per-chapter translations, cached forever on disk (each chapter is
+     *  translated at most once per language). */
+    val translator = Translator(
+        DiskCache(
+            dir = File(context.filesDir, "ao3_translations"),
+            ttlMs = Long.MAX_VALUE,
+            maxFiles = 400,
+        ),
+    )
 }
