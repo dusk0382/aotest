@@ -1,6 +1,30 @@
 {
   "version": 1,
   "skills": {
+    "android-adb-toolkit": {
+      "source": "rasy007/android-skills",
+      "sourceType": "github",
+      "skillPath": "android-adb-toolkit/SKILL.md",
+      "computedHash": "34a7ec03736bd30557ea1de51490eb49491904ba79d78aaf260368632d162d4c"
+    },
+    "android-gradle-doctor": {
+      "source": "rasy007/android-skills",
+      "sourceType": "github",
+      "skillPath": "android-gradle-doctor/SKILL.md",
+      "computedHash": "9ccc18c782a7838359d8b1986a84a0eaca6197ce29e582e709464eeb1985ef03"
+    },
+    "android-proguard-helper": {
+      "source": "rasy007/android-skills",
+      "sourceType": "github",
+      "skillPath": "android-proguard-helper/SKILL.md",
+      "computedHash": "759c58584a5de1af4d5b97e2b1da84b116f1cf9cf934e2a496fb16ae3b057176"
+    },
+    "claude-android-ninja": {
+      "source": "drjacky/claude-android-ninja",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "dda5ce7236d6246b69aadf278c64b377115b9dd205d4b41e9cb2d82af388f42e"
+    },
     "design-taste-frontend": {
       "source": "leonxlnx/taste-skill",
       "sourceType": "github",
@@ -24,6 +48,12 @@
       "sourceType": "github",
       "skillPath": "plugins/ui-design/skills/mobile-android-design/SKILL.md",
       "computedHash": "bcb274bcc4e0ad076b5947f90e5a247f370ed4da1274b2b7347dc293ee396309"
+    },
+    "okhttp3-5.x": {
+      "source": "full-stack-skills/java-skills",
+      "sourceType": "github",
+      "skillPath": "skills/okhttp3-5.x/SKILL.md",
+      "computedHash": "87d47866fe4280f687a928bb72bccaf3ed99d5f62d87cad058a6132c5b9598d0"
     }
   }
 }
