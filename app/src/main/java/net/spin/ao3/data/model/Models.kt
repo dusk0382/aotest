@@ -302,11 +302,17 @@ data class AuthorProfile(
     val joined: String? = null,
     val pseuds: List<String> = emptyList(),
     val bio: String = "",
-    /** Number of works, when the works page shows it ("11 Works by …"). */
-    val worksCount: Int? = null,
-    val works: List<WorkSummary> = emptyList(),
-    /** Why the works list is empty, when known (network/parse error, null = genuinely empty). */
-    val worksError: String? = null,
     /** The user's profile icon (img.icon on the profile page), absolute URL. */
     val avatarUrl: String? = null,
+)
+
+/**
+ * The author's works list page (/users/{name}/works): total count from the
+ * heading + the first page of blurbs (AO3 paginates by 20). Loaded separately
+ * from [AuthorProfile] so the profile header can render before the works.
+ */
+data class AuthorWorks(
+    /** Number of works, when the works page shows it ("11 Works by …"). */
+    val count: Int?,
+    val works: List<WorkSummary>,
 )

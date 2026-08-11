@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
+import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.AvatarImages
@@ -68,9 +69,16 @@ fun AuthorScreen(
     onOpenTag: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    // Header: small fast request (profile page only, ~20 KB).
     var profile by remember { mutableStateOf<AuthorProfile?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Works: heavier page (~108 KB); loads independently so the header shows
+    // as soon as it arrives and the list fills in when ready.
+    var works by remember { mutableStateOf<List<WorkSummary>>(emptyList()) }
+    var worksCount by remember { mutableStateOf<Int?>(null) }
+    var worksError by remember { mutableStateOf<String?>(null) }
+    var worksLoading by remember { mutableStateOf(false) }
     var retryTick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(username, retryTick) {
@@ -82,6 +90,23 @@ fun AuthorScreen(
             error = e.message ?: "No se pudo cargar el perfil"
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(username, retryTick) {
+        // Reset per-author state: the composable can be reused with a new username.
+        works = emptyList()
+        worksCount = null
+        worksError = null
+        worksLoading = true
+        try {
+            val w = container.client.getAuthorWorks(username)
+            works = w.works
+            worksCount = w.count
+        } catch (e: Exception) {
+            worksError = e.message ?: "No se pudo cargar"
+        } finally {
+            worksLoading = false
         }
     }
 
@@ -177,7 +202,7 @@ fun AuthorScreen(
                         }
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            p.worksCount?.let { count ->
+                            worksCount?.let { count ->
                                 StatCircle("$count", "obras")
                             }
                             p.joined?.let { joined ->
@@ -218,9 +243,16 @@ fun AuthorScreen(
                 item {
                     SectionTitle("Obras de ${p.displayName}")
                 }
-                if (p.works.isEmpty()) {
-                    item {
-                        val worksError = p.worksError
+                when {
+                    worksLoading -> item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    works.isEmpty() -> item {
                         EmptyState(
                             icon = Icons.Default.OpenInNew,
                             title = if (worksError != null) "No se pudieron cargar las obras" else "Sin obras visibles",
@@ -232,8 +264,7 @@ fun AuthorScreen(
                             onAction = { retryTick++ },
                         )
                     }
-                } else {
-                    items(p.works, key = { it.id }) { work ->
+                    else -> items(works, key = { it.id }) { work ->
                         WorkCard(
                             work = work,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

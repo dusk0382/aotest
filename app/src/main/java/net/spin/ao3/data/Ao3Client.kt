@@ -1,14 +1,13 @@
 package net.spin.ao3.data
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.AuthorProfile
+import net.spin.ao3.data.model.AuthorWorks
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.FilterFacets
 import net.spin.ao3.data.model.SearchFilters
@@ -75,7 +74,20 @@ class Ao3Client {
             }
         }
 
-    private suspend fun get(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 7): String = gate.withLock {
+    /** Serialized, polite GET: the whole app funnels through this gate so AO3
+     *  only ever sees one in-flight request at a time (site-respect). */
+    private suspend fun get(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 7): String =
+        gate.withLock { getInternal(url, headers, retries) }
+
+    /** Same retry/backoff logic as [get] but WITHOUT the global gate. Reserved
+     *  for tiny bursts to the SAME host (author profile + works), where a
+     *  browser would also fire two requests at once. Before this, the two
+     *  author pages serialized behind the mutex, so the user waited the SUM of
+     *  both requests instead of the slower one. */
+    private suspend fun getConcurrent(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 4): String =
+        getInternal(url, headers, retries)
+
+    private suspend fun getInternal(url: String, headers: Map<String, String>, retries: Int): String {
         var lastError: Exception? = null
         repeat(retries) { attempt ->
             // First attempt goes out right away; back off between retries.
@@ -181,6 +193,7 @@ class Ao3Client {
     private val chapterCache = LruCache<String, ChapterInfo>(120)
     private val commentsCache = LruCache<Long, List<Ao3Comment>>(30)
     private val authorCache = LruCache<String, AuthorProfile>(30)
+    private val authorWorksCache = LruCache<String, AuthorWorks>(30)
 
     /** Simple thread-safe LRU map (insertion order -> evicts oldest). */
     private class LruCache<K, V>(private val maxSize: Int) {
@@ -400,49 +413,38 @@ class Ao3Client {
             .build()
             .toString()
 
+    /**
+     * Loads ONLY the author header (profile page, ~20 KB) — fast, cached.
+     * The works list is loaded separately via [getAuthorWorks] so the header
+     * renders as soon as it arrives instead of waiting for the heavier works
+     * page (108 KB+).
+     */
     suspend fun getAuthorProfile(username: String): AuthorProfile {
         authorCache.get(username)?.let { return it }
-        val profileUrl = authorPageUrl(username, "profile")
-        val worksUrl = authorPageUrl(username, "works")
-
-        // Author pages occasionally flake behind Cloudflare; keep the retries
-        // moderate so a partial profile (name + avatar) still renders quickly.
-        // Note: requests are serialized by the shared gate mutex (site-respect),
-        // so worst-case wait is the sum of both retry ladders, not the max.
-        val (profileHtml, worksHtml) = coroutineScope {
-            val p = async { runCatching { get(profileUrl, retries = 4) } }
-            val w = async { runCatching { get(worksUrl, retries = 4) } }
-            p.await() to w.await()
-        }
-
-        val profile = profileHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorProfile(it, username) }.getOrNull() }
-        val worksParse = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) } }
-        val works = worksParse?.getOrNull()
-        // Surface WHY the works list is missing (network vs parse) so the UI can
-        // tell a transient Cloudflare failure apart from a genuinely empty list.
-        val worksError = worksHtml.exceptionOrNull()?.message
-            ?: worksParse?.exceptionOrNull()?.message
-
-        val result = (profile ?: AuthorProfile(username = username, displayName = username))
-            .copy(
-                worksCount = works?.first,
-                works = works?.second.orEmpty(),
-                worksError = worksError,
-            )
-        if (profileHtml.isFailure && worksHtml.isFailure) {
-            throw profileHtml.exceptionOrNull() ?: worksHtml.exceptionOrNull()!!
-        }
+        val url = authorPageUrl(username, "profile")
+        // Runs outside the gate: profile + works may be in flight at the same
+        // time (like a browser opening both tabs), so the user waits for the
+        // slower of the two, not the sum.
+        val html = getConcurrent(url, retries = 4)
+        val profile = runCatching { Ao3Parser.parseAuthorProfile(html, username) }.getOrNull()
+            ?: AuthorProfile(username = username, displayName = username)
         android.util.Log.i(
             "AO3Lector",
-            "AuthorProfile username=$username display=${result.displayName} worksCount=${result.worksCount} worksParsed=${result.works.size} joined=${result.joined} pseuds=${result.pseuds} bio=${result.bio.length}ch" +
-                (if (profileHtml.isFailure) " profileError=${profileHtml.exceptionOrNull()?.message}" else "") +
-                (if (worksError != null) " worksError=$worksError" else ""),
+            "AuthorProfile username=$username display=${profile.displayName} joined=${profile.joined} pseuds=${profile.pseuds} bio=${profile.bio.length}ch",
         )
-        // Only cache COMPLETE profiles: caching a transient works failure would
-        // keep the works list empty forever on every later visit.
-        if (profileHtml.isSuccess && worksHtml.isSuccess) {
-            authorCache.put(username, result)
-        }
+        authorCache.put(username, profile)
+        return profile
+    }
+
+    /** Loads the author's works list page (/users/{name}/works), cached per session. */
+    suspend fun getAuthorWorks(username: String): AuthorWorks {
+        authorWorksCache.get(username)?.let { return it }
+        val url = authorPageUrl(username, "works")
+        val html = getConcurrent(url, retries = 4)
+        val (count, works) = Ao3Parser.parseAuthorWorks(html)
+        val result = AuthorWorks(count = count, works = works)
+        android.util.Log.i("AO3Lector", "AuthorWorks username=$username count=$count parsed=${works.size}")
+        authorWorksCache.put(username, result)
         return result
     }
 
