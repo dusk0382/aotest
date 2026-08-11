@@ -23,14 +23,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --no-daemon
-
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon
-
-      - name: Build release APK
-        run: ./gradlew :app:assembleRelease --no-daemon
+      # One invocation: configuración cacheada una sola vez y tareas en
+      # paralelo (tests + debug + release) en vez de 3 arranques de Gradle.
+      - name: Build all (tests, debug, release)
+        run: >
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+          --no-daemon --parallel --configuration-cache
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

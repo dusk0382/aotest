@@ -210,7 +210,16 @@ fun ReaderScreen(
     }
 
     val webView = remember { mutableStateOf<WebView?>(null) }
-    var pendingScroll by remember { mutableFloatStateOf(0f) }
+    // Restore target captured SYNCHRONOUSLY at composition (before any network
+    // effect finishes). The previous version set it inside the metadata effect,
+    // which raced the chapter render: onPageFinished fired with pendingScroll
+    // still 0, so the scroll never restored even though the % was saved right.
+    var pendingScroll by remember(workId) {
+        mutableFloatStateOf(
+            store.history().firstOrNull { it.id == workId && it.chapterIndex == initialChapter }
+                ?.scrollRatio ?: 0f,
+        )
+    }
     val scope = rememberCoroutineScope()
     // Chapters whose NEXT chapter has already been prefetched (per reader session).
     var prefetched by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -250,7 +259,8 @@ fun ReaderScreen(
         val hist = currentHistory()
         currentIndex = currentIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
         chapterProgress = hist?.chapterProgress.orEmpty()
-        pendingScroll = if (hist != null && hist.chapterIndex == currentIndex) hist.scrollRatio else 0f
+        // pendingScroll was captured synchronously at composition, so the
+        // restore never depends on this network-driven effect finishing in time.
         currentRatio = if (hist != null && hist.chapterIndex == currentIndex) hist.scrollRatio else 0f
         loading = false
     }
@@ -357,7 +367,10 @@ fun ReaderScreen(
 
     val onPageFinished = rememberUpdatedState {
         val wv = webView.value ?: return@rememberUpdatedState
-        if (pendingScroll > 0f) {
+        // Only restore once the REAL chapter html rendered: the WebView is
+        // first loaded with placeholder html (content == null) and its
+        // onPageFinished would otherwise consume pendingScroll on an empty page.
+        if (pendingScroll > 0f && content != null) {
             restoreScroll(wv, pendingScroll)
             pendingScroll = 0f
         }

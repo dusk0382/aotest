@@ -225,6 +225,11 @@ class Ao3Client(private val cacheDir: File? = null) {
     private val contentDisk: DiskCache? = cacheDir?.let {
         DiskCache(File(it, "content"), ttlMs = 7L * 24 * 60 * 60 * 1000, maxFiles = 300)
     }
+    /** Work detail pages change whenever the author posts a new chapter, so
+     *  they get a much shorter TTL than stable content (chapters/comments). */
+    private val workDisk: DiskCache? = cacheDir?.let {
+        DiskCache(File(it, "work"), ttlMs = 6L * 60 * 60 * 1000, maxFiles = 150)
+    }
 
     /** Simple thread-safe LRU map (insertion order -> evicts oldest). */
     private class LruCache<K, V>(private val maxSize: Int) {
@@ -412,7 +417,7 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     suspend fun getWork(id: Long): WorkDetail {
         workCache.get(id)?.let { return it }
-        val html = get("https://archiveofourown.org/works/$id")
+        val html = get("https://archiveofourown.org/works/$id", disk = workDisk)
         val detail = Ao3Parser.parseWorkDetail(html, id)
             ?: throw IOException("No se pudo interpretar la obra $id")
         workCache.put(id, detail)

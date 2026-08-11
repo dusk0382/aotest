@@ -14,8 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 34
+        versionName = "0.7.1"
     }
 
     signingConfigs {
