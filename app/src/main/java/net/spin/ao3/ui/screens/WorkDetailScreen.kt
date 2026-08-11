@@ -7,8 +7,8 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +26,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -75,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -99,6 +100,7 @@ import net.spin.ao3.ui.components.ratingColor
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.ChapterExporter
 import net.spin.ao3.util.formatCount
+import net.spin.ao3.util.htmlToAnnotated
 import net.spin.ao3.util.usernameFromAuthorUrl
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -123,7 +125,7 @@ fun WorkDetailScreen(
     var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
     var descExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var kudoed by rememberSaveable { mutableStateOf(false) }
+    var kudoed by rememberSaveable { mutableStateOf(store.isKudoed(workId)) }
     var kudosSending by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val queueState by DownloadQueueService.state.collectAsState()
@@ -235,9 +237,10 @@ fun WorkDetailScreen(
         scope.launch {
             try {
                 val msg = container.client.postKudos(d.summary.id)
-                if (msg == null) {
+                if (msg == null || msg.startsWith("Ya habías")) {
                     kudoed = true
-                    snackbar.showSnackbar("¡Gracias por el kudo! ❤")
+                    store.markKudoed(d.summary.id)
+                    snackbar.showSnackbar(msg ?: "¡Gracias por el kudo! ❤")
                 } else {
                     snackbar.showSnackbar(msg)
                 }
@@ -501,13 +504,13 @@ fun WorkDetailScreen(
 
                     item {
                         Section("Capítulos (${d.chapters.size})") {
-                            Text(
-                                "Toca el icono de descarga para guardar un capítulo para leer sin conexión, o el de exportar para guardarlo como .txt en Descargas.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                                Text(
+                                    "El botón \"TXT\" exporta el capítulo a la carpeta Descargas. El icono de flecha lo guarda para leer sin conexión (y se marca con ✓).",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
-                    }
                     items(chapters, key = { it.index }) { ch ->
                         ChapterRow(
                             index = ch.index,
@@ -728,58 +731,121 @@ private fun CommentSection(
 @Composable
 private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuthor: (String) -> Unit = {}) {
     val commentUser = usernameFromAuthorUrl(comment.authorUrl)
+    val isReply = comment.depth > 0
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = (comment.depth * 14).dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = (comment.depth * 18).dp, top = 4.dp, bottom = 4.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                comment.author,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (commentUser != null) Modifier.clickable { onOpenAuthor(commentUser) } else Modifier,
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = if (isReply) {
+                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isReply) {
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            comment.author.firstOrNull()?.uppercase() ?: "?",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isReply) {
+                                MaterialTheme.colorScheme.onTertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            },
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                comment.author,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (commentUser != null) {
+                                    Modifier.clickable { onOpenAuthor(commentUser) }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            if (commentUser == null) {
+                                Spacer(Modifier.width(6.dp))
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                ) {
+                                    Text(
+                                        "Invitado",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        }
+                        if (comment.date.isNotBlank()) {
+                            Text(
+                                comment.date,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (isReply) {
+                        Text(
+                            "↳",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = htmlToAnnotated(
+                        html = comment.html,
+                        baseColor = MaterialTheme.colorScheme.onSurface,
+                        linkColor = MaterialTheme.colorScheme.primary,
+                        plainText = comment.text,
                     ),
-            )
-            if (comment.depth > 0) {
-                Text(
-                    "↳",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.width(4.dp))
-            }
-            Text(
-                comment.date,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            comment.text.ifBlank { "…" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onReply(comment.id) }) {
-                Text("Responder", style = MaterialTheme.typography.labelMedium)
-            }
-            if (comment.id != 0L) {
-                Text(
-                    "ID ${comment.id}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                )
+                Spacer(Modifier.height(2.dp))
+                TextButton(
+                    onClick = { onReply(comment.id) },
+                    modifier = Modifier.heightIn(min = 40.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Reply,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Responder", style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -792,6 +858,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TagSection(
     title: String,
@@ -800,15 +867,20 @@ private fun TagSection(
     variant: TagChipVariant,
     onOpenTag: (String) -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
     Section(title) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            tags.take(24).forEach {
+        val visible = if (expanded) tags else tags.take(20)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            visible.forEach {
                 TagChip(it, color, variant = variant, onClick = { onOpenTag(it) })
+            }
+            if (!expanded && tags.size > 20) {
+                TagChip(
+                    "+${tags.size - 20} más",
+                    color = color,
+                    variant = variant,
+                    onClick = { expanded = true },
+                )
             }
         }
     }
@@ -881,25 +953,35 @@ private fun ChapterRow(
             )
             Spacer(Modifier.width(4.dp))
         }
-        // Export .txt
-        IconButton(onClick = onExport) {
-            Icon(
-                Icons.Default.FileDownload,
-                contentDescription = "Exportar .txt",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+        // Export to .txt: clearly labeled chip, distinct from the offline download.
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            onClick = onExport,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("TXT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            }
         }
-        // Download toggle
+        Spacer(Modifier.width(4.dp))
+        // Offline download toggle (icon button; turns green + ✓ once saved).
         if (downloading) {
-            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            }
         } else {
             IconButton(onClick = if (downloaded) onRemoveDownload else onDownload) {
                 Icon(
                     if (downloaded) Icons.Default.Check else Icons.Default.Download,
-                    contentDescription = if (downloaded) "Descargado (toca para quitar)" else "Descargar capítulo",
+                    contentDescription = if (downloaded) "Quitar de descargas" else "Guardar para leer sin conexión",
                     tint = if (downloaded) semantic.success else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }

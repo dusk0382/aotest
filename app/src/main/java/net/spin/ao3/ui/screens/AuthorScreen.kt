@@ -1,7 +1,9 @@
 package net.spin.ao3.ui.screens
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,10 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.ui.components.EmptyState
@@ -120,19 +128,36 @@ fun AuthorScreen(
             ) {
                 item {
                     // ---- Header ----
+                    var avatar by remember(p.avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
+                    LaunchedEffect(p.avatarUrl) {
+                        // Blocking OkHttp must NOT run on the main thread.
+                        avatar = withContext(Dispatchers.IO) {
+                            p.avatarUrl?.let { fetchImage(it)?.asImageBitmap() }
+                        }
+                    }
                     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer,
                             modifier = Modifier.size(84.dp),
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    p.displayName.firstOrNull()?.uppercase() ?: "?",
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            val bmp = avatar
+                            if (bmp != null) {
+                                Image(
+                                    bitmap = bmp,
+                                    contentDescription = "Foto de perfil de ${p.displayName}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
                                 )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        p.displayName.firstOrNull()?.uppercase() ?: "?",
+                                        style = MaterialTheme.typography.headlineLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
                             }
                         }
                         Spacer(Modifier.height(12.dp))
@@ -231,4 +256,24 @@ private fun StatCircle(value: String, label: String) {
         Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+// ---- Tiny image loader (profile icons only; keeps the app dependency-free) ---
+
+private val imageClient by lazy {
+    okhttp3.OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+}
+
+private fun fetchImage(url: String): Bitmap? = try {
+    val request = okhttp3.Request.Builder().url(url).build()
+    imageClient.newCall(request).execute().use { resp ->
+        if (!resp.isSuccessful) return null
+        BitmapFactory.decodeStream(resp.body?.byteStream())
+    }
+} catch (_: Exception) {
+    null
 }

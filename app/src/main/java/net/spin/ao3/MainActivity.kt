@@ -102,12 +102,22 @@ private fun AppRoot() {
                 AnimatedContent(
                     targetState = if (showTabs) NavTarget.Tab(tab) else NavTarget.Screen(nav.current),
                     transitionSpec = {
-                        // MD3 standard motion: decelerate (ease-out) on enter,
-                        // accelerate (ease-in) on exit, 300/220ms.
-                        (fadeIn(tween(300, easing = StandardDecelerate)) +
-                            slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 5 }) togetherWith
-                            (fadeOut(tween(220, easing = StandardAccelerate)) +
-                                slideOutHorizontally(tween(220, easing = StandardAccelerate)) { -it / 5 })
+                        // MD3 standard motion (decelerate enter / accelerate exit).
+                        // Going FORWARD the new screen slides in from the right;
+                        // going BACK (pop) it slides in from the left, matching
+                        // the physical direction the user is moving.
+                        val forward = nav.lastDirection >= 0
+                        if (forward) {
+                            (fadeIn(tween(300, easing = StandardDecelerate)) +
+                                slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 5 }) togetherWith
+                                (fadeOut(tween(220, easing = StandardAccelerate)) +
+                                    slideOutHorizontally(tween(220, easing = StandardAccelerate)) { -it / 5 })
+                        } else {
+                            (fadeIn(tween(300, easing = StandardDecelerate)) +
+                                slideInHorizontally(tween(300, easing = StandardDecelerate)) { -it / 5 }) togetherWith
+                                (fadeOut(tween(220, easing = StandardAccelerate)) +
+                                    slideOutHorizontally(tween(220, easing = StandardAccelerate)) { it / 5 })
+                        }
                     },
                     label = "nav",
                 ) { target ->
@@ -162,6 +172,10 @@ private fun AppRoot() {
                                 workId = route.workId,
                                 initialChapter = route.chapterIndex,
                                 onBack = { nav.pop() },
+                                onOpenWork = {
+                                    nav.pop()
+                                    nav.push(Route.Detail(route.workId))
+                                },
                             )
                             Route.Home -> Unit
                         }

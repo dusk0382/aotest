@@ -117,6 +117,22 @@ class Store(context: Context) {
         persist()
     }
 
+    // ---- Kudos given (guest kudos are one-per-cookie; remember per work) -----
+
+    fun kudoedIds(): Set<Long> = root.optJSONArray("kudoed")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i -> arr.optLong(i) }.toSet()
+    } ?: emptySet()
+
+    fun isKudoed(id: Long): Boolean = id in kudoedIds()
+
+    fun markKudoed(id: Long) {
+        if (isKudoed(id)) return
+        val arr = root.optJSONArray("kudoed") ?: JSONArray()
+        arr.put(id)
+        root.put("kudoed", arr)
+        persist()
+    }
+
     // ---- History ------------------------------------------------------------
 
     fun history(): List<HistoryEntry> = root.optJSONArray("history")?.let { arr ->

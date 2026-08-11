@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.ChapterInfo
+import net.spin.ao3.data.model.FilterFacets
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WorkDetail
@@ -72,9 +73,9 @@ class Ao3Client {
             }
         }
 
-    private suspend fun get(url: String, headers: Map<String, String> = emptyMap()): String = gate.withLock {
+    private suspend fun get(url: String, headers: Map<String, String> = emptyMap(), retries: Int = 7): String = gate.withLock {
         var lastError: Exception? = null
-        repeat(7) { attempt ->
+        repeat(retries) { attempt ->
             // First attempt goes out right away; back off between retries.
             if (attempt > 0) delay(700L * attempt)
             try {
@@ -199,16 +200,27 @@ class Ao3Client {
         return result
     }
 
-    private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
+    /** Returns the raw works-listing HTML for a search (shared by results + facets). */
+    private suspend fun fetchSearchPage(filters: SearchFilters, page: Int, sort: SortOption): String {
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         if (tag != null && tag.isNotBlank()) {
             val canonical = resolveCanonicalTag(tag)
-            if (canonical != null) {
-                return SearchResult(Ao3Parser.parseSearchResults(get(buildTagFilterUrl(canonical, filters, page, sort))), true)
-            }
-            return SearchResult(Ao3Parser.parseSearchResults(get(buildSearchUrl(filters, page, sort))), false)
+            if (canonical != null) return get(buildTagFilterUrl(canonical, filters, page, sort))
+            return get(buildSearchUrl(filters, page, sort))
         }
-        return SearchResult(Ao3Parser.parseSearchResults(get(buildSearchUrl(filters, page, sort))), true)
+        return get(buildSearchUrl(filters, page, sort))
+    }
+
+    private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
+        val html = fetchSearchPage(filters, page, sort)
+        val works = Ao3Parser.parseSearchResults(html)
+        val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
+        val applied = if (tag != null && tag.isNotBlank()) {
+            runCatching { resolveCanonicalTag(tag) }.getOrNull() != null
+        } else {
+            true
+        }
+        return SearchResult(works, applied, Ao3Parser.parseFacets(html))
     }
 
     /**
@@ -268,7 +280,7 @@ class Ao3Client {
             .scheme("https")
             .host("archiveofourown.org")
             .addPathSegment("works")
-        fun addIds(key: String, ids: Set<Int>) {
+        fun addIds(key: String, ids: Collection<Number>) {
             ids.forEach { b.addQueryParameter(key, it.toString()) }
         }
         b.addQueryParameter("tag_id", tag)
@@ -278,6 +290,14 @@ class Ao3Client {
         addIds("exclude_work_search[rating_ids][]", filters.excludeRating?.let { setOf(it) }.orEmpty())
         addIds("exclude_work_search[archive_warning_ids][]", filters.excludeWarnings)
         addIds("exclude_work_search[category_ids][]", filters.excludeCategories)
+        addIds("include_work_search[fandom_ids][]", filters.fandomIds)
+        addIds("include_work_search[character_ids][]", filters.characterIds)
+        addIds("include_work_search[relationship_ids][]", filters.relationshipIds)
+        addIds("include_work_search[freeform_ids][]", filters.freeformIds)
+        addIds("exclude_work_search[fandom_ids][]", filters.excludeFandomIds)
+        addIds("exclude_work_search[character_ids][]", filters.excludeCharacterIds)
+        addIds("exclude_work_search[relationship_ids][]", filters.excludeRelationshipIds)
+        addIds("exclude_work_search[freeform_ids][]", filters.excludeFreeformIds)
         b.addCommon(filters, sort, page)
         return b.build().toString()
     }
@@ -290,6 +310,17 @@ class Ao3Client {
             .addPathSegment("works")
             .addPathSegment("search")
         if (filters.query.isNotBlank()) b.addQueryParameter("work_search[query]", filters.query)
+        fun addIds(key: String, ids: Collection<Number>) {
+            ids.forEach { b.addQueryParameter(key, it.toString()) }
+        }
+        addIds("include_work_search[fandom_ids][]", filters.fandomIds)
+        addIds("include_work_search[character_ids][]", filters.characterIds)
+        addIds("include_work_search[relationship_ids][]", filters.relationshipIds)
+        addIds("include_work_search[freeform_ids][]", filters.freeformIds)
+        addIds("exclude_work_search[fandom_ids][]", filters.excludeFandomIds)
+        addIds("exclude_work_search[character_ids][]", filters.excludeCharacterIds)
+        addIds("exclude_work_search[relationship_ids][]", filters.excludeRelationshipIds)
+        addIds("exclude_work_search[freeform_ids][]", filters.excludeFreeformIds)
         b.addCommon(filters, sort, page)
         return b.build().toString()
     }
@@ -320,8 +351,11 @@ class Ao3Client {
         val profileUrl = base.addPathSegment("profile").build().toString()
         val worksUrl = base.addPathSegment("works").build().toString()
 
-        val profileHtml = runCatching { get(profileUrl) }
-        val worksHtml = runCatching { get(worksUrl) }
+        // Author pages occasionally flake behind Cloudflare; keep the retries
+        // low so a partial profile (name + avatar) renders quickly instead of
+        // waiting out the full 7-attempt backoff before showing anything.
+        val profileHtml = runCatching { get(profileUrl, retries = 4) }
+        val worksHtml = runCatching { get(worksUrl, retries = 4) }
 
         val profile = profileHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorProfile(it, username) }.getOrNull() }
         val works = worksHtml.getOrNull()?.let { runCatching { Ao3Parser.parseAuthorWorks(it) }.getOrNull() }
@@ -462,4 +496,6 @@ class Ao3Client {
 data class SearchResult(
     val works: List<WorkSummary>,
     val filtersApplied: Boolean,
+    /** The "Filters" sidebar (suggested tags) of the listing, when present. */
+    val facets: FilterFacets? = null,
 )

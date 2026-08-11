@@ -12,9 +12,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -67,6 +69,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -82,17 +85,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -113,8 +123,6 @@ import net.spin.ao3.util.Segment
 import net.spin.ao3.util.escapeHtml
 import net.spin.ao3.util.findInPages
 import net.spin.ao3.util.htmlToLines
-import net.spin.ao3.util.packPages
-import net.spin.ao3.util.pagePlainText
 
 private const val BASE_URL = "https://archiveofourown.org"
 
@@ -125,6 +133,7 @@ fun ReaderScreen(
     workId: Long,
     initialChapter: Int,
     onBack: () -> Unit,
+    onOpenWork: () -> Unit = {},
 ) {
     val store = container.store
     val context = LocalContext.current
@@ -168,18 +177,16 @@ fun ReaderScreen(
     var showHint by remember { mutableStateOf(false) }
     val toggleChrome: () -> Unit = { chromeVisible = !chromeVisible }
 
-    // Full screen: hide the system bars together with the app chrome.
-    LaunchedEffect(chromeVisible) {
+    // The reader is immersive: the system bars stay hidden (a swipe reveals
+    // them transiently). This also removes the status/navigation bar gaps
+    // through which the story text used to peek behind the chrome bars.
+    LaunchedEffect(Unit) {
         val window = (context as? Activity)?.window
         val view = window?.decorView
         if (window != null && view != null) {
             val controller = WindowCompat.getInsetsController(window, view)
-            if (chromeVisible) {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            } else {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 
@@ -210,16 +217,11 @@ fun ReaderScreen(
     val lines = remember(content, paged) {
         if (paged) htmlToLines(content ?: "") else emptyList()
     }
-    val pages = remember(lines, fontSize) {
-        if (paged) {
-            val target = (2300 * (18f / fontSize)).toInt().coerceAtLeast(900)
-            packPages(lines, target)
-        } else {
-            emptyList()
-        }
-    }
-    val pagerState = rememberPagerState(initialPage = 0) { pages.size.coerceAtLeast(1) }
-    val pageScroll = rememberScrollState()
+    // Pages are packed to the exact viewport inside PagedReaderBody's
+    // BoxWithConstraints; this mirror lets progress/search/bottom-bar read
+    // the current page count.
+    var measuredPages by remember { mutableStateOf<List<List<Line>>>(emptyList()) }
+    val pagerState = rememberPagerState(initialPage = 0) { measuredPages.size.coerceAtLeast(1) }
 
     fun currentHistory(): Store.HistoryEntry? =
         store.history().firstOrNull { it.id == workId }
@@ -272,21 +274,17 @@ fun ReaderScreen(
         loading = false
     }
 
-    // 2b) Paged mode: restore or reset the page whenever chapter content changes.
-    LaunchedEffect(paged, content, currentIndex) {
-        if (!paged || pages.isEmpty()) return@LaunchedEffect
-        if (pendingScroll > 0f && pages.size > 1) {
-            val target = (pendingScroll * (pages.size - 1)).roundToInt().coerceIn(0, pages.size - 1)
+    // 2b) Paged mode: restore or reset the page whenever chapter content or the
+    // (viewport-packed) page count changes.
+    LaunchedEffect(paged, content, currentIndex, measuredPages.size) {
+        if (!paged || measuredPages.isEmpty()) return@LaunchedEffect
+        if (pendingScroll > 0f && measuredPages.size > 1) {
+            val target = (pendingScroll * (measuredPages.size - 1)).roundToInt().coerceIn(0, measuredPages.size - 1)
             pagerState.scrollToPage(target)
             pendingScroll = 0f
         } else {
             pagerState.scrollToPage(0)
         }
-    }
-
-    // Start each page at the top (unless the search bar is navigating).
-    LaunchedEffect(pagerState.currentPage, paged) {
-        if (paged && !searchOpen) pageScroll.scrollTo(0)
     }
 
     fun saveProgressNow() {
@@ -312,7 +310,7 @@ fun ReaderScreen(
             )
         }
         if (paged) {
-            commit(if (pages.size > 1) pagerState.currentPage / (pages.size - 1).toFloat() else 0f)
+            commit(if (measuredPages.size > 1) pagerState.currentPage / (measuredPages.size - 1).toFloat() else 0f)
         } else {
             val wv = webView.value ?: return
             readScrollRatio(wv) { commit(it) }
@@ -355,7 +353,7 @@ fun ReaderScreen(
 
     fun applyPrefs(block: () -> Unit) {
         if (paged) {
-            pendingScroll = if (pages.size > 1) pagerState.currentPage / (pages.size - 1).toFloat() else 0f
+            pendingScroll = if (measuredPages.size > 1) pagerState.currentPage / (measuredPages.size - 1).toFloat() else 0f
             block()
         } else {
             val wv = webView.value
@@ -384,10 +382,10 @@ fun ReaderScreen(
     // Recompute matches (paged) or ask the WebView to find (scroll) on query change.
     LaunchedEffect(searchQuery, paged, content) {
         if (paged && searchQuery.isNotBlank()) {
-            searchMatches = findInPages(pages, searchQuery)
+            searchMatches = findInPages(measuredPages, searchQuery)
             searchIndex = if (searchMatches.isEmpty()) -1 else 0
             if (searchMatches.isNotEmpty()) goToSearchMatch(
-                paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
             )
         } else if (!paged) {
             val wv = webView.value
@@ -420,23 +418,27 @@ fun ReaderScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        // Body: paginated pages or the scroll WebView.
-        if (paged && pages.isNotEmpty()) {
-            PagedReaderBody(
-                pages = pages,
-                pagerState = pagerState,
-                pageScroll = pageScroll,
-                highlights = highlights,
-                theme = theme,
-                fontSize = fontSize,
-                serif = serif,
-                lineHeight = lineHeight,
-                margins = margins,
-                workTitle = workTitle,
-                chapterTitle = chapterTitle,
-                chapterIndex = currentIndex,
-                toggleChrome = toggleChrome,
-            )
+        // Body: paginated pages (viewport-packed) or the scroll WebView.
+        if (paged && lines.isNotEmpty()) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val measurer = rememberTextMeasurer()
+                val density = LocalDensity.current
+                val viewportPages = remember(lines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
+                    packPagesToViewport(lines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
+                }
+                SideEffect { measuredPages = viewportPages }
+                PagedReaderBody(
+                    pages = viewportPages,
+                    pagerState = pagerState,
+                    highlights = highlights,
+                    theme = theme,
+                    fontSize = fontSize,
+                    serif = serif,
+                    lineHeight = lineHeight,
+                    margins = margins,
+                    toggleChrome = toggleChrome,
+                )
+            }
         } else {
             ReaderWebViewHost(
                 webView = webView,
@@ -522,7 +524,11 @@ fun ReaderScreen(
                                 tint = readerFgColor(theme),
                             )
                         }
-                        Column(Modifier.weight(1f)) {
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clickable { saveProgressNow(); onOpenWork() },
+                        ) {
                             Text(
                                 workTitle.ifBlank { "Cargando…" },
                                 color = readerFgColor(theme),
@@ -531,11 +537,20 @@ fun ReaderScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                if (chapters.isNotEmpty()) "Capítulo ${currentIndex + 1} de ${chapters.size}" else " ",
-                                color = readerFgColor(theme).copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (chapters.isNotEmpty()) "Capítulo ${currentIndex + 1} de ${chapters.size}" else " ",
+                                    color = readerFgColor(theme).copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Icon(
+                                    Icons.Default.OpenInNew,
+                                    contentDescription = "Abrir ficha de la obra",
+                                    tint = readerFgColor(theme).copy(alpha = 0.45f),
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
                         }
                         IconButton(onClick = {
                             searchOpen = !searchOpen
@@ -601,7 +616,7 @@ fun ReaderScreen(
                                 keyboardActions = KeyboardActions(onSearch = {
                                     searchIndex = nextSearchIndex(searchIndex, searchMatches.size)
                                     goToSearchMatch(
-                                        paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                                        paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
                                     )
                                 }),
                                 modifier = Modifier.weight(1f).heightIn(min = 46.dp),
@@ -616,7 +631,7 @@ fun ReaderScreen(
                             )
                             IconButton(
                             onClick = { searchIndex = prevSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
-                                paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                                paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
                             ) },
                             enabled = searchMatches.isNotEmpty(),
                         ) {
@@ -628,7 +643,7 @@ fun ReaderScreen(
                             }
                             IconButton(
                                 onClick = { searchIndex = nextSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
-                                    paged, pages, pageScroll, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
+                                    paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
                                 ) },
                                 enabled = searchMatches.isNotEmpty(),
                             ) {
@@ -676,7 +691,7 @@ fun ReaderScreen(
                         }
                         Text(
                             "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}" +
-                                if (paged && pages.size > 1) " · ${pagerState.currentPage + 1}/${pages.size}" else "",
+                                if (paged && measuredPages.size > 1) " · ${pagerState.currentPage + 1}/${measuredPages.size}" else "",
                             color = readerFgColor(theme),
                             style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier
@@ -945,8 +960,6 @@ fun ReaderScreen(
 
 private fun goToSearchMatch(
     paged: Boolean,
-    pages: List<List<Line>>,
-    pageScroll: ScrollState,
     matches: List<SearchMatch>,
     index: Int,
     webView: MutableState<WebView?>,
@@ -956,16 +969,7 @@ private fun goToSearchMatch(
 ) {
     val m = matches.getOrNull(index) ?: return
     if (paged) {
-        scope.launch {
-            pagerState.scrollToPage(m.page)
-            delay(100)
-            val textLen = pagePlainText(pages.getOrNull(m.page) ?: emptyList()).length
-            if (textLen > 0 && pageScroll.maxValue > 0) {
-                pageScroll.animateScrollTo(
-                    (pageScroll.maxValue * m.start / textLen).toInt().coerceIn(0, pageScroll.maxValue),
-                )
-            }
-        }
+        scope.launch { pagerState.scrollToPage(m.page) }
     } else {
         val wv = webView.value
         if (wv != null && query.isNotBlank()) {
@@ -990,16 +994,12 @@ private fun prevSearchIndex(index: Int, size: Int): Int {
 private fun PagedReaderBody(
     pages: List<List<Line>>,
     pagerState: PagerState,
-    pageScroll: ScrollState,
     highlights: List<Pair<IntRange, Float>>,
     theme: Store.ReaderTheme,
     fontSize: Int,
     serif: Boolean,
     lineHeight: Float,
     margins: Int,
-    workTitle: String,
-    chapterTitle: String,
-    chapterIndex: Int,
     toggleChrome: () -> Unit,
 ) {
     val (bgHex, fgHex, accentHex) = readerPalette(theme)
@@ -1012,6 +1012,7 @@ private fun PagedReaderBody(
         2 -> 34.dp
         else -> 24.dp
     }
+    val scope = rememberCoroutineScope()
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
@@ -1021,35 +1022,40 @@ private fun PagedReaderBody(
             color = bg,
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = toggleChrome,
-                ),
+                // Manga-style tap zones: left third = previous page, right
+                // third = next page, middle = toggle the chrome bars.
+                .pointerInput(pagerState) {
+                    detectTapGestures { offset ->
+                        val w = size.width
+                        val third = w / 3f
+                        when {
+                            offset.x < third -> if (pagerState.currentPage > 0) {
+                                scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                            } else {
+                                toggleChrome()
+                            }
+                            offset.x > third * 2 -> if (pagerState.currentPage < pages.size - 1) {
+                                scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                            } else {
+                                toggleChrome()
+                            }
+                            else -> toggleChrome()
+                        }
+                    }
+                },
         ) {
+            // Pages are packed to exactly fit the viewport (see
+            // packPagesToViewport), so normally nothing scrolls inside a page:
+            // a swipe or a tap on a side lands on a complete, continuous page.
+            // A rare oversized line (huge paragraph or <pre> block) still gets
+            // a per-page scroll fallback so no text is unreachable.
+            val pageScroll = remember { ScrollState(0) }
             Column(
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(pageScroll)
                     .padding(horizontal = horizontalPad, vertical = 16.dp),
             ) {
-                if (page == 0) {
-                    Text(
-                        workTitle,
-                        fontSize = (fontSize * 0.82f).sp,
-                        color = fg.copy(alpha = 0.6f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "Capítulo ${chapterIndex + 1}${if (chapterTitle.isNotBlank()) ": $chapterTitle" else ""}",
-                        fontSize = (fontSize * 1.1f).sp,
-                        fontWeight = FontWeight.Bold,
-                        color = fg,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                    )
-                }
                 Text(
                     text = linesToAnnotated(pages[page], fontSize, fg, accent, highlights),
                     style = TextStyle(
@@ -1059,15 +1065,74 @@ private fun PagedReaderBody(
                         fontFamily = family,
                     ),
                 )
+                Spacer(Modifier.weight(1f))
                 Text(
                     "· ${page + 1} de ${pages.size} ·",
                     fontSize = (fontSize * 0.8f).sp,
                     color = fg.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 30.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
                 )
             }
         }
+    }
+}
+
+/**
+ * Packs [lines] into pages that fit the measured viewport (px) without ever
+ * splitting a paragraph. Each line is measured with the same style the reader
+ * uses, so a page break always lands on a real line boundary and the next page
+ * starts right where the previous one ended.
+ */
+private fun packPagesToViewport(
+    lines: List<Line>,
+    measurer: TextMeasurer,
+    density: Density,
+    maxWidth: Dp,
+    maxHeight: Dp,
+    fontSize: Int,
+    lineHeight: Float,
+    serif: Boolean,
+    margins: Int,
+): List<List<Line>> {
+    if (lines.isEmpty()) return emptyList()
+    with(density) {
+        val horizontalPad = when (margins) {
+            0 -> 16.dp
+            2 -> 34.dp
+            else -> 24.dp
+        }.roundToPx()
+        val verticalPad = 16.dp.roundToPx()
+        val footerPx = (fontSize * 0.8f).sp.toPx().roundToInt() +
+            8.dp.roundToPx() + 4.dp.roundToPx() + 6.dp.roundToPx()
+        val widthPx = maxWidth.roundToPx() - 2 * horizontalPad
+        val heightPx = maxHeight.roundToPx() - 2 * verticalPad - footerPx
+        if (widthPx <= 0 || heightPx <= 0) return emptyList()
+        val family = if (serif) FontFamily.Serif else FontFamily.SansSerif
+        val style = TextStyle(
+            color = Color.Black,
+            fontSize = fontSize.sp,
+            lineHeight = (fontSize * lineHeight).sp,
+            fontFamily = family,
+        )
+        val lineHeightPx = (fontSize * lineHeight).sp.toPx().roundToInt()
+        val pages = mutableListOf<List<Line>>()
+        var current = mutableListOf<Line>()
+        var currentHeight = 0
+        for (line in lines) {
+            val annotated = linesToAnnotated(listOf(line), fontSize, Color.Black, Color.Black)
+            val h = measurer.measure(annotated, style = style, constraints = Constraints(maxWidth = widthPx)).size.height
+            val gap = if (current.isEmpty()) 0 else lineHeightPx
+            if (current.isNotEmpty() && currentHeight + gap + h > heightPx) {
+                pages += current
+                current = mutableListOf()
+                currentHeight = 0
+            }
+            current += line
+            currentHeight += h + gap
+        }
+        if (current.isNotEmpty()) pages += current
+        return pages
     }
 }
 
@@ -1234,7 +1299,11 @@ private fun ReaderWebViewHost(
 
 // ---- JS find-in-page (works with data: HTML, unlike findAllAsync) -----------
 
-/** Highlights all occurrences of [query] and reports the count via Reader.onJsFindResult. */
+/**
+ * Highlights all occurrences of [query] and reports the count via
+ * Reader.onJsFindResult. Uses DOM <mark> wrapping (not the CSS Custom
+ * Highlight API) so it behaves identically across every WebView version.
+ */
 private fun jsFindInPage(query: String): String {
     val q = query.replace("\\", "\\\\").replace("'", "\\'")
     return """
@@ -1245,7 +1314,6 @@ private fun jsFindInPage(query: String): String {
             if (!q) { if (window.Reader) window.Reader.onJsFindResult(0); return; }
             var root = document.querySelector('.content') || document.body;
             var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-            var nodes = [];
             while (walker.nextNode()) {
               var t = walker.currentNode.nodeValue;
               var lower = t.toLowerCase();
@@ -1256,29 +1324,16 @@ private fun jsFindInPage(query: String): String {
                 idx = lower.indexOf(lq, idx + lq.length);
               }
             }
-            if (window.CSS && CSS.highlights) {
-              try { CSS.highlights.delete('ao3find'); } catch(e) {}
-              var r = new Highlight();
-              for (var i = 0; i < window.__find.length; i++) {
-                var m = window.__find[i];
-                try {
-                  var range = document.createRange();
-                  range.setStart(m.node, m.start);
-                  range.setEnd(m.node, m.end);
-                  r.add(range);
-                } catch(e) {}
-              }
-              try { CSS.highlights.set('ao3find', r); } catch(e) {}
-            } else {
-              for (var i = 0; i < window.__find.length; i++) {
-                var m = window.__find[i];
+            for (var i = 0; i < window.__find.length; i++) {
+              var m = window.__find[i];
+              try {
                 var mark = document.createElement('mark');
                 mark.className = 'ao3findmark';
-                var after = m.node.splitText(m.end);
+                m.node.splitText(m.end);
                 var mid = m.node.splitText(m.start);
                 m.node.parentNode.replaceChild(mark, mid);
                 mark.appendChild(m.node);
-              }
+              } catch (e) {}
             }
             if (window.Reader) window.Reader.onJsFindResult(window.__find.length);
           } catch (e) {

@@ -3,6 +3,10 @@ package net.spin.ao3.data
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.ChapterInfo
+import net.spin.ao3.data.model.FacetGroup
+import net.spin.ao3.data.model.FacetItem
+import net.spin.ao3.data.model.FacetKind
+import net.spin.ao3.data.model.FilterFacets
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
 import org.jsoup.Jsoup
@@ -295,12 +299,16 @@ object Ao3Parser {
         }
         val bioEl = doc.selectFirst("div#bio, dd.bio, div.bio, .userstuff#bio, #bio")
         val bio = bioEl?.text()?.trim() ?: ""
+        // The profile icon is an <img class="icon"> in the header (default
+        // iconsets/default/icon_user.png when the user has none).
+        val avatarUrl = doc.selectFirst("img.icon")?.let { el -> el.absUrl("src") }?.takeIf { it.isNotBlank() }
         return AuthorProfile(
             username = username,
             displayName = displayName,
             joined = joined,
             pseuds = pseuds,
             bio = bio,
+            avatarUrl = avatarUrl,
         )
     }
 
@@ -312,6 +320,59 @@ object Ao3Parser {
             .find(doc.selectFirst("h2.heading")?.text() ?: "")
             ?.groupValues?.get(1)?.toIntOrNull()
         return count to works
+    }
+
+    // ---- Filter sidebar facets ----------------------------------------------
+
+    private fun facetDdSuffix(kind: FacetKind): String = when (kind) {
+        FacetKind.RATING -> "rating_tags"
+        FacetKind.WARNING -> "archive_warning_tags"
+        FacetKind.CATEGORY -> "category_tags"
+        FacetKind.FANDOM -> "fandom_tags"
+        FacetKind.CHARACTER -> "character_tags"
+        FacetKind.RELATIONSHIP -> "relationship_tags"
+        FacetKind.FREEFORM -> "freeform_tags"
+    }
+
+    private fun facetKindName(kind: FacetKind): String = when (kind) {
+        FacetKind.RATING -> "Ratings"
+        FacetKind.WARNING -> "Warnings"
+        FacetKind.CATEGORY -> "Categorías"
+        FacetKind.FANDOM -> "Fandoms"
+        FacetKind.CHARACTER -> "Personajes"
+        FacetKind.RELATIONSHIP -> "Relaciones"
+        FacetKind.FREEFORM -> "Etiquetas"
+    }
+
+    /**
+     * Parses the "Filters" sidebar of a tag/works listing (fieldset > dl with
+     * include_/exclude_ dd blocks; each li has a hidden input with the tag id
+     * and a <span>Name (count)</span> label).
+     */
+    fun parseFacets(html: String): FilterFacets {
+        val doc = Jsoup.parse(html, BASE)
+        val groups = mutableListOf<FacetGroup>()
+        FacetKind.entries.forEach { kind ->
+            val suffix = facetDdSuffix(kind)
+            fun items(prefix: String): List<FacetItem> {
+                val dd = doc.selectFirst("dd#$prefix$suffix") ?: return emptyList()
+                return dd.select("li").mapNotNull { li ->
+                    val input = li.selectFirst("input[value]") ?: return@mapNotNull null
+                    val id = input.attr("value").toLongOrNull() ?: return@mapNotNull null
+                    val span = li.select("span").lastOrNull()?.text() ?: return@mapNotNull null
+                    val count = Regex("""\((\d[\d,]*)\)\s*$""").find(span)
+                        ?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
+                    val label = span.replace(Regex("""\s*\(\d[\d,]*\)\s*$"""), "").trim()
+                    FacetItem(id, label, count)
+                }
+            }
+            val include = items("include_")
+            val exclude = items("exclude_")
+            if (include.isNotEmpty() || exclude.isNotEmpty()) {
+                groups += FacetGroup(kind, facetKindName(kind), include, exclude)
+            }
+        }
+        return FilterFacets(groups)
     }
 
     // ---- Comments -----------------------------------------------------------
@@ -468,6 +529,9 @@ object Ao3Parser {
         if (html.isNullOrBlank()) return null
         val doc = Jsoup.parseBodyFragment(html, baseUrl)
         doc.select("script, style, iframe, form, nav, button, input, select, textarea").remove()
+        // AO3 puts a screen-reader-only "Chapter Text" landmark inside the
+        // chapter userstuff; it must not show up as a paragraph in the reader.
+        doc.select("h1.landmark, h2.landmark, h3.landmark, h4.landmark, h5.landmark, h6.landmark").remove()
         doc.select("img").forEach { img ->
             img.attr("src", img.absUrl("src")).attr("referrerpolicy", "no-referrer")
             img.attr("loading", "lazy")

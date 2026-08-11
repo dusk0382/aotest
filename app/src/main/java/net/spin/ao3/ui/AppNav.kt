@@ -49,11 +49,23 @@ class NavController(initial: List<Route> = listOf(Route.Home)) {
     val stack: List<Route> get() = _stack
     val current: Route get() = _stack.last()
     val canGoBack: Boolean get() = _stack.size > 1
+
+    /** +1 for a push, -1 for a pop; drives the enter/exit slide direction. */
+    var lastDirection: Int = 1
+        private set
+
     fun push(route: Route) {
-        if (_stack.lastOrNull() != route) _stack.add(route)
+        if (_stack.lastOrNull() != route) {
+            lastDirection = 1
+            _stack.add(route)
+        }
     }
+
     fun pop() {
-        if (_stack.size > 1) _stack.removeAt(_stack.lastIndex)
+        if (_stack.size > 1) {
+            lastDirection = -1
+            _stack.removeAt(_stack.lastIndex)
+        }
     }
 }
 

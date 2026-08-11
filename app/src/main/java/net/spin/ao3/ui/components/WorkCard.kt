@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,11 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,6 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -72,7 +78,9 @@ fun WorkCard(
         if (work.fandoms.isNotEmpty()) add(TagGroup("Fandoms", work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
         if (work.characters.isNotEmpty()) add(TagGroup("Personajes", work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
         if (work.relationships.isNotEmpty()) add(TagGroup("Relaciones", work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
-        if (work.otherTags.isNotEmpty()) add(TagGroup("Etiquetas", work.otherTags, AdditionalColor, TagChipVariant.OUTLINED))
+        // otherTags also contains characters/relationships; show only the freeforms.
+        val freeforms = work.otherTags.filterNot { it in work.relationships || it in work.characters }
+        if (freeforms.isNotEmpty()) add(TagGroup("Etiquetas", freeforms, AdditionalColor, TagChipVariant.OUTLINED))
     }
 
     Card(
@@ -132,7 +140,7 @@ fun WorkCard(
             }
             if (chips.isNotEmpty()) {
                 // The "+N más" overflow chip must stay visible without scrolling, so
-                // only the first 3 chips live inside the scrollable strip.
+                // only the first 5 chips live inside the scrollable strip.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -144,7 +152,7 @@ fun WorkCard(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        chips.take(3).forEach { (text, color, variant) ->
+                        chips.take(5).forEach { (text, color, variant) ->
                             TagChip(
                                 text = text,
                                 color = color,
@@ -153,9 +161,9 @@ fun WorkCard(
                             )
                         }
                     }
-                    if (chips.size > 3) {
+                    if (chips.size > 5) {
                         TagChip(
-                            text = "+${chips.size - 3} más",
+                            text = "+${chips.size - 5} más",
                             color = colorScheme.secondary,
                             variant = TagChipVariant.TINTED,
                             onClick = { showAllTags = true },
@@ -228,7 +236,7 @@ private data class TagGroup(
     val variant: TagChipVariant,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AllTagsSheet(
     groups: List<TagGroup>,
@@ -236,31 +244,43 @@ private fun AllTagsSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
+    var filter by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 40.dp),
         ) {
             Text("Todos los tags", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Toca un tag para explorar más obras de ese tag.",
+                "Toca un tag para explorar más obras de ese tag. Usa el filtro para encontrar uno rápido.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = filter,
+                onValueChange = { filter = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Filtrar tags…") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                shape = CircleShape,
+            )
+            val q = filter.trim().lowercase()
             groups.forEach { group ->
+                val visible = if (q.isEmpty()) group.tags else group.tags.filter { it.lowercase().contains(q) }
+                if (visible.isEmpty() && q.isNotEmpty()) return@forEach
                 Spacer(Modifier.height(14.dp))
                 Text(group.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    group.tags.forEach { tag ->
+                // Wrapped rows (not a single scrollable strip) so every tag is
+                // visible without horizontal scrolling.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    visible.forEach { tag ->
                         TagChip(
                             text = tag,
                             color = group.color,
@@ -269,6 +289,14 @@ private fun AllTagsSheet(
                         )
                     }
                 }
+            }
+            if (q.isNotEmpty() && groups.none { g -> g.tags.any { it.lowercase().contains(q) } }) {
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Sin coincidencias para \"$filter\"",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

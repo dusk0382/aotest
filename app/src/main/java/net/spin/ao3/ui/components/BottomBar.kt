@@ -1,5 +1,7 @@
 package net.spin.ao3.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,6 +58,7 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 4.dp,
     ) {
         Row(
             modifier = Modifier
@@ -66,6 +70,20 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
         ) {
             items.forEach { destination ->
                 val isSelected = destination == selected
+                // Animated pill: colors and icon size glide between states.
+                val pillColor by animateColorAsState(
+                    if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    label = "pillColor",
+                )
+                val pillContent by animateColorAsState(
+                    if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    label = "pillContent",
+                )
+                val iconSize by animateDpAsState(if (isSelected) 24.dp else 22.dp, label = "iconSize")
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -75,16 +93,8 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            Color.Transparent
-                        },
-                        contentColor = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = pillColor,
+                        contentColor = pillContent,
                         modifier = Modifier
                             .height(32.dp)
                             .widthIn(min = 64.dp),
@@ -97,7 +107,7 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
                             Icon(
                                 destination.icon,
                                 contentDescription = null,
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(iconSize),
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(

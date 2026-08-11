@@ -17,12 +17,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,14 +59,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
+import net.spin.ao3.data.model.FacetKind
+import net.spin.ao3.data.model.FilterFacets
+import net.spin.ao3.data.model.FilterOption
 import net.spin.ao3.data.model.LANGUAGE_OPTIONS
 import net.spin.ao3.data.model.RATING_OPTIONS
 import net.spin.ao3.data.model.SearchFilters
@@ -95,6 +104,10 @@ fun SearchScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var filtersNotApplied by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
+    // Sidebar facets (suggested tags with counts) of the current listing.
+    var facets by remember { mutableStateOf<FilterFacets?>(null) }
+    // Editable copy of the query shown in the search field below the bar.
+    var queryDraft by remember(currentFilters.query) { mutableStateOf(currentFilters.query) }
     val scope = rememberCoroutineScope()
 
     fun fetchFirst() {
@@ -106,6 +119,7 @@ fun SearchScreen(
                 val result = container.client.search(currentFilters, 1, currentSort)
                 results = result.works
                 filtersNotApplied = !result.filtersApplied
+                facets = result.facets
                 page = 1
                 noMorePages = false
             } catch (e: Exception) {
@@ -113,6 +127,16 @@ fun SearchScreen(
             } finally {
                 loading = false
             }
+        }
+    }
+
+    /** Applies the text in the search field (item: keeps the results + filters). */
+    fun submitQuery() {
+        val q = queryDraft.trim()
+        if (q == currentFilters.query) {
+            fetchFirst()
+        } else {
+            currentFilters = currentFilters.copy(query = q)
         }
     }
 
@@ -195,11 +219,18 @@ fun SearchScreen(
             )
         },
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            SearchQueryField(
+                query = queryDraft,
+                onQueryChange = { queryDraft = it },
+                onSearch = { submitQuery() },
+            )
+            Box(Modifier.weight(1f)) {
         when {
-            loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            error != null && results.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            error != null && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(error ?: "", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
@@ -210,7 +241,7 @@ fun SearchScreen(
                     }
                 }
             }
-            results.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding)) {
+            results.isEmpty() -> Box(Modifier.fillMaxSize()) {
                 val hasFilters = activeFilterCount(currentFilters) > 0
                 EmptyState(
                     icon = Icons.Default.Search,
@@ -223,7 +254,7 @@ fun SearchScreen(
                 )
             }
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -288,10 +319,13 @@ fun SearchScreen(
             }
         }
     }
+    }
+    }
 
     if (showFilters) {
         FilterSheet(
             initial = currentFilters,
+            facets = facets,
             onDismiss = { showFilters = false },
             onApply = { newFilters ->
                 showFilters = false
@@ -299,6 +333,30 @@ fun SearchScreen(
             },
         )
     }
+}
+
+@Composable
+private fun SearchQueryField(query: String, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        placeholder = { Text("Busca por título, fandom, autor, tag…") },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = if (query.isNotBlank()) {
+            {
+                IconButton(onClick = { onQueryChange(""); onSearch() }) {
+                    Icon(Icons.Default.Clear, contentDescription = "Limpiar búsqueda")
+                }
+            }
+        } else {
+            null
+        },
+        singleLine = true,
+        shape = CircleShape,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+    )
 }
 
 private fun activeFilterCount(f: SearchFilters): Int {
@@ -312,6 +370,14 @@ private fun activeFilterCount(f: SearchFilters): Int {
     if (f.excludeRating != null) n++
     n += f.excludeWarnings.size
     n += f.excludeCategories.size
+    if (f.fandomIds.isNotEmpty()) n++
+    if (f.characterIds.isNotEmpty()) n++
+    if (f.relationshipIds.isNotEmpty()) n++
+    if (f.freeformIds.isNotEmpty()) n++
+    if (f.excludeFandomIds.isNotEmpty()) n++
+    if (f.excludeCharacterIds.isNotEmpty()) n++
+    if (f.excludeRelationshipIds.isNotEmpty()) n++
+    if (f.excludeFreeformIds.isNotEmpty()) n++
     if (f.completeOnly) n++
     if (f.crossoverOnly) n++
     if (f.excludeCrossover) n++
@@ -356,13 +422,35 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
 @Composable
 private fun FilterSheet(
     initial: SearchFilters,
+    facets: FilterFacets?,
     onDismiss: () -> Unit,
     onApply: (SearchFilters) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
     var f by remember { mutableStateOf(initial) }
-    // false = Incluir, true = Excluir (edits the exclude_* sets)
-    var excludeMode by remember { mutableStateOf(false) }
+
+    // Prefer the live sidebar facets (with result counts); fall back to the
+    // static AO3 option tables when the listing has no filter sidebar.
+    fun withCount(label: String, count: Int) = if (count > 0) "$label ($count)" else label
+    val ratingItems: List<FilterOption> =
+        facets?.groups?.firstOrNull { it.kind == FacetKind.RATING }?.include
+            ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
+            ?: RATING_OPTIONS
+    val warningItems: List<FilterOption> =
+        facets?.groups?.firstOrNull { it.kind == FacetKind.WARNING }?.include
+            ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
+            ?: WARNING_OPTIONS
+    val categoryItems: List<FilterOption> =
+        facets?.groups?.firstOrNull { it.kind == FacetKind.CATEGORY }?.include
+            ?.map { FilterOption(it.id.toInt(), withCount(it.label, it.count)) }
+            ?: CATEGORY_OPTIONS
+    val suggestionGroups = facets?.groups
+        ?.filter {
+            it.kind == FacetKind.CHARACTER || it.kind == FacetKind.RELATIONSHIP ||
+                it.kind == FacetKind.FREEFORM || it.kind == FacetKind.FANDOM
+        }
+        ?.filter { it.include.isNotEmpty() }
+        ?: emptyList()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -375,7 +463,7 @@ private fun FilterSheet(
             Text("Filtros de búsqueda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Los mismos filtros del sidebar de AO3.",
+                "Los mismos filtros del sidebar de AO3. Puedes incluir y excluir a la vez.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -390,82 +478,74 @@ private fun FilterSheet(
             )
             Spacer(Modifier.height(12.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(
-                    selected = !excludeMode,
-                    onClick = { excludeMode = false },
-                    label = { Text("Incluir") },
-                )
-                Spacer(Modifier.width(8.dp))
-                FilterChip(
-                    selected = excludeMode,
-                    onClick = { excludeMode = true },
-                    label = { Text("Excluir") },
-                )
-                Spacer(Modifier.width(8.dp))
+            if (suggestionGroups.isNotEmpty()) {
+                Text("Sugerencias de tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    if (excludeMode) "Eliges lo que se EXCLUYE de los resultados" else "Eliges lo que se INCLUYE",
+                    "Tags relacionados con esta búsqueda (los mismos del sidebar de AO3). Toca + para incluir o − para excluir.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(8.dp))
+                suggestionGroups.forEach { g ->
+                    Text(
+                        g.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        g.include.take(10).forEach { item ->
+                            TagIncludeExcludeChip(
+                                label = item.label,
+                                count = item.count,
+                                included = facetIncluded(f, g.kind, item.id),
+                                excluded = facetExcluded(f, g.kind, item.id),
+                                onInclude = { f = toggleFacet(f, g.kind, item.id, include = true) },
+                                onExclude = { f = toggleFacet(f, g.kind, item.id, include = false) },
+                            )
+                        }
+                    }
+                    if (g.include.size > 10) {
+                        Text(
+                            "…y ${g.include.size - 10} más (búscalos con el campo de texto de abajo)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
             }
-            Spacer(Modifier.height(12.dp))
 
             SectionLabel("Rating")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RATING_OPTIONS.forEach { opt ->
-                    val selected = if (excludeMode) f.excludeRating == opt.id else f.rating == opt.id
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            f = if (excludeMode) {
-                                f.copy(excludeRating = if (selected) null else opt.id)
-                            } else {
-                                f.copy(rating = if (selected) null else opt.id)
-                            }
-                        },
-                        label = { Text(opt.label) },
-                    )
-                }
-            }
+            IncExSection(
+                items = ratingItems,
+                included = { id -> f.rating == id },
+                excluded = { id -> f.excludeRating == id },
+                onToggleInclude = { id -> f = f.copy(rating = if (f.rating == id) null else id) },
+                onToggleExclude = { id -> f = f.copy(excludeRating = if (f.excludeRating == id) null else id) },
+            )
             Spacer(Modifier.height(10.dp))
 
             SectionLabel("Warnings")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                WARNING_OPTIONS.forEach { opt ->
-                    val sel = if (excludeMode) f.excludeWarnings else f.warnings
-                    FilterChip(
-                        selected = opt.id in sel,
-                        onClick = {
-                            f = if (excludeMode) {
-                                f.copy(excludeWarnings = toggle(sel, opt.id))
-                            } else {
-                                f.copy(warnings = toggle(sel, opt.id))
-                            }
-                        },
-                        label = { Text(opt.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    )
-                }
-            }
+            IncExSection(
+                items = warningItems,
+                included = { id -> id in f.warnings },
+                excluded = { id -> id in f.excludeWarnings },
+                onToggleInclude = { id -> f = f.copy(warnings = toggle(f.warnings, id)) },
+                onToggleExclude = { id -> f = f.copy(excludeWarnings = toggle(f.excludeWarnings, id)) },
+            )
             Spacer(Modifier.height(10.dp))
 
             SectionLabel("Categorías")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                CATEGORY_OPTIONS.forEach { opt ->
-                    val sel = if (excludeMode) f.excludeCategories else f.categories
-                    FilterChip(
-                        selected = opt.id in sel,
-                        onClick = {
-                            f = if (excludeMode) {
-                                f.copy(excludeCategories = toggle(sel, opt.id))
-                            } else {
-                                f.copy(categories = toggle(sel, opt.id))
-                            }
-                        },
-                        label = { Text(opt.label) },
-                    )
-                }
-            }
+            IncExSection(
+                items = categoryItems,
+                included = { id -> id in f.categories },
+                excluded = { id -> id in f.excludeCategories },
+                onToggleInclude = { id -> f = f.copy(categories = toggle(f.categories, id)) },
+                onToggleExclude = { id -> f = f.copy(excludeCategories = toggle(f.excludeCategories, id)) },
+            )
             Spacer(Modifier.height(10.dp))
 
             SectionLabel("Idioma")
@@ -622,6 +702,139 @@ private fun SectionLabel(text: String) {
         modifier = Modifier.padding(bottom = 6.dp),
     )
 }
+
+/** Include row + exclude row for one option section (rating / warnings / categories). */
+@Composable
+private fun IncExSection(
+    items: List<FilterOption>,
+    included: (Int) -> Boolean,
+    excluded: (Int) -> Boolean,
+    onToggleInclude: (Int) -> Unit,
+    onToggleExclude: (Int) -> Unit,
+) {
+    Text("Incluir", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+    Spacer(Modifier.height(4.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.forEach { opt ->
+            FilterChip(
+                selected = included(opt.id),
+                onClick = { onToggleInclude(opt.id) },
+                label = { Text(opt.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            )
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("Excluir", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+    Spacer(Modifier.height(4.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.forEach { opt ->
+            FilterChip(
+                selected = excluded(opt.id),
+                onClick = { onToggleExclude(opt.id) },
+                label = { Text(opt.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            )
+        }
+    }
+}
+
+/** A suggested tag with two explicit affordances: + include / − exclude. */
+@Composable
+private fun TagIncludeExcludeChip(
+    label: String,
+    count: Int,
+    included: Boolean,
+    excluded: Boolean,
+    onInclude: () -> Unit,
+    onExclude: () -> Unit,
+) {
+    val suffix = if (count > 0) " ($count)" else ""
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = if (included) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            contentColor = if (included) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            onClick = onInclude,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Incluir", modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    (if (included) "✓ " else "") + label + suffix,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = if (excluded) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            contentColor = if (excluded) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            onClick = onExclude,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Remove, contentDescription = "Excluir", modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    (if (excluded) "✗ " else "") + label + suffix,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// ---- Facet <-> SearchFilters helpers ---------------------------------------
+
+private fun facetIncluded(f: SearchFilters, kind: FacetKind, id: Long): Boolean = when (kind) {
+    FacetKind.FANDOM -> id in f.fandomIds
+    FacetKind.CHARACTER -> id in f.characterIds
+    FacetKind.RELATIONSHIP -> id in f.relationshipIds
+    FacetKind.FREEFORM -> id in f.freeformIds
+    else -> false
+}
+
+private fun facetExcluded(f: SearchFilters, kind: FacetKind, id: Long): Boolean = when (kind) {
+    FacetKind.FANDOM -> id in f.excludeFandomIds
+    FacetKind.CHARACTER -> id in f.excludeCharacterIds
+    FacetKind.RELATIONSHIP -> id in f.excludeRelationshipIds
+    FacetKind.FREEFORM -> id in f.excludeFreeformIds
+    else -> false
+}
+
+private fun toggleFacet(f: SearchFilters, kind: FacetKind, id: Long, include: Boolean): SearchFilters = when (kind) {
+    FacetKind.FANDOM -> if (include) f.copy(fandomIds = toggleL(f.fandomIds, id)) else f.copy(excludeFandomIds = toggleL(f.excludeFandomIds, id))
+    FacetKind.CHARACTER -> if (include) f.copy(characterIds = toggleL(f.characterIds, id)) else f.copy(excludeCharacterIds = toggleL(f.excludeCharacterIds, id))
+    FacetKind.RELATIONSHIP -> if (include) f.copy(relationshipIds = toggleL(f.relationshipIds, id)) else f.copy(excludeRelationshipIds = toggleL(f.excludeRelationshipIds, id))
+    FacetKind.FREEFORM -> if (include) f.copy(freeformIds = toggleL(f.freeformIds, id)) else f.copy(excludeFreeformIds = toggleL(f.excludeFreeformIds, id))
+    else -> f
+}
+
+private fun toggleL(set: Set<Long>, id: Long): Set<Long> = if (id in set) set - id else set + id
 
 private fun toggle(set: Set<Int>, id: Int): Set<Int> =
     if (id in set) set - id else set + id

@@ -111,6 +111,15 @@ data class SearchFilters(
     val wordsTo: String = "",
     val dateFrom: String = "",
     val dateTo: String = "",
+    /** AO3 tag ids for the sidebar facets (fandom/character/relationship/freeform). */
+    val fandomIds: Set<Long> = emptySet(),
+    val characterIds: Set<Long> = emptySet(),
+    val relationshipIds: Set<Long> = emptySet(),
+    val freeformIds: Set<Long> = emptySet(),
+    val excludeFandomIds: Set<Long> = emptySet(),
+    val excludeCharacterIds: Set<Long> = emptySet(),
+    val excludeRelationshipIds: Set<Long> = emptySet(),
+    val excludeFreeformIds: Set<Long> = emptySet(),
 ) {
     /** True when anything beyond the free-text query is set. */
     val hasFilters: Boolean
@@ -119,7 +128,11 @@ data class SearchFilters(
             excludeRating != null || excludeWarnings.isNotEmpty() || excludeCategories.isNotEmpty() ||
             completeOnly || crossoverOnly || excludeCrossover || partOfSeries || language != null ||
             wordsFrom.isNotBlank() || wordsTo.isNotBlank() ||
-            dateFrom.isNotBlank() || dateTo.isNotBlank()
+            dateFrom.isNotBlank() || dateTo.isNotBlank() ||
+            fandomIds.isNotEmpty() || characterIds.isNotEmpty() ||
+            relationshipIds.isNotEmpty() || freeformIds.isNotEmpty() ||
+            excludeFandomIds.isNotEmpty() || excludeCharacterIds.isNotEmpty() ||
+            excludeRelationshipIds.isNotEmpty() || excludeFreeformIds.isNotEmpty()
 
     /** Compact serialization for navigation state (\u0002 separator). */
     fun serialize(): String = listOf(
@@ -142,6 +155,14 @@ data class SearchFilters(
         wordsTo,
         dateFrom,
         dateTo,
+        fandomIds.joinToString(","),
+        characterIds.joinToString(","),
+        relationshipIds.joinToString(","),
+        freeformIds.joinToString(","),
+        excludeFandomIds.joinToString(","),
+        excludeCharacterIds.joinToString(","),
+        excludeRelationshipIds.joinToString(","),
+        excludeFreeformIds.joinToString(","),
     ).joinToString("\u0002")
 
     companion object {
@@ -149,6 +170,7 @@ data class SearchFilters(
             val p = s.split("\u0002")
             fun g(i: Int) = p.getOrNull(i) ?: ""
             fun ids(i: Int) = g(i).split(",").mapNotNull { it.toIntOrNull() }.toSet()
+            fun longIds(i: Int) = g(i).split(",").mapNotNull { it.toLongOrNull() }.toSet()
             return SearchFilters(
                 query = g(0),
                 tag = g(1).ifEmpty { null },
@@ -169,10 +191,41 @@ data class SearchFilters(
                 wordsTo = g(16),
                 dateFrom = g(17),
                 dateTo = g(18),
+                fandomIds = longIds(19),
+                characterIds = longIds(20),
+                relationshipIds = longIds(21),
+                freeformIds = longIds(22),
+                excludeFandomIds = longIds(23),
+                excludeCharacterIds = longIds(24),
+                excludeRelationshipIds = longIds(25),
+                excludeFreeformIds = longIds(26),
             )
         }
     }
 }
+
+/** A sidebar facet option: AO3 tag id + label + result count. */
+data class FacetItem(
+    val id: Long,
+    val label: String,
+    val count: Int = 0,
+)
+
+/** The kind of a filter sidebar group (maps to its `_ids[]` query params). */
+enum class FacetKind { RATING, WARNING, CATEGORY, FANDOM, CHARACTER, RELATIONSHIP, FREEFORM }
+
+/** One include/exclude pair from AO3's "Filters" sidebar. */
+data class FacetGroup(
+    val kind: FacetKind,
+    val name: String,
+    val include: List<FacetItem> = emptyList(),
+    val exclude: List<FacetItem> = emptyList(),
+)
+
+/** The "Filters" sidebar of an AO3 tag/works listing. */
+data class FilterFacets(
+    val groups: List<FacetGroup> = emptyList(),
+)
 
 /** A work as shown in a search result (blurb). */
 data class WorkSummary(
@@ -250,4 +303,6 @@ data class AuthorProfile(
     /** Number of works, when the works page shows it ("11 Works by …"). */
     val worksCount: Int? = null,
     val works: List<WorkSummary> = emptyList(),
+    /** The user's profile icon (img.icon on the profile page), absolute URL. */
+    val avatarUrl: String? = null,
 )
