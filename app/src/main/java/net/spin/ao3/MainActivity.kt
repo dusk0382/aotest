@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,6 +76,12 @@ private fun AppRoot() {
 
     // Stack for Search / Detail / Reader (full-screen, hidden bottom bar).
     val nav = rememberNavController()
+    // Keeps every screen's saveable state (scroll positions, pagination, form
+    // fields) alive across navigation. Without it, AnimatedContent disposes the
+    // outgoing screen and rememberSaveable inside it is lost, so returning to a
+    // search / Home / Library reset it to the top (the v0.6.7 fix only worked
+    // across activity recreation, not across plain navigation).
+    val screenStates = rememberSaveableStateHolder()
     val showTabs = nav.stack.size == 1
 
     fun browseTag(tag: String) = nav.push(Route.Search(SearchFilters(tag = tag), SortOption.KUDOS))
@@ -126,7 +133,19 @@ private fun AppRoot() {
                     },
                     label = "nav",
                 ) { target ->
-                    when (target) {
+                    // Slot key = screen identity + stack position: identical
+                    // routes (e.g. the same tag opened twice) get distinct keys,
+                    // and the key stays stable across rotation (routes serialize).
+                    // indexOfFirst with `===` (not structural equals): two equal
+                    // Route instances stacked would otherwise share a key.
+                    screenStates.SaveableStateProvider(
+                        when (target) {
+                            is NavTarget.Tab -> "tab-${target.tab.name}"
+                            is NavTarget.Screen ->
+                                "screen@${nav.stack.indexOfFirst { it === target.route }.coerceAtLeast(0)}-${target.route.serialize()}"
+                        },
+                    ) {
+                        when (target) {
                         is NavTarget.Tab -> when (target.tab) {
                             AppTab.HOME -> HomeScreen(
                                 container = container,
@@ -185,6 +204,7 @@ private fun AppRoot() {
                             Route.Home -> Unit
                         }
                     }
+                    } // SaveableStateProvider
                 }
             }
         }

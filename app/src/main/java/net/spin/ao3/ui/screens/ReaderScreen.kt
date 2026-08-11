@@ -212,6 +212,8 @@ fun ReaderScreen(
     val webView = remember { mutableStateOf<WebView?>(null) }
     var pendingScroll by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
+    // Chapters whose NEXT chapter has already been prefetched (per reader session).
+    var prefetched by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
     // Paginated mode data (only parsed when active).
     val lines = remember(content, paged) {
@@ -272,6 +274,18 @@ fun ReaderScreen(
             }
         }
         loading = false
+        // Prefetch the next chapter (best-effort, only after a successful load)
+        // so advancing is instant: the call fills chapterCache + the on-disk
+        // cache, so getChapter returns immediately from cache when the user
+        // actually moves on.
+        val nextIndex = currentIndex + 1
+        if (error == null && nextIndex < chapters.size && nextIndex !in prefetched) {
+            val next = chapters[nextIndex]
+            if (next.content == null) {
+                prefetched = prefetched + nextIndex
+                scope.launch { runCatching { container.client.getChapter(workId, next) } }
+            }
+        }
     }
 
     // 2b) Paged mode: restore or reset the page whenever chapter content or the

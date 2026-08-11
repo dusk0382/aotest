@@ -138,6 +138,14 @@ fun AuthorScreen(
         } finally {
             worksLoading = false
         }
+        // Prefetch page 2 (best-effort) so the first "Cargar más obras" is instant:
+        // it fills authorWorksCache and loadMoreWorks() then returns from cache.
+        val total = worksCount
+        if (worksPage == 1 && works.isNotEmpty() && (total == null || works.size < total)) {
+            scope.launch {
+                runCatching { container.client.getAuthorWorks(username, 2) }
+            }
+        }
     }
 
     Scaffold(
