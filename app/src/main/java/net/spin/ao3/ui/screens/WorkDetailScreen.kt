@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
@@ -91,6 +92,7 @@ import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
+import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.components.AdditionalColor
 import net.spin.ao3.ui.components.CategoryColor
 import net.spin.ao3.ui.components.CharacterColor
@@ -123,6 +125,10 @@ fun WorkDetailScreen(
     var detail by remember { mutableStateOf<WorkDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // True when [detail] was built from the local download record (offline
+    // fallback) instead of the live AO3 page.
+    var offlineDetail by remember { mutableStateOf(false) }
+    val online by container.connectivity.online.collectAsState()
     var saved by remember { mutableStateOf(store.isSaved(workId)) }
     var downloadedIds by remember { mutableStateOf(store.downloadedChapterIds(workId)) }
     var downloadingChapter by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -162,10 +168,47 @@ fun WorkDetailScreen(
     }
 
     LaunchedEffect(workId) {
+        offlineDetail = false
         try {
             detail = container.client.getWork(workId)
         } catch (e: Exception) {
-            error = e.message ?: "No se pudo cargar la obra"
+            // Offline fallback: if the work is downloaded, build the detail from
+            // the local record (title + chapters with full content) so the user
+            // can still open it and read without any network.
+            val dl = store.download(workId)
+            if (dl != null) {
+                detail = WorkDetail(
+                    summary = WorkSummary(
+                        id = workId,
+                        title = dl.title,
+                        author = "",
+                        authorUrl = null,
+                        fandoms = emptyList(),
+                        rating = null,
+                        ratingKey = null,
+                        warnings = emptyList(),
+                        categories = emptyList(),
+                        otherTags = emptyList(),
+                        summary = "Copia local guardada en tu dispositivo · sin conexión.",
+                        words = 0,
+                        chapterCount = dl.chapters.size,
+                        chapterTotal = dl.chapters.size,
+                        hits = 0,
+                        kudos = 0,
+                        comments = 0,
+                        bookmarks = 0,
+                        published = null,
+                        updated = null,
+                        url = "https://archiveofourown.org/works/$workId",
+                    ),
+                    descriptionHtml = null,
+                    notesHtml = null,
+                    chapters = dl.chapters.sortedBy { it.index },
+                )
+                offlineDetail = true
+            } else {
+                error = e.message ?: "No se pudo cargar la obra"
+            }
         } finally {
             loading = false
         }
@@ -299,8 +342,12 @@ fun WorkDetailScreen(
                 CircularProgressIndicator()
             }
             error != null && d == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(error ?: "", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Text(
+                        if (!online) "Sin conexión. Esta obra no está descargada en tu dispositivo." else (error ?: ""),
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = {
                         loading = true; error = null
@@ -342,6 +389,39 @@ fun WorkDetailScreen(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
+                    // Offline banner: shown when the detail is a local copy or
+                    // the device simply has no network.
+                    if (offlineDetail || !online) {
+                        item {
+                            Surface(
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Default.CloudOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        if (offlineDetail) {
+                                            "Sin conexión · copia local (solo capítulos descargados)"
+                                        } else {
+                                            "Sin conexión · mostrando contenido cacheado"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     item {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(d.summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

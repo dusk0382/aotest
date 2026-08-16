@@ -86,9 +86,17 @@ class Ao3Client(private val cacheDir: File? = null) {
         headers: Map<String, String> = emptyMap(),
         retries: Int = 7,
         disk: DiskCache? = contentDisk,
+        allowStaleOnError: Boolean = false,
     ): String {
         disk?.get(url)?.let { return it }
-        val body = gate.withLock { getInternal(url, headers, retries) }
+        val body = try {
+            gate.withLock { getInternal(url, headers, retries) }
+        } catch (e: Exception) {
+            // Offline or AO3 down: fall back to the stale disk copy instead of
+            // failing, so recently read works/chapters stay openable.
+            if (allowStaleOnError) disk?.getStale(url)?.let { return it }
+            throw e
+        }
         if (!isAdultGate(body)) disk?.put(url, body)
         return body
     }
@@ -103,9 +111,16 @@ class Ao3Client(private val cacheDir: File? = null) {
         headers: Map<String, String> = emptyMap(),
         retries: Int = 4,
         disk: DiskCache? = contentDisk,
+        allowStaleOnError: Boolean = false,
     ): String {
         disk?.get(url)?.let { return it }
-        val body = getInternal(url, headers, retries)
+        val body = try {
+            getInternal(url, headers, retries)
+        } catch (e: Exception) {
+            // See [get]: stale disk copy beats a dead screen when offline.
+            if (allowStaleOnError) disk?.getStale(url)?.let { return it }
+            throw e
+        }
         if (!isAdultGate(body)) disk?.put(url, body)
         return body
     }
@@ -421,7 +436,7 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     suspend fun getWork(id: Long): WorkDetail {
         workCache.get(id)?.let { return it }
-        val html = get("https://archiveofourown.org/works/$id", disk = workDisk)
+        val html = get("https://archiveofourown.org/works/$id", disk = workDisk, allowStaleOnError = true)
         val detail = withContext(Dispatchers.IO) { Ao3Parser.parseWorkDetail(html, id) }
             ?: throw IOException("No se pudo interpretar la obra $id")
         workCache.put(id, detail)
@@ -498,7 +513,7 @@ class Ao3Client(private val cacheDir: File? = null) {
         val url = chapter.url ?: "https://archiveofourown.org/works/$workId"
         val cacheKey = "$workId#${chapter.index}"
         chapterCache.get(cacheKey)?.let { return it }
-        val html = get(url)
+        val html = get(url, allowStaleOnError = true)
         val (content, title) = withContext(Dispatchers.IO) { Ao3Parser.parseChapter(html) }
         val ready = chapter.copy(
             title = title ?: chapter.title,

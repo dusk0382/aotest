@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Offline banner: read-only network state, no extra user prompt -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Export .txt to Downloads: MediaStore on API 30+, legacy file access on API 23-29 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

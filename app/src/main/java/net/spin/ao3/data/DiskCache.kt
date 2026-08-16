@@ -33,6 +33,19 @@ class DiskCache(
         }
     }
 
+    /** Reads the entry even when it is past its TTL. Used as an offline
+     *  fallback: stale content is better than a dead screen when there is no
+     *  network (works/chapters visited recently stay openable). */
+    suspend fun getStale(key: String): String? = withContext(Dispatchers.IO) {
+        val f = file(key)
+        if (!f.exists()) return@withContext null
+        try {
+            f.readText()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun put(key: String, value: String) = mutex.withLock {
         withContext(Dispatchers.IO) {
             try {

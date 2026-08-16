@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInNew
@@ -73,6 +74,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -150,6 +152,7 @@ fun ReaderScreen(
     var chapterTitle by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    val online by container.connectivity.online.collectAsState()
 
     var theme by remember { mutableStateOf(store.prefs.theme) }
     var fontSize by remember { mutableIntStateOf(store.prefs.fontSizeSp) }
@@ -266,7 +269,11 @@ fun ReaderScreen(
                 workAuthor = detail.summary.author
                 chapters = detail.chapters
             } catch (e: Exception) {
-                error = e.message ?: "No se pudo cargar la obra"
+                error = if (!online) {
+                    "Sin conexión y esta obra no está descargada. Descargala desde su detalle para leerla sin conexión."
+                } else {
+                    e.message ?: "No se pudo cargar la obra"
+                }
                 loading = false
                 return@LaunchedEffect
             }
@@ -295,7 +302,11 @@ fun ReaderScreen(
                 chapterTitle = fetched.title
             } catch (e: Exception) {
                 content = null
-                error = e.message ?: "No se pudo cargar el capítulo"
+                error = if (!online) {
+                    "Sin conexión y este capítulo no está descargado. Descargá la obra (o este capítulo) para leerlo sin conexión."
+                } else {
+                    e.message ?: "No se pudo cargar el capítulo"
+                }
             }
         }
         // New chapter: reset the translation display (cached translations stay
@@ -902,6 +913,27 @@ fun ReaderScreen(
                     .windowInsetsPadding(WindowInsets.navigationBars),
             ) {
                 Column {
+                    // Offline indicator: the chapter on screen came from a
+                    // local download or stale cache, not the live site.
+                    if (!online) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.CloudOff,
+                                contentDescription = null,
+                                tint = readerFgColor(theme).copy(alpha = 0.6f),
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Sin conexión · copia local",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = readerFgColor(theme).copy(alpha = 0.6f),
+                            )
+                        }
+                    }
                     LinearProgressIndicator(
                         progress = { currentRatio.coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth().height(2.dp),

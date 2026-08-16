@@ -8,6 +8,9 @@ class AppContainer(context: Context) {
     val store = Store(context)
     val client = Ao3Client(cacheDir = File(context.cacheDir, "ao3_http"))
 
+    /** Live connectivity state, used by the offline banner + error messages. */
+    val connectivity = ConnectivityMonitor(context)
+
     /** Per-chapter translations, cached forever on disk (each chapter is
      *  translated at most once per language). */
     val translator = Translator(
