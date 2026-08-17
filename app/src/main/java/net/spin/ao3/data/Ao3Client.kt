@@ -55,6 +55,16 @@ class Ao3Client(private val cacheDir: File? = null) {
     private companion object {
         const val GLOBAL_DEADLINE_MS = 45_000L
         const val POST_DEADLINE_MS = 30_000L
+
+        // A REAL browser User-Agent. Cloudflare gives "AO3-Lector/0.1 (personal
+        // reader app; okhttp)" a low bot-trust score and slow-stalls it
+        // (measured: 14-16s vs ~1s for Chrome), which looks like an infinite
+        // spinner. A normal Chrome UA (plus Accept-Language) passes like a
+        // phone browser.
+        const val BROWSER_UA =
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        const val ACCEPT_LANGUAGE = "es-ES,es;q=0.9,en;q=0.8"
     }
 
     private val client = OkHttpClient.Builder()
@@ -74,8 +84,9 @@ class Ao3Client(private val cacheDir: File? = null) {
         withContext(Dispatchers.IO) {
             val b = Request.Builder().url(url).header(
                 "User-Agent",
-                "AO3-Lector/0.1 (personal reader app; okhttp)",
+                BROWSER_UA,
             ).header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", ACCEPT_LANGUAGE)
             headers.forEach { (k, v) -> b.header(k, v) }
             client.newCall(b.build()).execute().use { response ->
                 if (response.code == 429) {
@@ -196,12 +207,13 @@ class Ao3Client(private val cacheDir: File? = null) {
                 try {
                     val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
                     val posted = withContext(Dispatchers.IO) {
-                        val request = Request.Builder()
-                            .url(url)
-                            .header("User-Agent", "AO3-Lector/0.1 (personal reader app; okhttp)")
-                            .header("Referer", url)
-                            .post(form as RequestBody)
-                            .build()
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", BROWSER_UA)
+                        .header("Accept-Language", ACCEPT_LANGUAGE)
+                        .header("Referer", url)
+                        .post(form as RequestBody)
+                        .build()
                         client.newCall(request).execute().use { response ->
                             if (response.code == 429) {
                                 val retryAfter = response.header("Retry-After")?.toLongOrNull()
