@@ -48,6 +48,13 @@ object WebViewFetcher {
     /** Cloudflare error codes that mean "you're being bot-detected". */
     val CF_CODES = setOf(403, 525, 418, 520, 522, 503)
 
+    /** Set once a Cloudflare challenge is seen; Ao3Client then goes straight
+     *  to the WebView (skipping the doomed OkHttp attempt) for the rest of
+     *  the session — like CO3's 24h CF mode, but in memory. */
+    @Volatile
+    var cloudflareBlocked: Boolean = false
+        private set
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // -------------------- Activity tracking --------------------
@@ -154,6 +161,8 @@ object WebViewFetcher {
                 // Channel works; the chunk stream will follow. Nothing to do.
             }
             payload == "challenge" -> {
+                cloudflareBlocked = true
+                Log.w(TAG, "Cloudflare challenge detectado — activando CF mode")
                 // Let the user solve the captcha: show the WebView full-screen.
                 setOverlayVisible(true)
                 // The challenge reloads the page when solved; onPageFinished
@@ -172,7 +181,12 @@ object WebViewFetcher {
                     val offset = body.substring(0, sep).toIntOrNull()
                     val part = body.substring(sep + 1)
                     val buf = chunkBuffer ?: StringBuilder(part.length * 4).also { chunkBuffer = it }
-                    if (offset == null || offset == buf.length) buf.append(part)
+                    if (offset == null || offset == buf.length) {
+                        buf.append(part)
+                        if (buf.length % 200_000 < part.length) {
+                            Log.d(TAG, "recibidos ${buf.length} chars hasta ahora")
+                        }
+                    }
                     // Out-of-order chunk (offset mismatch): ignored; the
                     // in-order stream still produces the full page.
                 }
@@ -312,7 +326,7 @@ object WebViewFetcher {
               return;
             }
             var html = document.documentElement.outerHTML;
-            var CHUNK = 100000;
+            var CHUNK = 50000;
             for (var i = 0; i < html.length; i += CHUNK) {
               console.log('AO3FETCH:chunk:' + i + ':' + html.substr(i, CHUNK));
             }

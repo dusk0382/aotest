@@ -140,34 +140,6 @@ class Ao3Client(private val cacheDir: File? = null) {
         }
     }
 
-    /** Fetches one URL, returning the response body or throwing.
-     *
-     *  Strategy (copied from the CO3 AO3 client, which works where OkHttp
-     *  alone doesn't): try OkHttp first with a short 8s read timeout so a
-     *  Cloudflare tarpit fails fast; on the first attempt, if that fails with
-     *  a Cloudflare block/timeout or a JS challenge page, retry through the
-     *  system WebView — real Chromium, so AO3 sees a browser TLS fingerprint
-     *  and JS challenges resolve themselves. Later retries use plain OkHttp
-     *  with the full timeout (for legitimately slow pages). */
-    private suspend fun fetch(url: String, headers: Map<String, String> = emptyMap(), attempt: Int): String {
-        val quick = try {
-            withContext(Dispatchers.IO) { okhttpGet(url, headers, fastClient) }
-        } catch (e: Exception) {
-            if (attempt == 0 && shouldFallbackToWebView(e)) {
-                val viaWeb = WebViewFetcher.fetch(url)
-                if (viaWeb != null && !isCfChallenge(viaWeb)) return viaWeb
-            }
-            throw e
-        }
-        if (!isCfChallenge(quick)) return quick
-        // OkHttp got a CF challenge page (HTTP 200): let the WebView solve it.
-        if (attempt == 0) {
-            val viaWeb = WebViewFetcher.fetch(url)
-            if (viaWeb != null && !isCfChallenge(viaWeb)) return viaWeb
-        }
-        throw IOException("AO3 mostró un challenge de Cloudflare al cargar $url")
-    }
-
     /** Serialized, polite GET: the whole app funnels through this gate so AO3
      *  only ever sees one in-flight request at a time (site-respect). */
     private suspend fun get(
@@ -215,18 +187,51 @@ class Ao3Client(private val cacheDir: File? = null) {
     }
 
     /**
-     * Hard deadline over the WHOLE retry loop (including backoff/Retry-After
-     * waits), so a flaky or down AO3 can never keep the user staring at a
-     * spinner for minutes — the request gives up and reports a clear error.
+     * Fetches [url] with the Cloudflare-bypass strategy copied from the CO3
+     * AO3 client (which works where OkHttp alone doesn't):
+     *
+     * 1) OkHttp with an 8s read timeout (fails fast when Cloudflare tarpits
+     *    OkHttp's TLS fingerprint — measured: ~60s stalls or HTTP 525).
+     *    Skipped entirely once CF mode is on.
+     * 2) The system WebView = real Chromium: AO3 sees a browser fingerprint
+     *    and JS/captcha challenges resolve themselves (the user solves a
+     *    visible captcha if Cloudflare demands one). Runs with its OWN 120s
+     *    timeout — the global 45s deadline used to kill the fetch while the
+     *    challenge was still resolving (seen in production: page loaded in
+     *    the WebView but the app had already given up).
+     * 3) Plain-OkHttp retry loop (7 tries, backoff) under the global deadline,
+     *    for legitimately slow pages + the adult-gate follow-up.
      */
     private suspend fun getInternal(url: String, headers: Map<String, String>, retries: Int): String {
         var lastError: Exception? = null
+
+        // 1) Fast OkHttp attempt (unless Cloudflare already blocked us once).
+        var quick: String? = null
+        if (!WebViewFetcher.cloudflareBlocked) {
+            quick = try {
+                withContext(Dispatchers.IO) { okhttpGet(url, headers, fastClient) }
+            } catch (e: Exception) {
+                lastError = e
+                null
+            }
+        }
+        if (quick != null && !isCfChallenge(quick)) return quick
+
+        // 2) WebView fallback, with its own long timeout (see KDoc).
+        val needsWebView = quick != null && isCfChallenge(quick) ||
+            (quick == null && (WebViewFetcher.cloudflareBlocked || shouldFallbackToWebView(lastError!!)))
+        if (needsWebView) {
+            val viaWeb = WebViewFetcher.fetch(url, timeoutMs = 120_000L)
+            if (viaWeb != null && !isCfChallenge(viaWeb)) return viaWeb
+        }
+
+        // 3) Retry loop with the global deadline (legit slow pages, adult gate).
         val body = withTimeoutOrNull(GLOBAL_DEADLINE_MS) {
             repeat(retries) { attempt ->
                 // First attempt goes out right away; back off between retries.
                 if (attempt > 0) delay(700L * attempt)
                 try {
-                    val fetched = fetch(url, headers, attempt)
+                    val fetched = withContext(Dispatchers.IO) { okhttpGet(url, headers, client) }
                     // AO3 shows an age gate to visitors without the view_adult cookie.
                     if (isAdultGate(fetched)) {
                         val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
@@ -234,7 +239,9 @@ class Ao3Client(private val cacheDir: File? = null) {
                         // banner, not a replacement). Only swap it for the refetch when
                         // that refetch succeeds: never throw away a good response just
                         // because a redundant refetch hit a Cloudflare 525/timeout.
-                        runCatching { fetch(adultUrl, headers, attempt) }.getOrNull()?.let { return@withTimeoutOrNull it }
+                        runCatching {
+                            withContext(Dispatchers.IO) { okhttpGet(adultUrl, headers, client) }
+                        }.getOrNull()?.let { return@withTimeoutOrNull it }
                     }
                     return@withTimeoutOrNull fetched
                 } catch (e: CancellationException) {
