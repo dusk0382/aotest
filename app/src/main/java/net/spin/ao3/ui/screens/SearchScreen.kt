@@ -96,6 +96,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
 import net.spin.ao3.data.model.FacetKind
