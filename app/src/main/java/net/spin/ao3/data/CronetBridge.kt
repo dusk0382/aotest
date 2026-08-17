@@ -27,10 +27,11 @@ import java.util.concurrent.TimeUnit
  * HTTP version, while curl/OpenSSL and real Chrome pass). Cronet presents the
  * same fingerprint as Chrome, so AO3 treats the app's traffic like a browser.
  *
- * The engine comes from Google Play Services (play-services-cronet) so it stays
- * current; if no provider is available (no GMS) the interceptor falls through
- * to the normal OkHttp chain. Registered via addNetworkInterceptor so OkHttp's
- * cookie handling (CookieJar) still applies around it.
+ * The engine is embedded (cronet-embedded: API + full Chromium stack in one
+ * AAR, no Google Play Services needed). If engine creation still fails the
+ * interceptor falls through to the normal OkHttp chain. Registered via
+ * addNetworkInterceptor so OkHttp's cookie handling (CookieJar) still applies
+ * around it.
  */
 class CronetBridge(context: Context) : Interceptor {
 

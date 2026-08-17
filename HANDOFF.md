@@ -802,9 +802,15 @@ Enfocado en código más eficiente (sin recortar funciones ni animaciones).
 
 ### Qué
 - Nuevo `CronetBridge.kt`: interceptor OkHttp de red que ejecuta la petición a
-  través de **Cronet** (la pila Chromium de Chrome vía Play Services). Cloudflare
-  le da el mismo trato que a un navegador real (fingerprint TLS idéntico).
-- Dependencia `play-services-cronet:18.1.1` (catálogo de versiones + build.gradle).
+  través de **Cronet** (la pila Chromium de Chrome). Cloudflare le da el mismo
+  trato que a un navegador real (fingerprint TLS idéntico).
+- Dependencia **`org.chromium.net:cronet-embedded:141.7340.3`** (catálogo +
+  build.gradle). **No** `play-services-cronet`: esa librería trae `cronet-api` +
+  `cronet-shared`, ambos con namespace `org.chromium.net`, y el manifest merger
+  de AGP falla con "Namespace used in multiple modules" (medido en CI).
+  `cronet-embedded` es un solo AAR con API + motor nativo (sin GMS).
+- `abiFilters` = `arm64-v8a` + `armeabi-v7a` (cronet trae ~14MB de .so por
+  ABI; los emuladores x86 no se usan en CI — solo se compila).
 - `Ao3Client` recibe `context: Context?` opcional (los tests JVM lo omiten y
   caen al OkHttp normal); `AppContainer` pasa `applicationContext`.
 
