@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
@@ -40,6 +41,8 @@ import java.util.LinkedList
  * visible only while a Cloudflare captcha needs the user to solve it.
  */
 object WebViewFetcher {
+
+    private const val TAG = "WebViewFetcher"
 
     /** Cloudflare error codes that mean "you're being bot-detected". */
     val CF_CODES = setOf(403, 525, 418, 520, 522, 503)
@@ -92,9 +95,17 @@ object WebViewFetcher {
      * loop as the primary path.
      */
     suspend fun fetch(url: String, timeoutMs: Long = 90_000L): String? {
+        Log.d(TAG, "fetch() solicitado: $url")
         val deferred = CompletableDeferred<String>()
         mainHandler.post { enqueue(Request(url, deferred)) }
-        return withTimeoutOrNull(timeoutMs) { deferred.await() }
+        val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
+        if (result == null) {
+            Log.w(TAG, "timeout ($timeoutMs ms) esperando a WebView; cancelando carga")
+            // The caller gave up: stop the WebView so it doesn't keep loading in
+            // the background (seen: a stuck ESTABLISHED connection + constant GC).
+            mainHandler.post { cancelCurrent() }
+        }
+        return result
     }
 
     // -------------------- Main-thread machinery --------------------
@@ -104,16 +115,26 @@ object WebViewFetcher {
         processNext()
     }
 
+    /** Cancels the in-flight load (caller timed out): stops the WebView and
+     *  lets the next queued request proceed. */
+    private fun cancelCurrent() {
+        val request = inFlight ?: return
+        webView?.stopLoading()
+        settle(null, IOException("WebView agotó su tiempo (cancelado por el caller)"))
+    }
+
     private fun processNext() {
         if (inFlight != null || queue.isEmpty()) return
         inFlight = queue.removeFirst()
         val wv = try {
             ensureWebView()
         } catch (e: Exception) {
+            Log.e(TAG, "ensureWebView falló", e)
             settle(null, e)
             return
         }
         setOverlayVisible(false)
+        Log.d(TAG, "cargando en WebView: ${inFlight!!.url}")
         wv.loadUrl(inFlight!!.url)
     }
 
@@ -128,6 +149,7 @@ object WebViewFetcher {
     }
 
     private fun handleResult(payload: String) {
+        Log.d(TAG, "JS devolvió: ${payload.take(120).replace('\n', ' ')}")
         when {
             payload == "challenge" -> {
                 // Let the user solve the captcha: show the WebView full-screen.
@@ -135,7 +157,11 @@ object WebViewFetcher {
                 // The challenge reloads the page when solved; onPageFinished
                 // fires again and the JS detector will report success then.
             }
-            payload.startsWith("success:") -> settle(payload.removePrefix("success:"), null)
+            payload.startsWith("success:") -> {
+                val html = payload.removePrefix("success:")
+                Log.d(TAG, "HTML extraído: ${html.length} chars")
+                settle(html, null)
+            }
             payload.startsWith("error:") -> settle(null, IOException(payload.removePrefix("error:")))
             else -> settle(null, IOException("WebView devolvió una respuesta inesperada"))
         }
@@ -177,7 +203,7 @@ object WebViewFetcher {
             isFocusableInTouchMode = false
         }
 
-        val wv = WebView(activity.applicationContext).apply {
+        val wv = WebView(activity).apply {
             setBackgroundColor(Color.TRANSPARENT)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -187,6 +213,7 @@ object WebViewFetcher {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
+                    Log.d(TAG, "onPageFinished: $url — inyectando detector")
                     view.evaluateJavascript(DETECT_JS, null)
                 }
 
