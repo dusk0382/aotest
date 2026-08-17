@@ -170,17 +170,21 @@ fun SearchScreen(
                 totalResults = result.total
                 page = 1
                 noMorePages = false
-                // A new/refreshed search starts from the top (the positional
-                // rememberSaveable would otherwise keep the old scroll).
-                listState.scrollToItem(0)
                 Log.d("SearchScreen", "fetchFirst OK: ${result.works.size} obras en ${System.currentTimeMillis() - t0}ms")
             } catch (e: Exception) {
                 Log.w("SearchScreen", "fetchFirst falló tras ${System.currentTimeMillis() - t0}ms: ${e.message}")
                 error = e.message ?: "Error de red"
             } finally {
                 loading = false
-                Log.d("SearchScreen", "fetchFirst terminó (loading=false) tras ${System.currentTimeMillis() - t0}ms")
             }
+            // Scroll AFTER loading=false: while loading the LazyColumn is not
+            // composed, and scrollToItem on a detached LazyListState suspends
+            // FOREVER (the finally never ran -> endless spinner). Bounded here
+            // as a safety net so a stuck scroll can never wedge the coroutine.
+            if (error == null && results.isNotEmpty()) {
+                withTimeoutOrNull(3_000) { listState.scrollToItem(0) }
+            }
+            Log.d("SearchScreen", "fetchFirst terminó tras ${System.currentTimeMillis() - t0}ms")
         }
     }
 
@@ -232,7 +236,10 @@ fun SearchScreen(
             }
         }
         if (restoredScroll.first > 0 || restoredScroll.second > 0) {
-            listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+            // Bounded: the list may not be composed yet (see fetchFirst note).
+            withTimeoutOrNull(3_000) {
+                listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+            }
         }
     }
 

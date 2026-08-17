@@ -96,7 +96,7 @@
     <string name="settings_backup_restored">Biblioteca restaurada</string>
     <string name="settings_backup_invalid">El archivo no es una copia válida</string>
     <string name="settings_about">Acerca de</string>
-    <string name="settings_about_body">AO3 Lector · v0.7.18\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.</string>
+    <string name="settings_about_body">AO3 Lector · v0.7.19\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.</string>
 
     <!-- Work card -->
     <string name="wc_fandoms">Fandoms</string>

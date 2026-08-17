@@ -978,5 +978,32 @@ fetch(url)
 
 ### Estado
 - v0.7.18 pusheado a GitHub; la CI compila el release firmado.
-- Pendiente: instalar en el dispositivo, reproducir la búsqueda y leer el
-  logcat para confirmar el flujo completo (esta vez hay logs en cada paso).
+
+## Ronda 0.7.19 — Causa raíz REAL del spinner: scrollToItem colgado
+
+### Qué pasó (v0.7.18 instalado, reproducido con logs nuevos)
+- La búsqueda COMPLETÓ la red: `searchFresh: HTML 96567 chars` (cache de
+  disco) → `parseó 20 obras` en ~2s. Pero la UI seguía con spinner y la
+  corrutina nunca llegaba al `finally` (ni un solo log de SearchScreen).
+
+### Causa raíz (verificada en el dex + lógica de Compose)
+- En `fetchFirst()` el único punto suspendible entre el retorno de
+  `search()` y el log final es `listState.scrollToItem(0)`. Y se llama
+  CON `loading = true` todavía: la rama `loading ->` muestra el spinner y
+  el `LazyColumn` NO está compuesto. `scrollToItem` sobre un
+  `LazyListState` desacoplado **se suspende para siempre** (espera una
+  confirmación de layout que nunca llega) → `finally { loading = false }`
+  jamás se ejecuta → spinner infinito. Es el clásico pitfall de Compose.
+- Por eso antes “funcionaba”: el reset de scroll (`scrollToItem(0)`) se
+  añadió en una ronda reciente, coincidiendo con la rotura de la búsqueda.
+
+### Fix
+- `fetchFirst()`: primero `loading = false` (en `finally`), y el scroll se
+  hace DESPUÉS con `withTimeoutOrNull(3s)` como red de seguridad — un
+  scroll colgado ya no puede bloquear la corrutina.
+- Lo mismo en el `LaunchedEffect(Unit)` de restauración de scroll
+  (también acotado a 3s).
+
+### Estado
+- v0.7.19 pusheado a GitHub; CI compila. Pendiente: instalar, buscar y
+  confirmar que los resultados se muestran.
