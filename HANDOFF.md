@@ -805,10 +805,16 @@ Enfocado en código más eficiente (sin recortar funciones ni animaciones).
   través de **Cronet** (la pila Chromium de Chrome). Cloudflare le da el mismo
   trato que a un navegador real (fingerprint TLS idéntico).
 - Dependencia **`org.chromium.net:cronet-embedded:141.7340.3`** (catálogo +
-  build.gradle). **No** `play-services-cronet`: esa librería trae `cronet-api` +
-  `cronet-shared`, ambos con namespace `org.chromium.net`, y el manifest merger
-  de AGP falla con "Namespace used in multiple modules" (medido en CI).
-  `cronet-embedded` es un solo AAR con API + motor nativo (sin GMS).
+  build.gradle). **No** `play-services-cronet` (trae `cronet-api` + `cronet-shared`,
+  ambos con namespace `org.chromium.net`). Ojo: **cronet-embedded 141 también
+  publica 5 AARs transitivos** (`httpengine-native-provider`, `cronet-common`,
+  `cronet-api`, `cronet-shared`) **todos con el mismo namespace
+  `org.chromium.net`** — y AGP 9 falla el manifest merger por defecto.
+- **Fix documentado por JetBrains** (skill `kotlin-tooling-agp9-migration`):
+  AGP 9 cambió el default de `android.uniquePackageNames` a `true` (en AGP 8
+  era warning; en 9 es error duro). Se desactiva en `gradle.properties` con
+  `android.uniquePackageNames=false` — el paquete duplicado es inofensivo en
+  runtime (se funde en un solo APK).
 - `abiFilters` = `arm64-v8a` + `armeabi-v7a` (cronet trae ~14MB de .so por
   ABI; los emuladores x86 no se usan en CI — solo se compila).
 - `Ao3Client` recibe `context: Context?` opcional (los tests JVM lo omiten y
