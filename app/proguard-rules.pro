@@ -19,12 +19,18 @@
 -keep class org.jsoup.** { *; }
 -dontwarn org.jsoup.**
 
-# --- Puente WebView <-> JS del lector ---------------------------
-# toggleChrome / onJsFindResult se inyectan con @JavascriptInterface.
-# Si R8 ofusca o elimina esos metodos, el buscador del lector y el
-# tap para ocultar la UI dejan de funcionar SOLO en release
-# (debug funciona, por eso es tan traicionero).
--keepclassmembers class * {
+# --- Puente WebView <-> JS (lector y WebViewFetcher) -------------
+# toggleChrome / onJsFindResult / AO3Fetch.onChunk / onResult se inyectan
+# con @JavascriptInterface. VERIFICADO en el dex del release firmado: la
+# regla generica `-keepclassmembers class * { @android.webkit.JavascriptInterface
+# <methods>; }` NO surte efecto con R8 full mode de AGP 9 (grep JavascriptInterface
+# en classes*.dex = 0) — el WebView no expone ningun metodo al JS y el puente
+# falla SILENCIOSAMENTE solo en release (debug funciona, por eso es tan
+# traicionero). Se conservan explicitamente:
+#   - WebViewFetcher$Bridge (clase nombrada, { *; } conserva anotaciones)
+#   - cualquier clase/miembro anotado (objetos anonimos del lector)
+-keep class net.spin.ao3.data.WebViewFetcher$Bridge { *; }
+-keepclasseswithmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
 -keepattributes JavascriptInterface
