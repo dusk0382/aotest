@@ -78,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import android.util.Log
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -160,6 +161,7 @@ fun SearchScreen(
         error = null
         filtersNotApplied = false
         scope.launch {
+            val t0 = System.currentTimeMillis()
             try {
                 val result = container.client.search(currentFilters, 1, currentSort)
                 results = result.works
@@ -171,10 +173,13 @@ fun SearchScreen(
                 // A new/refreshed search starts from the top (the positional
                 // rememberSaveable would otherwise keep the old scroll).
                 listState.scrollToItem(0)
+                Log.d("SearchScreen", "fetchFirst OK: ${result.works.size} obras en ${System.currentTimeMillis() - t0}ms")
             } catch (e: Exception) {
+                Log.w("SearchScreen", "fetchFirst falló tras ${System.currentTimeMillis() - t0}ms: ${e.message}")
                 error = e.message ?: "Error de red"
             } finally {
                 loading = false
+                Log.d("SearchScreen", "fetchFirst terminó (loading=false) tras ${System.currentTimeMillis() - t0}ms")
             }
         }
     }

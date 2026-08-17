@@ -23,6 +23,7 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import android.util.Log
 import okhttp3.Request
 import okhttp3.RequestBody
 import org.jsoup.Jsoup
@@ -56,6 +57,7 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     /** Hard cap on any single logical request (all retries + backoff included). */
     private companion object {
+        const val TAG = "Ao3Client"
         const val GLOBAL_DEADLINE_MS = 45_000L
         const val POST_DEADLINE_MS = 30_000L
 
@@ -221,17 +223,25 @@ class Ao3Client(private val cacheDir: File? = null) {
                 withContext(Dispatchers.IO) { okhttpGet(url, headers, fastClient) }
             } catch (e: Exception) {
                 lastError = e
+                Log.d(TAG, "OkHttp rápido falló para $url: ${e.message}")
                 null
             }
         }
-        if (quick != null && !isCfChallenge(quick)) return quick
+        if (quick != null && !isCfChallenge(quick)) {
+            Log.d(TAG, "OkHttp rápido OK (${quick.length} chars): $url")
+            return quick
+        }
 
         // 2) WebView fallback, with its own long timeout (see KDoc).
         val needsWebView = quick != null && isCfChallenge(quick) ||
             (quick == null && (WebViewFetcher.cloudflareBlocked || shouldFallbackToWebView(lastError!!)))
         if (needsWebView) {
             val viaWeb = WebViewFetcher.fetch(url, timeoutMs = 120_000L)
-            if (viaWeb != null && !isCfChallenge(viaWeb)) return viaWeb
+            if (viaWeb != null && !isCfChallenge(viaWeb)) {
+                Log.d(TAG, "WebView OK (${viaWeb.length} chars): $url")
+                return viaWeb
+            }
+            Log.w(TAG, "WebView devolvió ${if (viaWeb == null) "null" else "challenge (${viaWeb.length} chars)"} — cae al retry loop")
         }
 
         // 3) Retry loop with the global deadline (legit slow pages, adult gate).
@@ -453,10 +463,12 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     private suspend fun searchFresh(filters: SearchFilters, page: Int, sort: SortOption): SearchResult {
         val html = fetchSearchPage(filters, page, sort)
+        Log.d(TAG, "searchFresh: HTML ${html.length} chars (page $page)")
         // The listing is parsed ONCE (blurbs + facets + total) and always off
         // the main thread: JSoup parsing of a full results page is the heaviest
         // CPU work in the app and used to run on the caller's (main) dispatcher.
         val parsed = withContext(Dispatchers.IO) { Ao3Parser.parseSearchPage(html) }
+        Log.d(TAG, "searchFresh: parseó ${parsed.works.size} obras (total ${parsed.total})")
         val tag = filters.tag ?: filters.query.takeIf { filters.hasFilters && it.isNotBlank() }
         val applied = if (tag != null && tag.isNotBlank()) {
             runCatching { resolveCanonicalTag(tag) }.getOrNull() != null

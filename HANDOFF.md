@@ -937,3 +937,46 @@ fetch(url)
 - Lección: nunca usar `challenge-platform`/`cdn-cgi/challenge-platform`
   como señal de bloqueo — es el detector pasivo que Cloudflare sirve en
   cada página.
+
+## Ronda 0.7.18 — WebViewFetcher endurecido (spinner infinito definitivo)
+
+### Qué pasaba (v0.7.17, reproducido de forma autónoma en el dispositivo)
+- El WebView SÍ devolvía el HTML de la búsqueda (`HTML completo: 103733
+  chars`) y el parseo ocurría (GC a los ~20s), pero la corrutina de búsqueda
+  nunca terminaba: **spinner infinito durante 27+ minutos** y el hilo
+  principal bloqueado (MIUI mostraba su overlay `retrievingView`, su versión
+  del ANR).
+
+### Causas raíz identificadas (estáticas + dumpsys)
+1. **Timeout dependiente del hilo principal**: `withTimeoutOrNull` sobre
+   `Dispatchers.Main` no puede dispararse si Main está ocupado → el fetch
+   del WebView (y el gate global que lo envuelve) se quedaba bloqueado
+   para SIEMPRE, colgando todas las peticiones posteriores.
+2. **WebView compartido entre requests**: el WebView long-lived seguía
+   ejecutando el JS de la página anterior; inyecciones retrasadas de
+   `DETECT_JS` podían contaminar el `chunkBuffer` del request siguiente y
+   el overlay podía quedar visible indefinidamente.
+3. **Modo challenge sin salida**: si el challenge de Cloudflare no se
+   auto-resolvía, el deferred nunca se completaba (solo lo cerraba el
+   timeout… que a su vez dependía de Main).
+
+### Fixes aplicados
+1. **WebView FRESCO por fetch**: se crea, carga, y se destruye (`teardown`:
+   removeView del overlay) al terminar. Cero estado compartido entre
+   requests, cero inyecciones viejas.
+2. **Timeout independiente de Main**: `fetch()` hace el `await` con
+   `withContext(Dispatchers.Default)`, así el timeout dispara aunque Main
+   esté ocupado. Además `fetch()` NUNCA lanza: devuelve null.
+3. **Challenge acotado a 25s**: si el challenge no se auto-resuelve en
+   25s, el fetch falla limpio (`settle(null)`) en vez de bloquear la app.
+4. **Overlay siempre retirado**: `teardown()` lo quita del decorView tras
+   cada fetch (visible o no).
+5. **Logs de diagnóstico** en `WebViewFetcher` (fetch/enqueue/processNext/
+   settle/challenge/chunks) y en `Ao3Client.getInternal` (OkHttp rápido
+   OK/falló, WebView OK X chars, cae al retry loop) y `searchFresh` (HTML
+   X chars, parseó N obras) y `SearchScreen.fetchFirst` (OK/falló en Xms).
+
+### Estado
+- v0.7.18 pusheado a GitHub; la CI compila el release firmado.
+- Pendiente: instalar en el dispositivo, reproducir la búsqueda y leer el
+  logcat para confirmar el flujo completo (esta vez hay logs en cada paso).
