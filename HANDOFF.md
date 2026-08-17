@@ -843,6 +843,62 @@ Enfocado en código más eficiente (sin recortar funciones ni animaciones).
 - Upload de POST (login) vía `UploadDataProvider`; timeout global de 75s en el
   latch + cancel.
 
+### Resultado
+- **Cronet NO funcionó en el teléfono** (la búsqueda seguía colgada) y fue
+  **descartado en v0.7.11** a favor de la estrategia WebView de CO3 (ver
+  sección siguiente). El código de esta sección quedó como historia; el
+  `CronetBridge.kt` fue eliminado.
+
+---
+
+## Ronda 0.7.11 — Búsqueda arreglada: fallback WebView (estrategia CO3)
+
+### Qué
+- **`WebViewFetcher.kt`** (nuevo): capa de red de respaldo que descarga páginas
+  de AO3 a través del **WebView del sistema** (el mismo Chromium que Chrome)
+  en lugar de OkHttp. Copia la estrategia probada de **CO3**
+  (https://github.com/tbvns/CO3), un cliente AO3 que sí funciona.
+- **Por qué**: Cloudflare tarpit al fingerprint TLS de OkHttp (medido:
+  requests a AO3 que se cuelgan ~60s o mueren con HTTP 525, mientras
+  curl/OpenSSL y Chrome pasan). El WebView ES Chromium → AO3 lo trata como
+  navegador, y al ejecutar JS **resuelve los challenges de Cloudflare solos**
+  (si hay captcha, se muestra al usuario para que lo resuelva).
+- **`Ao3Client.fetch()`** reescrito:
+  1. OkHttp con **readTimeout de 8s** (falla rápido ante el tarpit);
+  2. si el error es de Cloudflare (códigos 403/525/418/520/522/503, timeout
+     o página `_cf_chl_opt`/`challenge-platform` con HTTP 200) → **WebView**;
+  3. reintentos posteriores usan OkHttp normal (páginas legítimamente lentas).
+- **Cronet eliminado por completo**: `CronetBridge.kt` borrado, dependencia
+  `cronet-embedded` y `abiFilters` fuera del build → el APK release vuelve de
+  ~13,5 MB a ~2,2 MB.
+- `WebViewFetcher` se registra en `AppContainer` vía
+  `registerActivityLifecycleCallbacks` (rastrea la Activity actual); el WebView
+  vive en un overlay 1x1 transparente sobre el decor view (no bloquea toques)
+  y se hace visible solo mientras un captcha de Cloudflare requiere al usuario.
+
+### Cómo funciona (flujo)
+```
+fetch(url)
+  └─ OkHttp rápido (8s)
+       ├─ OK y sin challenge → devuelve body
+       ├─ challenge CF (_cf_chl_opt) → WebView.fetch(url)
+       └─ error CF (403/525/418/520/522/503) o timeout → WebView.fetch(url)
+             └─ WebView carga la URL (Chromium real)
+                  ├─ JS detector: challenge? → muestra captcha al usuario
+                  └─ success → extrae document.documentElement.outerHTML
+```
+
+### Notas de implementación
+- El WebView usa su **User-Agent por defecto** (el de Chrome real) — no
+  personalizar.
+- `@JavascriptInterface` del puente queda cubierto por la regla proguard
+  existente (`-keepclassmembers … @android.webkit.JavascriptInterface`).
+- Los POST (login/kudos/comentarios) NO pasan por WebView (igual que CO3:
+  durante CF mode esas funciones degradan).
+- Timeout del fetch WebView: 90s (el captcha visible no tiene timeout — el
+  usuario resuelve a su ritmo).
+
 ### Pendiente
-- Validar en el teléfono real (release): la búsqueda debe completar rápido y
-  sin spinner infinito. Si aún fallara, revisar logcat + `SearchLiveTest` en CI.
+- **Validar en el teléfono (release v0.7.11)**: la búsqueda debe completar,
+  ahora sí, a través del WebView cuando OkHttp se cuelgue. Si aún fallara,
+  logcat: buscar `WebViewFetcher` en acción y DNS/TCP de la app.

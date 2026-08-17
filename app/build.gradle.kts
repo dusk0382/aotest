@@ -14,13 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 43
-        versionName = "0.7.10"
-        // cronet-embedded ships Chromium .so per ABI (~14 MB each); only build
-        // the ones real devices use so the release APK stays small.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
+        versionCode = 44
+        versionName = "0.7.11"
     }
 
     signingConfigs {
@@ -96,10 +91,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.jsoup)
     implementation(libs.okhttp)
-    // Chromium network stack (same TLS fingerprint as Chrome) — bypasses
-    // Cloudflare's OkHttp tarpit on AO3. Embedded (no GMS needed); falls
-    // back to plain OkHttp when no provider.
-    implementation(libs.cronet.embedded)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation("junit:junit:4.13.2")

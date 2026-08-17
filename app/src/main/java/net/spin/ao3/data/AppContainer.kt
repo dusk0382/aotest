@@ -1,5 +1,6 @@
 package net.spin.ao3.data
 
+import android.app.Application
 import android.content.Context
 import java.io.File
 
@@ -8,8 +9,13 @@ class AppContainer(context: Context) {
     val store = Store(context)
     val client = Ao3Client(
         cacheDir = File(context.cacheDir, "ao3_http"),
-        context = context.applicationContext,
     )
+
+    init {
+        // Registers the activity tracker used by WebViewFetcher (the Cloudflare
+        // bypass that falls back to the system WebView = real Chromium).
+        WebViewFetcher.register(context.applicationContext as Application)
+    }
 
     /** Live connectivity state, used by the offline banner + error messages. */
     val connectivity = ConnectivityMonitor(context)
