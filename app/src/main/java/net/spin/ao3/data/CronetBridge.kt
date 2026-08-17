@@ -1,20 +1,25 @@
 package net.spin.ao3.data
 
 import android.content.Context
+import okhttp3.Headers
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
-import org.chromium.net.CronetProvider
+import org.chromium.net.UploadDataProvider
+import org.chromium.net.UploadDataSink
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -36,13 +41,15 @@ import java.util.concurrent.TimeUnit
 class CronetBridge(context: Context) : Interceptor {
 
     private val engine: CronetEngine? = try {
-        CronetProvider.getInstalledProvider(context)
-            ?.createBuilder()
-            ?.enableBrotli(true)
-            ?.build()
+        CronetEngine.Builder(context).enableBrotli(true).build()
     } catch (_: Throwable) {
         null
     }
+
+    // Cronet 141 no longer exposes an executor on the engine; use our own so
+    // callbacks never run on the OkHttp dispatcher thread (which is blocked on
+    // the latch below).
+    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val e = engine ?: return chain.proceed(chain.request())
@@ -100,7 +107,7 @@ class CronetBridge(context: Context) : Interceptor {
             }
         }
 
-        val builder = e.newUrlRequestBuilder(url, callback, e.executor)
+        val builder = e.newUrlRequestBuilder(url, callback, executor)
             .setHttpMethod(req.method)
         req.headers.forEach { (k, v) ->
             // Headers Cronet manages itself — adding them throws
@@ -120,18 +127,18 @@ class CronetBridge(context: Context) : Interceptor {
             body.writeTo(buffer)
             val bytes = buffer.readByteArray()
             builder.setUploadDataProvider(
-                object : org.chromium.net.UploadDataProvider() {
+                object : UploadDataProvider() {
                     override fun getLength(): Long = bytes.size.toLong()
-                    override fun read(uploadSink: org.chromium.net.UploadDataSink, byteBuffer: ByteBuffer) {
+                    override fun read(uploadSink: UploadDataSink, byteBuffer: ByteBuffer) {
                         val n = minOf(byteBuffer.remaining(), bytes.size)
                         byteBuffer.put(bytes, 0, n)
                         uploadSink.onReadSucceeded(n == bytes.size)
                     }
-                    override fun rewind(uploadSink: org.chromium.net.UploadDataSink) {
+                    override fun rewind(uploadSink: UploadDataSink) {
                         uploadSink.onRewindSucceeded()
                     }
                 },
-                e.executor,
+                executor,
             )
         }
         requestRef = builder.build()
@@ -145,7 +152,7 @@ class CronetBridge(context: Context) : Interceptor {
         return when (val o = outcome) {
             is Outcome.Success -> {
                 val info = o.info
-                val headersBuilder = okhttp3.Headers.Builder()
+                val headersBuilder = Headers.Builder()
                 info.allHeaders.forEach { (name, values) -> values.forEach { headersBuilder.add(name, it) } }
                 val present = headersBuilder.build()["set-cookie"]
                 if (present == null && redirectCookies.isNotEmpty()) {
@@ -157,17 +164,18 @@ class CronetBridge(context: Context) : Interceptor {
                     .code(info.httpStatusCode)
                     .message(info.httpStatusText)
                     .headers(headersBuilder.build())
-                    .body(o.bytes.toResponseBody(
-                        info.allHeaders["content-type"]?.firstOrNull()?.toMediaTypeOrNull(),
-                    ))
+                    .body(
+                        o.bytes.toResponseBody(
+                            info.allHeaders["content-type"]
+                                ?.firstOrNull()
+                                ?.let { runCatching { it.toMediaType() }.getOrNull() },
+                        ),
+                    )
                     .build()
             }
             is Outcome.Failure -> throw o.error
         }
     }
-
-    private fun String.toMediaTypeOrNull(): okhttp3.MediaType? =
-        runCatching { okhttp3.MediaType.Companion.toMediaType(this) }.getOrNull()
 
     private sealed class Outcome {
         data class Success(val info: UrlResponseInfo, val bytes: ByteArray) : Outcome()
