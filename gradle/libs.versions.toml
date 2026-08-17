@@ -24,10 +24,10 @@ androidx-compose-material-icons-core = { module = "androidx.compose.material:mat
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
-// cronet-embedded (not play-services-cronet): a single AAR with the full
-// Chromium engine, no Google Play Services dependency, and no manifest
-// namespace clash (play-services-cronet pulls cronet-api + cronet-shared,
-// both declaring org.chromium.net, which fails AGP's manifest merger).
+# cronet-embedded (not play-services-cronet): single AAR with the full
+# Chromium engine, no Google Play Services dependency, and no manifest
+# namespace clash (play-services-cronet pulls cronet-api + cronet-shared,
+# both declaring org.chromium.net, which fails AGP's manifest merger).
 cronet-embedded = { module = "org.chromium.net:cronet-embedded", version.ref = "cronet" }
 
 [plugins]
