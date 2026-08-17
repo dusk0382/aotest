@@ -62,8 +62,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.ChapterInfo
@@ -103,6 +105,11 @@ fun LibraryScreen(
     val history = remember(refreshTick) { store.history() }
     val downloads = remember(refreshTick, queueState) { store.downloads() }
 
+    // Resolved in composable context (stringResource can't run inside coroutines).
+    val removedFavMsg = stringResource(R.string.library_removed_fav)
+    val chapterRemovedMsg = stringResource(R.string.library_chapter_removed)
+    val downloadRemovedMsg = stringResource(R.string.library_download_removed)
+
     val exporter = ChapterExporter.rememberChapterExporter { msg ->
         scope.launch {
             if (msg.startsWith("OK:")) {
@@ -116,7 +123,7 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Biblioteca", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.library_title), fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
@@ -134,7 +141,7 @@ fun LibraryScreen(
                         onRemove = { id ->
                             store.removeSaved(id)
                             refreshTick++
-                            scope.launch { snackbar.showSnackbar("Quitado de favoritos") }
+                            scope.launch { snackbar.showSnackbar(removedFavMsg) }
                         },
                         onExplore = onExplore,
                     )
@@ -158,12 +165,12 @@ fun LibraryScreen(
                         onDeleteChapter = { id, index ->
                             store.removeDownloadedChapter(id, index)
                             refreshTick++
-                            scope.launch { snackbar.showSnackbar("Capítulo eliminado de la descarga") }
+                            scope.launch { snackbar.showSnackbar(chapterRemovedMsg) }
                         },
                         onDeleteDownload = { id ->
                             store.removeDownload(id)
                             refreshTick++
-                            scope.launch { snackbar.showSnackbar("Descarga eliminada") }
+                            scope.launch { snackbar.showSnackbar(downloadRemovedMsg) }
                         },
                         exporter = exporter,
                         onExplore = onExplore,
@@ -186,13 +193,13 @@ private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
     ) {
         Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Box(Modifier.weight(1f)) {
-                LibraryTabPill("Favoritos", Icons.Filled.Star, selected == 0) { onSelect(0) }
+                LibraryTabPill(stringResource(R.string.library_favorites), Icons.Filled.Star, selected == 0) { onSelect(0) }
             }
             Box(Modifier.weight(1f)) {
-                LibraryTabPill("Historial", Icons.Filled.History, selected == 1) { onSelect(1) }
+                LibraryTabPill(stringResource(R.string.library_history), Icons.Filled.History, selected == 1) { onSelect(1) }
             }
             Box(Modifier.weight(1f)) {
-                LibraryTabPill("Descargas", Icons.Filled.Download, selected == 2) { onSelect(2) }
+                LibraryTabPill(stringResource(R.string.library_downloads), Icons.Filled.Download, selected == 2) { onSelect(2) }
             }
         }
     }
@@ -318,9 +325,9 @@ private fun FavoritesTab(
     if (favorites.isEmpty()) {
         EmptyState(
             icon = Icons.Default.Star,
-            title = "Sin favoritos todavía",
-            description = "Marca obras con la estrella en su detalle para tenerlas aquí, siempre a mano.",
-            actionLabel = "Explorar tendencias",
+            title = stringResource(R.string.library_no_favs),
+            description = stringResource(R.string.library_favs_empty_desc),
+            actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
         return
@@ -338,7 +345,7 @@ private fun FavoritesTab(
                     IconButton(onClick = { onRemove(sw.id) }) {
                         Icon(
                             Icons.Default.DeleteOutline,
-                            contentDescription = "Quitar de favoritos",
+                            contentDescription = stringResource(R.string.library_remove_fav),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -359,9 +366,9 @@ private fun HistoryTab(
     if (history.isEmpty()) {
         EmptyState(
             icon = Icons.Default.History,
-            title = "Tu historial está vacío",
-            description = "Las obras que leas aparecerán aquí con tu progreso, lista para continuar.",
-            actionLabel = "Explorar tendencias",
+            title = stringResource(R.string.library_history_empty),
+            description = stringResource(R.string.library_history_empty_desc),
+            actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
         return
@@ -370,7 +377,7 @@ private fun HistoryTab(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClearAll) {
-                    Text("Borrar historial")
+                    Text(stringResource(R.string.library_clear_history))
                 }
             }
         }
@@ -393,7 +400,7 @@ private fun HistoryTab(
                     IconButton(onClick = { onRemove(entry.id) }) {
                         Icon(
                             Icons.Default.DeleteOutline,
-                            contentDescription = "Quitar del historial",
+                            contentDescription = stringResource(R.string.library_remove_history),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -420,9 +427,9 @@ private fun DownloadsTab(
     if (downloads.isEmpty() && !queueState.active) {
         EmptyState(
             icon = Icons.Default.Download,
-            title = "Nada descargado",
-            description = "Descarga obras completas o capítulos individuales desde su detalle para leer sin conexión.",
-            actionLabel = "Explorar tendencias",
+            title = stringResource(R.string.library_nothing_downloaded),
+            description = stringResource(R.string.library_downloads_empty_desc),
+            actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
         return
@@ -441,14 +448,14 @@ private fun DownloadsTab(
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "Descargando: ${queueState.workTitle}",
+                                    stringResource(R.string.library_downloading, queueState.workTitle),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    "Capítulo ${queueState.done} de ${queueState.total}",
+                                    stringResource(R.string.library_queue_chapter, queueState.done, queueState.total),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -480,14 +487,16 @@ private fun DownloadsTab(
                             IconButton(onClick = { expanded = if (dl.id in expanded) expanded - dl.id else expanded + dl.id }) {
                                 Icon(
                                     if (dl.id in expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = if (dl.id in expanded) "Contraer" else "Expandir",
+                                    contentDescription = stringResource(
+                                        if (dl.id in expanded) R.string.library_collapse else R.string.library_expand,
+                                    ),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             IconButton(onClick = { onDeleteDownload(dl.id) }) {
                                 Icon(
                                     Icons.Default.DeleteOutline,
-                                    contentDescription = "Eliminar descarga",
+                                    contentDescription = stringResource(R.string.library_delete_download),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -529,24 +538,24 @@ private fun ChapterDownloadRow(
         ) {
             Icon(
                 Icons.Default.Check,
-                contentDescription = "Descargado",
+                contentDescription = stringResource(R.string.library_downloaded),
                 tint = LocalSemanticColors.current.success,
                 modifier = Modifier.size(16.dp),
             )
         }
         Spacer(Modifier.width(6.dp))
         Text(
-            "Cap. ${chapter.index + 1} · ${chapter.title.ifBlank { "Sin título" }}",
+            stringResource(R.string.library_chapter_row, chapter.index + 1, chapter.title.ifBlank { "Sin título" }),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onExport) {
-            Icon(Icons.Default.FileDownload, contentDescription = "Exportar .txt", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.library_export_txt), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = "Quitar capítulo", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.DeleteOutline, contentDescription = stringResource(R.string.library_remove_chapter), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
     }
 }

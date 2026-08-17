@@ -2,6 +2,8 @@ package net.spin.ao3.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
@@ -51,8 +53,10 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,7 +73,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -93,6 +98,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
@@ -118,9 +124,14 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import net.spin.ao3.data.Ao3Parser
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.ChapterInfo
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import net.spin.ao3.util.rememberReaderTts
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.Line
 import net.spin.ao3.util.LineKind
@@ -184,6 +195,33 @@ fun ReaderScreen(
     // Scroll mode: WebView's native find reports the active/total matches.
     var findCount by remember { mutableIntStateOf(0) }
     var findActive by remember { mutableIntStateOf(0) }
+
+    // ---- Text-to-speech (read the chapter aloud) ----
+    // Auto-advance: when TTS finishes a chapter and a next one exists, load it
+    // and keep reading. The flag makes the chapter-load effect re-start TTS
+    // once the new chapter's content is ready (it is async).
+    var resumeTtsOnChapterLoad by remember { mutableStateOf(false) }
+    // The done-handler is set below (after goToChapter is defined — local
+    // functions aren't forward-referenced), so the TTS engine can stay
+    // independent of the navigation code.
+    val currentTtsDone = remember { mutableStateOf<() -> Unit>({}) }
+    val tts = rememberReaderTts { currentTtsDone.value() }
+    fun startTts() {
+        resumeTtsOnChapterLoad = false
+        val text = Ao3Parser.htmlToPlainText(content ?: return)
+        if (text.isBlank()) return
+        tts.speak(text, store.prefs.ttsRate)
+    }
+
+    // Stop reading when the app goes to the background (call, another app…).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, tts) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) tts.stop()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Reading progress (per chapter, saved to Store).
     var currentRatio by remember { mutableFloatStateOf(0f) }
@@ -290,6 +328,9 @@ fun ReaderScreen(
     // 2) Load current chapter content (local download first, then network)
     LaunchedEffect(currentIndex, chapters, retryTick) {
         val chapter = chapters.getOrNull(currentIndex) ?: return@LaunchedEffect
+        // Manual navigation stops the reader aloud; auto-advance keeps it going
+        // (the flag is set by TTS's onDone and cleared after the re-start).
+        if (!resumeTtsOnChapterLoad) tts.stop()
         loading = true
         error = null
         if (chapter.content != null) {
@@ -316,6 +357,11 @@ fun ReaderScreen(
         translatedHtml = null
         translationOn = false
         translateError = null
+        // Auto-advance: once the new chapter's content is ready, keep reading.
+        if (resumeTtsOnChapterLoad && content != null) {
+            resumeTtsOnChapterLoad = false
+            startTts()
+        }
         loading = false
         // Prefetch the next chapter (best-effort, only after a successful load)
         // so advancing is instant: the call fills chapterCache + the on-disk
@@ -407,6 +453,14 @@ fun ReaderScreen(
         pendingScroll = 0f
         currentRatio = 0f
         currentIndex = index
+    }
+
+    // Wire the TTS auto-advance (needs goToChapter, defined just above).
+    currentTtsDone.value = {
+        if (currentIndex < chapters.lastIndex) {
+            resumeTtsOnChapterLoad = true
+            goToChapter(currentIndex + 1)
+        }
     }
 
     /** Translates the CURRENT chapter into [translationLang] (cached per chapter). */
@@ -578,6 +632,11 @@ fun ReaderScreen(
                 onJsFindResult = { count ->
                     findCount = count
                     findActive = 0
+                },
+                onOpenLink = { url ->
+                    // A link inside the chapter opens in the system browser
+                    // instead of being silently swallowed by the reader.
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                 },
             )
         }
@@ -783,6 +842,19 @@ fun ReaderScreen(
                                 tint = readerFgColor(theme),
                             )
                         }
+                        IconButton(onClick = {
+                            when {
+                                tts.speaking -> tts.stop()
+                                tts.paused -> tts.resume()
+                                else -> startTts()
+                            }
+                        }) {
+                            Icon(
+                                if (tts.speaking) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = if (tts.speaking) "Detener lectura en voz alta" else "Leer capítulo en voz alta",
+                                tint = if (tts.speaking) readerAccentColor(theme) else readerFgColor(theme),
+                            )
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
                         }
@@ -855,10 +927,13 @@ fun ReaderScreen(
                                 ),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                 keyboardActions = KeyboardActions(onSearch = {
-                                    searchIndex = nextSearchIndex(searchIndex, searchMatches.size)
-                                    goToSearchMatch(
-                                        paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
-                                    )
+                                    if (paged) {
+                                        searchIndex = nextSearchIndex(searchIndex, searchMatches.size)
+                                        goToSearchMatch(paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState)
+                                    } else {
+                                        findActive = nextSearchIndex(findActive, findCount)
+                                        goToSearchMatch(paged, emptyList(), findActive, webView, searchQuery, scope, pagerState)
+                                    }
                                 }),
                                 modifier = Modifier.weight(1f).heightIn(min = 46.dp),
                             )
@@ -871,11 +946,17 @@ fun ReaderScreen(
                                 modifier = Modifier.padding(horizontal = 6.dp),
                             )
                             IconButton(
-                            onClick = { searchIndex = prevSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
-                                paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
-                            ) },
-                            enabled = searchMatches.isNotEmpty(),
-                        ) {
+                                onClick = {
+                                    if (paged) {
+                                        searchIndex = prevSearchIndex(searchIndex, searchMatches.size)
+                                        goToSearchMatch(paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState)
+                                    } else {
+                                        findActive = prevSearchIndex(findActive, findCount)
+                                        goToSearchMatch(paged, emptyList(), findActive, webView, searchQuery, scope, pagerState)
+                                    }
+                                },
+                                enabled = if (paged) searchMatches.isNotEmpty() else findCount > 0,
+                            ) {
                                 Icon(
                                     Icons.Default.KeyboardArrowUp,
                                     contentDescription = "Anterior",
@@ -883,10 +964,16 @@ fun ReaderScreen(
                                 )
                             }
                             IconButton(
-                                onClick = { searchIndex = nextSearchIndex(searchIndex, searchMatches.size); goToSearchMatch(
-                                    paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
-                                ) },
-                                enabled = searchMatches.isNotEmpty(),
+                                onClick = {
+                                    if (paged) {
+                                        searchIndex = nextSearchIndex(searchIndex, searchMatches.size)
+                                        goToSearchMatch(paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState)
+                                    } else {
+                                        findActive = nextSearchIndex(findActive, findCount)
+                                        goToSearchMatch(paged, emptyList(), findActive, webView, searchQuery, scope, pagerState)
+                                    }
+                                },
+                                enabled = if (paged) searchMatches.isNotEmpty() else findCount > 0,
                             ) {
                                 Icon(
                                     Icons.Default.KeyboardArrowDown,
@@ -998,10 +1085,11 @@ fun ReaderScreen(
 
     // ---- Settings sheet ----
     if (showSettings) {
-        val sheetState = rememberModalBottomSheetState()
+        val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
         var draftFont by remember { mutableIntStateOf(fontSize) }
         var draftLineHeight by remember { mutableFloatStateOf(lineHeight) }
         var draftMargins by remember { mutableIntStateOf(margins) }
+        var draftTtsRate by remember { mutableFloatStateOf(store.prefs.ttsRate) }
         ModalBottomSheet(
             onDismissRequest = { showSettings = false },
             sheetState = sheetState,
@@ -1042,7 +1130,7 @@ fun ReaderScreen(
                         FilterChip(
                             selected = theme == option,
                             onClick = { applyPrefs { theme = option } },
-                            label = { Text(option.label) },
+                            label = { Text(stringResource(option.labelRes)) },
                         )
                     }
                 }
@@ -1111,6 +1199,24 @@ fun ReaderScreen(
                     FilterChip(selected = serif, onClick = { applyPrefs { serif = true } }, label = { Text("Serif") })
                     FilterChip(selected = !serif, onClick = { applyPrefs { serif = false } }, label = { Text("Sans serif") })
                 }
+                Spacer(Modifier.height(20.dp))
+                Text("Lectura en voz alta", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("0.5×", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = draftTtsRate,
+                        onValueChange = { draftTtsRate = it },
+                        valueRange = 0.5f..2.0f,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                    Text("2×", style = MaterialTheme.typography.labelSmall)
+                }
+                Text(
+                    "%.1f×".format(draftTtsRate),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
@@ -1120,6 +1226,7 @@ fun ReaderScreen(
                         store.prefs.theme = theme
                         store.prefs.serif = serif
                         store.prefs.paged = paged
+                        store.prefs.ttsRate = draftTtsRate
                         store.savePrefs()
                         fontSize = draftFont
                         lineHeight = draftLineHeight
@@ -1136,7 +1243,7 @@ fun ReaderScreen(
 
     // ---- Chapters sheet ----
     if (showChapters) {
-        val sheetState = rememberModalBottomSheetState()
+        val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
         val downloadedIds = remember(workId) { store.downloadedChapterIds(workId) }
         ModalBottomSheet(
             onDismissRequest = { showChapters = false },
@@ -1215,7 +1322,7 @@ fun ReaderScreen(
 
     // ---- Language picker sheet ----
     if (showLangPicker) {
-        val sheetState = rememberModalBottomSheetState()
+        val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
         ModalBottomSheet(
             onDismissRequest = { showLangPicker = false },
             sheetState = sheetState,
@@ -1307,12 +1414,14 @@ private fun goToSearchMatch(
     scope: kotlinx.coroutines.CoroutineScope,
     pagerState: PagerState,
 ) {
-    val m = matches.getOrNull(index) ?: return
     if (paged) {
+        val m = matches.getOrNull(index) ?: return
         scope.launch { pagerState.scrollToPage(m.page) }
     } else {
+        // Scroll mode: the JS keeps the match list (window.__find) and scrolls
+        // to the [index]-th one; the current index is tracked via findActive.
         val wv = webView.value
-        if (wv != null && query.isNotBlank()) {
+        if (wv != null && query.isNotBlank() && index >= 0) {
             wv.evaluateJavascript(jsGoToMatch(index), null)
         }
     }
@@ -1579,12 +1688,18 @@ private fun ReaderWebViewHost(
     onToggleChrome: () -> Unit,
     onFindResult: (Int, Int) -> Unit,
     onJsFindResult: (Int) -> Unit,
+    onOpenLink: (String) -> Unit,
 ) {
     val currentOnPageFinished by rememberUpdatedState(onPageFinished)
     val currentToggleChrome by rememberUpdatedState(onToggleChrome)
     val currentHtml by rememberUpdatedState(htmlToLoad)
     val currentOnFindResult by rememberUpdatedState(onFindResult)
     val currentOnJsFindResult by rememberUpdatedState(onJsFindResult)
+    val currentOnOpenLink by rememberUpdatedState(onOpenLink)
+    // Tracks the exact HTML already loaded into the WebView, so the initial
+    // composition (and any recomposition with the same content) never triggers
+    // a redundant reload — the old code reloaded twice on first open.
+    var loadedHtml by remember { mutableStateOf<String?>(null) }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -1618,9 +1733,19 @@ private fun ReaderWebViewHost(
                         currentOnPageFinished()
                     }
 
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        // The reader must never navigate away from the chapter;
+                        // hand any real http(s) link to the system browser
+                        // instead of silently swallowing it.
+                        val url = request?.url?.toString()
+                        if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                            Handler(Looper.getMainLooper()).post { currentOnOpenLink(url) }
+                        }
+                        return true
+                    }
                 }
                 webView.value = this
+                loadedHtml = currentHtml
                 loadDataWithBaseURL(BASE_URL, currentHtml, "text/html", "UTF-8", null)
             }
         },
@@ -1628,7 +1753,10 @@ private fun ReaderWebViewHost(
             val current = webView.value
             if (current != wv) webView.value = wv
             wv.setBackgroundColor(backgroundColor)
-            if (wv.url.isNullOrEmpty()) {
+            // Safety net: if the WebView somehow lost its content (url cleared),
+            // restore it. Guarded by loadedHtml so we never double-load.
+            if (wv.url.isNullOrEmpty() && loadedHtml != currentHtml) {
+                loadedHtml = currentHtml
                 wv.loadDataWithBaseURL(BASE_URL, currentHtml, "text/html", "UTF-8", null)
             }
         },
@@ -1638,10 +1766,11 @@ private fun ReaderWebViewHost(
         },
     )
 
-    // Reload when the html content changes
+    // Reload ONLY when the html content actually changed (new chapter, theme…).
     LaunchedEffect(htmlToLoad) {
         val wv = webView.value ?: return@LaunchedEffect
-        if (!wv.url.isNullOrEmpty()) {
+        if (loadedHtml != htmlToLoad) {
+            loadedHtml = htmlToLoad
             wv.loadDataWithBaseURL(BASE_URL, htmlToLoad, "text/html", "UTF-8", null)
         }
     }

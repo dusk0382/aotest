@@ -1,7 +1,7 @@
 # HANDOFF — AO3 Lector (`net.spin.ao3`)
 
 > Documento de contexto para que otro agente (o humano) retome el proyecto sin
-> tener que reconstruir la historia. Última actualización: 9 de agosto de 2026.
+> tener que reconstruir la historia. Última actualización: 17 de agosto de 2026.
 
 ---
 
@@ -31,11 +31,9 @@ Personal-use, sin cuenta ni login (AO3 es público). El contenido pertenece a su
 | Lanzar | `adb shell am start -n net.spin.ao3/.MainActivity` |
 | Reiniciar limpio + lanzar | `adb shell am force-stop net.spin.ao3 && adb shell am start -n net.spin.ao3/.MainActivity` |
 
-> **⚠️ CRÍTICO PARA AGENTES:** las herramientas de edición (`write_file`, `read_files`)
-> de este entorno anclan a `/home/spin/Documentos/tachiyomi-legacy` (el proyecto "activo"
-> de la sesión), **NO** a AO3. Para tocar archivos de AO3 usar **rutas absolutas vía
-> terminal** (heredocs de bash/python con `<<'EOF'`), nunca `write_file`. Ya hubo un
-> incidente que sobrescribió 9 archivos de tachiyomi-legacy (restaurado con git).
+> **Nota sobre el entorno:** la advertencia antigua de que `write_file`/`read_files`
+> anclaban a otro proyecto (tachiyomi-legacy) era específica de la sesión original y
+> **ya no aplica**; el proyecto se edita directamente con las herramientas normales.
 
 ---
 
@@ -56,39 +54,45 @@ primer build fue rápido). Versiones en `gradle/libs.versions.toml`:
 | Jsoup | 1.22.2 | parser HTML |
 | OkHttp | 5.4.0 | cliente HTTP |
 | Coroutines | 1.11.0 | `kotlinx-coroutines-android` |
-| Icons | solo `material-icons-core` | NO usar `material-icons-extended` (no está en las dependencias) |
+| Icons | `material-icons-core` + `material-icons-extended` | `extended` SÍ se usa (Description, Layers, TrendingUp, MenuBook, DarkMode, Translate… no están en core) |
 
 - Kotlin de AGP 9: las `dependencies` del módulo van con `alias(libs.plugins...)` y `kotlin { compilerOptions { jvmTarget = ... } }`
 - Release config existe (`isMinifyEnabled = true` + proguard) pero **nunca se ha probado**; el flujo usado es debug.
 
 ---
 
-## 4. Estructura del proyecto (16 archivos Kotlin, ~840 LOC)
+## 4. Estructura del proyecto (39 archivos Kotlin, ~10.100 LOC en main)
 
 ```
 app/src/main/java/net/spin/ao3/
-├── Ao3App.kt                 # Application; crea AppContainer
-├── MainActivity.kt           # Activity; enableEdgeToEdge; AppRoot con AnimatedContent + nav
+├── Ao3App.kt                 # Application; crea AppContainer; AvatarImages.init; reanuda cola
+├── MainActivity.kt           # Activity; enableEdgeToEdge; AppRoot: 3 tabs + stack full-screen
 ├── data/
-│   ├── AppContainer.kt       # store + client (singleton de dependencias)
-│   ├── Ao3Client.kt          # OkHttp: mutex serializa peticiones, 5 reintentos con backoff,
-│   │                         #   detección de páginas de error de Cloudflare, sigue el
-│   │                         #   age-gate view_adult, CookieJar en memoria
-│   ├── Ao3Parser.kt          # Jsoup: parseSearchResults / parseWorkDetail / parseChapter +
-│   │                         #   sanitize(). Soportan DOS plantillas de AO3 (ver §7)
-│   ├── Store.kt              # JSON local (favorites, history, downloads, prefs) en filesDir
-│   └── model/Models.kt       # WorkSummary, WorkDetail, ChapterInfo, SortOption
+│   ├── AppContainer.kt       # store + client + connectivity + translator (singleton)
+│   ├── Ao3Client.kt          # OkHttp: mutex serializa peticiones, reintentos+backoff,
+│   │                         #   Cloudflare/age-gate, 429+Retry-After, LRU + DiskCache,
+│   │                         #   refreshWork() (salta cachés), caches de tags acotadas
+│   ├── Ao3Parser.kt          # Jsoup: search/detail/chapter/comments/facets/author, 2 plantillas
+│   ├── Store.kt              # JSON local; thread-safe; escritura atómica + single-writer
+│   ├── DiskCache.kt          # caché HTML en disco (TTL por instancia, getStale para offline)
+│   ├── ConnectivityMonitor.kt# NetworkCallback -> StateFlow (banner offline)
+│   ├── DownloadQueueService.kt # cola FIFO foreground con notificación + reanudable
+│   ├── Translator.kt         # traducción de capítulos (endpoint gtx) con caché en disco
+│   └── model/Models.kt       # WorkSummary, WorkDetail, ChapterInfo, SearchFilters, etc.
 ├── ui/
-│   ├── AppNav.kt             # rutas selladas Home/Search/Detail/Reader + NavController
-│   │                         #   (pila simple, rememberSaveable con serialización)
-│   ├── components/           # TagChip (+colores por tipo de tag), WorkCard
+│   ├── AppNav.kt             # Route sellada + NavController (serialización URL-safe)
+│   ├── components/           # BottomBar, WorkCard, TagChip, EmptyState
 │   ├── screens/
-│   │   ├── HomeScreen.kt     # buscador, chips de tendencias, Continuar leyendo, Favoritos, Descargas
-│   │   ├── SearchScreen.kt   # resultados + ordenación + paginación manual ("Cargar más")
-│   │   ├── WorkDetailScreen.kt # metadatos, stats, tags, resumen, descargar, capítulos lazy
-│   │   └── ReaderScreen.kt   # WebView + temas + tamaño letra + progreso + sheets
-│   └── theme/Theme.kt        # Material 3, dark/light, dynamic color solo en Android 12+
-└── util/Format.kt            # formatCount (1.2K/12K/1.2M), escapeHtml
+│   │   ├── HomeScreen.kt     # buscador, chips, Continuar leyendo
+│   │   ├── SearchScreen.kt   # resultados + filtros + ordenación + paginación
+│   │   ├── WorkDetailScreen.kt # metadatos, kudos, comentarios, descargas, pull-to-refresh
+│   │   ├── ReaderScreen.kt   # WebView scroll + paginado, temas, traducción, buscar, links
+│   │   ├── LibraryScreen.kt  # Favoritos / Historial / Descargas
+│   │   ├── SettingsScreen.kt # tema app + defaults lector + identidad comentarios
+│   │   └── AuthorScreen.kt   # perfil de autor + obras paginadas
+│   └── theme/Theme.kt        # Material 3 "Cacao & Salvia", dynamic color opt-in
+└── util/                     # Format, HtmlText, ReaderPaging, ChapterExporter,
+                              #   AuthorUrl, AvatarImages (caché en disco)
 ```
 
 Recursos: `res/values` (strings/colors/themes), `res/values-night/themes.xml`,
@@ -206,23 +210,31 @@ Para descargas verificadas offline: leer `ao3_library.json` con
 
 ## 9. Problemas conocidos y limitaciones
 
-1. **`Store.persist()` tiene una carrera teórica** (escribe `root.toString()` de forma
-   asíncrona mientras `root` se muta en main thread; dos persist rápidos pueden
-   escribir snapshots en desorden). Personal-use: aceptable. El historial además
-   escribe el JSON completo cada 3,5 s mientras se lee.
-2. **`InMemoryCookieJar` usa un `MutableMap` sin sincronizar** — seguro hoy porque el
-   `Mutex gate` serializa todas las peticiones; frágil si se paraleliza `get()`.
-3. **Worst case de carga**: 5 intentos × hasta 90 s de `callTimeout` = la UI puede
-   quedarse en "Cargando…" varios minutos si AO3 está caído de verdad.
-4. **`AppNav.serialize()` usa `\u0001`** como separador; una consulta con ese carácter
-   rompería el round-trip (raro, trivial de arreglar con URLEncoder).
+1. ~~**`Store.persist()` carrera teórica**~~ — **ARREGLADO en v0.7.5**: snapshot
+   capturado en el caller thread dentro de un lock, single-writer "last-wins"
+   (nunca fuera de orden) y escritura atómica (temp + rename, no corrompe el JSON
+   si se corta la corriente). El historial sigue reescribiendo el JSON completo
+   cada 3,5 s (debounced a 300 ms); si la biblioteca crece mucho, separar el
+   progreso del contenido descargado seguiría siendo una mejora.
+2. ~~**`InMemoryCookieJar` sin sincronizar**~~ — **ARREGLADO en v0.7.5**: ahora es un
+   `ConcurrentHashMap` (seguro aunque `getConcurrent` dispare dos peticiones en
+   paralelo).
+3. **Worst case de carga**: 7 intentos × hasta 90 s de `callTimeout` = la UI puede
+   quedarse en "Cargando…" varios minutos si AO3 está caído de verdad. (Ahora se
+   respeta `Retry-After` en 429, cap a 30 s.)
+4. ~~**`AppNav.serialize()` con `\u0001`**~~ — **ARREGLADO en v0.7.5**: `Route` y
+   `SearchFilters` URL-encoden cada campo; cualquier consulta hace round-trip.
 5. **Doble recarga del WebView** al cambiar contenido/tema (guard en `update` +
    `LaunchedEffect(htmlToLoad)`). Inofensivo pero derrochador.
-6. **No hay tests unitarios** del parser (el componente más frágil).
-7. **Release build sin probar** (minify + shrink activados en release).
+6. ~~**No hay tests unitarios del parser**~~ — **YA NO APLICA**: hay ~60 tests JVM
+   (parser, comentarios, autores, DiskCache, Translator, paginación, búsqueda,
+   ratio, **Store**, serialización) con snapshots HTML reales.
+7. **Release build**: probado en CI (debug + release firmado + tests). La v0.7.4
+   trae APK firmado verificado; el flujo diario sigue siendo debug.
 8. La sección Descargas del Home no permite borrar descargas (solo desde el detalle).
-9. `rememberModalBottomSheetState` deprecado (2 warnings) — migrar a
-   `rememberBottomSheetState` cuando se toque.
+9. ~~`rememberModalBottomSheetState` deprecado~~ — **ARREGLADO en v0.7.5**: migrado a
+   `rememberBottomSheetState(initialValue = SheetValue.Hidden)` (WorkCard, SearchScreen,
+   ReaderScreen).
 
 ---
 
@@ -570,3 +582,111 @@ aviso "Los filtros no se aplicaron..." en errorContainer.`
 - Servicio de cola: `onDestroy` resetea el estado si muere a mitad (evita banner/botón "activo" colgados);
   cola sincronizada (race entre hilo principal y corutina IO); notificación final cuenta éxitos
   ("N de M capítulos guardados" si hubo fallos); icono de notificación drawable vectorial (no mipmap).
+
+---
+
+## 17. Ronda v0.7.5: robustez de persistencia y red, pull-to-refresh y deuda técnica
+
+### Robustez
+1. **Store thread-safe + escritura atómica** (`data/Store.kt`): todos los métodos públicos
+   sincronizan en un `lock` (main + servicio de descargas mutan el mismo JSON). El snapshot se
+   captura en el caller thread (nunca un torn read) y un **single-writer "last-wins"** garantiza
+   que el último persist es el que queda en disco (antes dos persists rápidos podían quedar en
+   desorden). La escritura es **atómica**: temp file + rename, así un crash a mitad no corrompe
+   `ao3_library.json`. `Store` ahora acepta un `File` (constructor `Context` se mantiene), lo que
+   lo hace testeable en JVM.
+2. **CookieJar thread-safe** (`Ao3Client.kt`): `InMemoryCookieJar` usa `ConcurrentHashMap`
+   (seguro aunque `getConcurrent` dispare dos peticiones en paralelo).
+3. **Cachés de tags acotadas** (`tagPages` 40, `canonicalTagCache` 200, `facetsCache` 50): nueva
+   `BoundedMap` (LRU por acceso) en lugar de `ConcurrentHashMap` sin límite.
+4. **429/Retry-After** (`Ao3Client.kt`): `fetch`/`post` detectan HTTP 429, leen `Retry-After` y
+   esperan (cap 30 s) en vez de reintentar a ciegas.
+5. **Serialización URL-safe** (`AppNav.kt` + `Models.kt`): `Route.serialize()` y
+   `SearchFilters.serialize()` URL-encoden cada campo; una consulta con `\u0001`/`\u0002` (o
+   cualquier carácter) ya no rompe el round-trip al rotar/navegar. Helpers `urlEncode`/`urlDecode`.
+
+### Funcionalidad
+6. **Pull-to-refresh en el detalle** (`WorkDetailScreen.kt`): `PullToRefreshBox` + nuevo
+   `Ao3Client.refreshWork(id)` que salta cachés en memoria y disco para traer datos frescos
+   (p.ej. capítulos nuevos) a demanda. La caché se mantiene para el acceso rápido a obras
+   (re-seleccionar no re-parsea todo).
+7. **Links del capítulo abren en el navegador** (`ReaderScreen.kt`): el WebView ya no traga los
+   enlaces del texto; `shouldOverrideUrlLoading` los entrega al sistema con `ACTION_VIEW`.
+8. **Buscar en el lector (modo scroll) arreglado** (`ReaderScreen.kt`): antes las flechas
+   Anterior/Siguiente estaban muertas y el contador no avanzaba; ahora `findActive`/`findCount`
+   guían la navegación por coincidencias vía `jsGoToMatch`.
+9. **Export .txt espera al permiso** (`util/ChapterExporter.kt`): en API 23-29, si falta
+   `WRITE_EXTERNAL_STORAGE`, se pide y la exportación real (y su confirmación) corre DESPUÉS de
+   concederlo; si se deniega, avisa. Antes reportaba "Guardado" sin haber escrito nada.
+10. **Avatares con caché en disco** (`util/AvatarImages.kt` + `Ao3App.kt`): `AvatarImages.init()`
+    desde `Ao3App.onCreate`; bytes crudos por URL en `cacheDir/avatars` para no re-descargar en
+    arranques en frío.
+
+### Limpieza
+11. **`rememberModalBottomSheetState` migrado** a `rememberBottomSheetState(initialValue =
+    SheetValue.Hidden)` (WorkCard, SearchScreen, ReaderScreen) — se eliminan los 2 warnings de
+    deprecación.
+12. **Dependencia duplicada quitada** (`app/build.gradle.kts`): el `ui-tooling-preview`
+    hardcodeado duplicaba el del catálogo. `material-icons-extended` SE MANTIENE (es necesario).
+
+### Tests (JVM, ~60 verdes)
+- **`StoreTest`** (nuevo, 8 tests): favoritos, historial (orden + progreso), descargas (merge +
+  borrado), prefs, cola pendiente, round-trip a disco entre instancias y JSON corrupto.
+- **`SearchFiltersSerializationTest`** (nuevo, 4 tests): round-trip con caracteres hostiles
+  (`\u0001`, `\u0002`, comillas, `&`, `+`, `%`, acentos, emoji) y estabilidad de cache key.
+- **`RouteSerializationTest`** (nuevo, 5 tests): round-trip de Search/Detail/Reader/Author con
+  consultas y usernames hostiles.
+
+> ✅ **Compilado y verificado el 17/08/2026**: SDK Android instalado en `/opt/android-sdk`
+> (platform 37.0, build-tools 37.0.0, JDK 21), `local.properties` apunta a él. **67/67 tests
+> JVM verdes** y `assembleDebug` + `assembleRelease` OK (R8). APK release firmado con la
+> clave de debug (instalable): `releases/ao3-reader-v0.7.5.apk`.
+> Para un release firmado con la clave real, alimentar `KEYSTORE_BASE64`/`KEYSTORE_PASSWORD`
+> (como hace el CI) en el build.
+
+---
+
+## 18. Ronda v0.7.6: TTS, backup, feed de actualizaciones, escalado de Store y localización
+
+Compilado y verificado el 17/08/2026. **75/75 tests JVM verdes** (se añadieron StoreTest +
+Ao3FeedTest). APK release firmado con clave de debug: `releases/ao3-reader-v0.7.6.apk`.
+
+### Funcionalidad
+1. **Lectura en voz alta (TTS)** (`util/ReaderTts.kt` + `ReaderScreen.kt`): botón play/stop en la
+   barra superior del lector, velocidad 0.5×–2× en el panel de ajustes (`prefs.ttsRate`),
+   **auto-avance al siguiente capítulo** al terminar, y pausa al pasar la app a segundo plano.
+2. **Copia de seguridad de la biblioteca** (`SettingsScreen.kt` + `Store.exportBackup`/
+   `importBackup`): exporta/importa favoritos + historial + descargas + ajustes a un JSON
+   (SAF), con diálogo de confirmación antes de restaurar (no reversible).
+3. **Comprobar actualizaciones** (`WorkDetailScreen.kt` + `Ao3Client.getWorkFeed`): consulta el
+   **Atom feed** de la obra (sin tocar el HTML) y avisa si hay capítulos nuevos o si estás al día,
+   con la fecha de la última actualización.
+4. **Timeout global de carga** (`Ao3Client`): cada petición lógica tiene deadline de 45 s
+   (POST 30 s) sobre TODOS los reintentos + backoff, y el detalle de obra tiene botón **Cancelar**
+   (carga en Job cancelable). El worst-case ya no es "varios minutos de spinner".
+
+### Robustez / rendimiento
+5. **Store con dos archivos** (`ao3_library.json` pequeño + `ao3_*_downloads.json` grande):
+   el progreso de lectura (cada 3,5 s) ya no reescribe los MB de capítulos descargados. El
+   archivo de descargas se deriva del nombre del raíz (cada instancia/test tiene el suyo).
+   Migración automática de bibliotecas antiguas de un solo archivo.
+6. **Carrera del single-writer arreglada**: un persist cancelado podía consumir el snapshot y
+   dejar el archivo sin escribir. Ahora se lee el snapshot en el momento de escribir y solo se
+   limpia si sigue siendo el más nuevo (last-wins garantizado).
+7. **Doble recarga del WebView eliminada** (`ReaderScreen`): se guarda el último HTML cargado y
+   solo se recarga cuando cambia de verdad (antes recargaba dos veces al abrir).
+
+### Localización (parcial, coherente)
+8. `res/values/strings.xml` + `res/values-en/strings.xml` con ~70 strings: pestañas inferiores,
+   temas del lector, **Ajustes completo**, **Inicio**, **Biblioteca** y **WorkCard**.
+   `BottomBarDestination`/`AppTab`/`ReaderTheme` ahora usan `@StringRes labelRes`. El lector,
+   la búsqueda y el detalle siguen en español (siguiente paso).
+
+### Tests
+- `StoreTest` +6: descargas en su propio archivo, migración legacy, backup round-trip,
+  import rechaza basura, persistencia de `ttsRate`.
+- `Ao3FeedTest` +4: parsing del Atom feed (conteo de capítulos, fecha, malformados).
+
+> La versión pasó de 0.7.5 → **0.7.6** (versionCode 39). APK **debug** verificado en
+> `app/build/outputs/apk/debug/app-debug.apk` (22 MB, instalable). No se generó release
+> (decidido en sesión); para la firma real, alimentar las env vars del keystore.

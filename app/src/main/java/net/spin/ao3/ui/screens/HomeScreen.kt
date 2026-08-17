@@ -52,10 +52,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.SortOption
@@ -81,7 +83,7 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AO3 Lector", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.home_title), fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
@@ -99,7 +101,7 @@ fun HomeScreen(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Busca por título, fandom, autor, tag…") },
+                placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
                 shape = CircleShape,
@@ -114,14 +116,14 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                QuickChip(Icons.Filled.TrendingUp, "Tendencias") { onSearch("", SortOption.KUDOS) }
-                QuickChip(Icons.Filled.NewReleases, "Lo nuevo") { onSearch("", SortOption.UPDATED) }
-                QuickChip(Icons.Filled.Visibility, "Más leídas") { onSearch("", SortOption.HITS) }
-                QuickChip(Icons.Filled.FormatListNumbered, "Más largas") { onSearch("", SortOption.WORDS) }
+                QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
+                QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
+                QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
+                QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
             }
             Spacer(Modifier.height(22.dp))
 
-            SectionTitle("Explorar fandoms")
+            SectionTitle(stringResource(R.string.home_explore_fandoms))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -142,13 +144,13 @@ fun HomeScreen(
             }
             Spacer(Modifier.height(22.dp))
 
-            SectionTitle("Continuar leyendo")
+            SectionTitle(stringResource(R.string.home_continue))
             if (history.isEmpty()) {
                 EmptyState(
                     icon = Icons.AutoMirrored.Filled.MenuBook,
-                    title = "Nada que continuar",
-                    description = "Busca un fandom o explora las tendencias para empezar a leer.",
-                    actionLabel = "Explorar tendencias",
+                    title = stringResource(R.string.home_nothing),
+                    description = stringResource(R.string.home_empty_desc),
+                    actionLabel = stringResource(R.string.home_explore_trends),
                     onAction = { onSearch("", SortOption.KUDOS) },
                     compact = true,
                 )
@@ -171,7 +173,7 @@ fun HomeScreen(
             }
             Spacer(Modifier.height(24.dp))
             Text(
-                "AO3 Lector · app de uso personal\nEl contenido pertenece a sus autores en archiveofourown.org",
+                stringResource(R.string.home_footer),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
@@ -226,7 +228,7 @@ private fun ContinueReadingRow(
                 Text(
                     listOfNotNull(
                         entry.author,
-                        "Cap. ${entry.chapterIndex + 1}",
+                        stringResource(R.string.home_chapter_cap, entry.chapterIndex + 1),
                         relativeTime(entry.at),
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
@@ -258,7 +260,7 @@ private fun ContinueReadingRow(
             IconButton(onClick = { onRemove(entry.id) }) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "Quitar de Continuar leyendo",
+                    contentDescription = stringResource(R.string.home_remove_continue),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

@@ -6,6 +6,8 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
+import net.spin.ao3.data.model.urlDecode
+import net.spin.ao3.data.model.urlEncode
 
 /** App navigation routes. */
 sealed class Route {
@@ -15,12 +17,17 @@ sealed class Route {
     data class Reader(val workId: Long, val chapterIndex: Int) : Route()
     data class Author(val username: String) : Route()
 
+    /**
+     * Serializes the route. Free-text fields are URL-encoded (see
+     * [net.spin.ao3.data.model.urlEncode]) so a query or username containing the
+     * \u0001 separator (or any other character) round-trips safely.
+     */
     fun serialize(): String = when (this) {
         Home -> "home"
-        is Search -> "search\u0001${filters.serialize()}\u0001${sort.name}"
+        is Search -> "search\u0001${urlEncode(filters.serialize())}\u0001${urlEncode(sort.name)}"
         is Detail -> "detail\u0001$workId"
         is Reader -> "reader\u0001$workId\u0001$chapterIndex"
-        is Author -> "author\u0001$username"
+        is Author -> "author\u0001${urlEncode(username)}"
     }
 
     companion object {
@@ -28,15 +35,16 @@ sealed class Route {
             val p = s.split("\u0001")
             return when (p.getOrNull(0)) {
                 "search" -> Route.Search(
-                    SearchFilters.parse(p.getOrNull(1) ?: ""),
-                    runCatching { SortOption.valueOf(p.getOrNull(2) ?: "BEST_MATCH") }.getOrDefault(SortOption.BEST_MATCH),
+                    SearchFilters.parse(urlDecode(p.getOrNull(1) ?: "")),
+                    runCatching { SortOption.valueOf(urlDecode(p.getOrNull(2) ?: "BEST_MATCH")) }
+                        .getOrDefault(SortOption.BEST_MATCH),
                 )
                 "detail" -> Route.Detail(p.getOrNull(1)?.toLongOrNull() ?: 0L)
                 "reader" -> Route.Reader(
                     p.getOrNull(1)?.toLongOrNull() ?: 0L,
                     p.getOrNull(2)?.toIntOrNull() ?: 0,
                 )
-                "author" -> Route.Author(p.getOrNull(1) ?: "")
+                "author" -> Route.Author(urlDecode(p.getOrNull(1) ?: ""))
                 else -> Route.Home
             }
         }

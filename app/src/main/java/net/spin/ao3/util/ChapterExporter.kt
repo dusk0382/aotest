@@ -10,8 +10,11 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
@@ -36,52 +39,82 @@ import java.io.File
  */
 object ChapterExporter {
 
+    /** An export deferred until the storage permission (API 23-29) is granted. */
+    private data class PendingExport(
+        val workTitle: String,
+        val chapterIndex: Int,
+        val chapterTitle: String,
+        val text: String,
+    )
+
     @Composable
     fun rememberChapterExporter(onResult: (String) -> Unit): (String, Int, String, String?) -> Unit {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
+        // The export parameters are parked here while the permission dialog is
+        // open, so the actual write runs (and only reports success) AFTER the
+        // user grants access — never before.
+        var pending by remember { mutableStateOf<PendingExport?>(null) }
         val permissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
-        ) {}
+        ) { granted ->
+            val p = pending ?: return@rememberLauncherForActivityResult
+            pending = null
+            if (!granted) {
+                onResult("ERR:Permiso de almacenamiento denegado")
+                return@rememberLauncherForActivityResult
+            }
+            scope.launch { doExport(context, p, onResult) }
+        }
         return remember(context) {
             { workTitle: String, chapterIndex: Int, chapterTitle: String, contentHtml: String? ->
                 scope.launch {
-                    runCatching {
-                        val text = Ao3Parser.htmlToPlainText(contentHtml)
-                        if (text.isBlank()) throw IllegalStateException("El capítulo no tiene contenido para exportar")
-                        exportChapter(context, permissionLauncher::launch, workTitle, chapterIndex, chapterTitle, text)
-                    }.onSuccess { name -> onResult("OK:$name") }
-                        .onFailure { e -> onResult("ERR:${e.message ?: "Error al exportar"}") }
+                    val text = runCatching { Ao3Parser.htmlToPlainText(contentHtml) }.getOrNull()
+                    if (text.isNullOrBlank()) {
+                        onResult("ERR:El capítulo no tiene contenido para exportar")
+                        return@launch
+                    }
+                    // API 23-29 needs WRITE_EXTERNAL_STORAGE for the legacy path;
+                    // API 30+ uses MediaStore with no permission.
+                    val needsPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+                        PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) {
+                        pending = PendingExport(workTitle, chapterIndex, chapterTitle, text)
+                        permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    } else {
+                        doExport(context, PendingExport(workTitle, chapterIndex, chapterTitle, text), onResult)
+                    }
                 }
             }
         }
     }
 
+    private suspend fun doExport(context: Context, p: PendingExport, onResult: (String) -> Unit) {
+        runCatching {
+            exportChapter(context, p.workTitle, p.chapterIndex, p.chapterTitle, p.text)
+        }.onSuccess { name -> onResult("OK:$name") }
+            .onFailure { e -> onResult("ERR:${e.message ?: "Error al exportar"}") }
+    }
+
     private fun exportChapter(
         context: Context,
-        requestPermission: (String) -> Unit,
         workTitle: String,
         chapterIndex: Int,
         chapterTitle: String,
         text: String,
     ): String {
-        // API 30+: MediaStore only.
+        // API 30+: MediaStore only (no permission needed).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return writeMediaStore(context, workTitle, chapterIndex, chapterTitle, text)
                 ?: throw IllegalStateException("No se pudo crear el archivo en Descargas")
         }
         // API 29: MediaStore usually works; some ROMs (MIUI) reject it, fall back
-        // to the legacy direct write with the storage permission.
+        // to the legacy direct write (permission already ensured by the caller).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             writeMediaStore(context, workTitle, chapterIndex, chapterTitle, text)?.let { return it }
         }
         // API 23-28 (and the API 29 fallback): direct file write.
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            return fileName(workTitle, chapterIndex)
-        }
         return writeLegacy(context, workTitle, chapterIndex, chapterTitle, text)
     }
 

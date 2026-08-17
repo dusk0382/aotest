@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.AuthorWorks
@@ -13,6 +14,7 @@ import net.spin.ao3.data.model.FilterFacets
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WorkDetail
+import net.spin.ao3.data.model.WorkFeedInfo
 import net.spin.ao3.data.model.WorkSummary
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -21,6 +23,8 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -46,6 +50,12 @@ import java.util.concurrent.TimeUnit
  */
 class Ao3Client(private val cacheDir: File? = null) {
 
+    /** Hard cap on any single logical request (all retries + backoff included). */
+    private companion object {
+        const val GLOBAL_DEADLINE_MS = 45_000L
+        const val POST_DEADLINE_MS = 30_000L
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -67,6 +77,12 @@ class Ao3Client(private val cacheDir: File? = null) {
             ).header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             headers.forEach { (k, v) -> b.header(k, v) }
             client.newCall(b.build()).execute().use { response ->
+                if (response.code == 429) {
+                    // Rate-limited: honor Retry-After (default 5s) so the retry
+                    // loop backs off properly instead of hammering the site.
+                    val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                    throw RateLimitedException((retryAfter ?: 5L).coerceAtLeast(1L) * 1000L)
+                }
                 if (!response.isSuccessful) {
                     throw IOException("HTTP ${response.code} al cargar $url")
                 }
@@ -125,62 +141,92 @@ class Ao3Client(private val cacheDir: File? = null) {
         return body
     }
 
+    /**
+     * Hard deadline over the WHOLE retry loop (including backoff/Retry-After
+     * waits), so a flaky or down AO3 can never keep the user staring at a
+     * spinner for minutes — the request gives up and reports a clear error.
+     */
     private suspend fun getInternal(url: String, headers: Map<String, String>, retries: Int): String {
         var lastError: Exception? = null
-        repeat(retries) { attempt ->
-            // First attempt goes out right away; back off between retries.
-            if (attempt > 0) delay(700L * attempt)
-            try {
-                val body = fetch(url, headers)
-                // AO3 shows an age gate to visitors without the view_adult cookie.
-                if (isAdultGate(body)) {
-                    val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
-                    // The gated body already carries the full page (the notice is a
-                    // banner, not a replacement). Only swap it for the refetch when
-                    // that refetch succeeds: never throw away a good response just
-                    // because a redundant refetch hit a Cloudflare 525/timeout.
-                    runCatching { fetch(adultUrl, headers) }.getOrNull()?.let { return it }
+        val body = withTimeoutOrNull(GLOBAL_DEADLINE_MS) {
+            repeat(retries) { attempt ->
+                // First attempt goes out right away; back off between retries.
+                if (attempt > 0) delay(700L * attempt)
+                try {
+                    val fetched = fetch(url, headers)
+                    // AO3 shows an age gate to visitors without the view_adult cookie.
+                    if (isAdultGate(fetched)) {
+                        val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
+                        // The gated body already carries the full page (the notice is a
+                        // banner, not a replacement). Only swap it for the refetch when
+                        // that refetch succeeds: never throw away a good response just
+                        // because a redundant refetch hit a Cloudflare 525/timeout.
+                        runCatching { fetch(adultUrl, headers) }.getOrNull()?.let { return@withTimeoutOrNull it }
+                    }
+                    return@withTimeoutOrNull fetched
+                } catch (e: Exception) {
+                    if (e is RateLimitedException) {
+                        // Honor Retry-After (capped so a misbehaving server can't
+                        // stall the UI for minutes).
+                        delay(e.retryAfterMillis.coerceAtMost(30_000L))
+                    }
+                    lastError = e
                 }
-                return body
-            } catch (e: Exception) {
-                lastError = e
             }
+            // All retries failed: fall through to throw the real error below.
+            null
         }
-        throw lastError ?: IOException("Error de red")
+        // body == null means the deadline hit; prefer the real last error, else
+        // a clear timeout message.
+        return body ?: throw (lastError ?: IOException("AO3 tarda demasiado en responder. Inténtalo de nuevo."))
     }
 
     /** POSTs a form and returns the final response body (after redirects). */
     private suspend fun post(url: String, fields: Map<String, String>): String = gate.withLock {
         var lastError: Exception? = null
-        repeat(5) { attempt ->
-            delay(if (attempt == 0) 400 else 1200L * attempt)
-            try {
-                val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
-                val body = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url(url)
-                        .header("User-Agent", "AO3-Lector/0.1 (personal reader app; okhttp)")
-                        .header("Referer", url)
-                        .post(form as RequestBody)
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val b = response.body?.string() ?: ""
-                        if (!response.isSuccessful && response.code != 302 && response.code != 303) {
-                            throw IOException("HTTP ${response.code} al enviar el formulario")
+        val body = withTimeoutOrNull(POST_DEADLINE_MS) {
+            repeat(5) { attempt ->
+                delay(if (attempt == 0) 400 else 1200L * attempt)
+                try {
+                    val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
+                    val posted = withContext(Dispatchers.IO) {
+                        val request = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "AO3-Lector/0.1 (personal reader app; okhttp)")
+                            .header("Referer", url)
+                            .post(form as RequestBody)
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.code == 429) {
+                                val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                                throw RateLimitedException((retryAfter ?: 5L).coerceAtLeast(1L) * 1000L)
+                            }
+                            val b = response.body?.string() ?: ""
+                            if (!response.isSuccessful && response.code != 302 && response.code != 303) {
+                                throw IOException("HTTP ${response.code} al enviar el formulario")
+                            }
+                            b
                         }
-                        b
                     }
+                    if (isCloudflareErrorPage(posted)) {
+                        throw IOException("AO3 respondió con un error temporal (Cloudflare)")
+                    }
+                    return@withTimeoutOrNull posted
+                } catch (e: Exception) {
+                    if (e is RateLimitedException) {
+                        delay(e.retryAfterMillis.coerceAtMost(30_000L))
+                    }
+                    lastError = e
                 }
-                if (isCloudflareErrorPage(body)) {
-                    throw IOException("AO3 respondió con un error temporal (Cloudflare)")
-                }
-                return body
-            } catch (e: Exception) {
-                lastError = e
             }
+            null
         }
-        throw lastError ?: IOException("Error de red")
+        body ?: throw (lastError ?: IOException("AO3 tarda demasiado en responder. Inténtalo de nuevo."))
     }
+
+    /** Thrown when AO3/Cloudflare rate-limits the app (HTTP 429) so retries honor Retry-After. */
+    private class RateLimitedException(val retryAfterMillis: Long) :
+        IOException("HTTP 429 (rate limit)")
 
     /**
      * Cloudflare serves 520/521/522/525 error pages and "Just a moment"
@@ -209,9 +255,13 @@ class Ao3Client(private val cacheDir: File? = null) {
         body.contains("This work could have adult content") ||
             body.contains("name=\"view_adult\"")
 
-    /** Keeps Cloudflare cookies (cf_clearance, view_adult, etc.) across requests. */
+    /**
+     * Keeps Cloudflare cookies (cf_clearance, view_adult, etc.) across requests.
+     * Thread-safe: [getConcurrent] fires two requests in parallel (author
+     * profile + works), so the jar must survive concurrent read/write.
+     */
     private class InMemoryCookieJar : CookieJar {
-        private val cookies = mutableMapOf<String, List<Cookie>>()
+        private val cookies = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
         override fun saveFromResponse(url: HttpUrl, cookieList: List<Cookie>) {
             cookies[url.host] = cookieList
         }
@@ -219,9 +269,21 @@ class Ao3Client(private val cacheDir: File? = null) {
             cookies[url.host].orEmpty()
     }
 
+    /** Bounded map (access-order LRU): evicts the oldest entry past [maxSize].
+     *  Exposes [get]/[set] operators so it reads like a regular map. */
+    private class BoundedMap<K, V>(private val maxSize: Int) {
+        private val map = object : LinkedHashMap<K, V>(maxSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > maxSize
+        }
+        @Synchronized operator fun get(key: K): V? = map[key]
+        @Synchronized operator fun set(key: K, value: V) {
+            map[key] = value
+        }
+    }
+
     // Cache of tag name -> canonical tag_id (avoids a page fetch per pagination).
-    private val canonicalTagCache = java.util.concurrent.ConcurrentHashMap<String, String?>()
-    private val facetsCache = java.util.concurrent.ConcurrentHashMap<String, FilterFacets>()
+    private val canonicalTagCache = BoundedMap<String, String?>(200)
+    private val facetsCache = BoundedMap<String, FilterFacets>(50)
 
     // ---- In-memory result caches (LRU) -------------------------------------
     // Bounded so memory stays small; keyed by the exact request so a back
@@ -315,7 +377,7 @@ class Ao3Client(private val cacheDir: File? = null) {
      * which is only valid in query strings — /tags/Harry+Potter/works 404s.
      */
     /** Fetches (and caches) /tags/{name}/works — shared by tag resolution + facets. */
-    private val tagPages = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val tagPages = BoundedMap<String, String>(40)
 
     private suspend fun tagWorksPage(name: String): String? {
         tagPages[name]?.let { return it }
@@ -441,6 +503,49 @@ class Ao3Client(private val cacheDir: File? = null) {
             ?: throw IOException("No se pudo interpretar la obra $id")
         workCache.put(id, detail)
         return detail
+    }
+
+    /**
+     * Re-fetches a work detail from the network, bypassing BOTH the in-memory
+     * and on-disk caches (used by pull-to-refresh). The fresh result replaces
+     * the cached copies — memory AND disk — so the screen stays fast on the
+     * next visit while the user gets current data (and fresh offline fallback)
+     * on demand.
+     */
+    suspend fun refreshWork(id: Long): WorkDetail {
+        workCache.invalidate(id)
+        val url = "https://archiveofourown.org/works/$id"
+        val html = get(url, disk = null, allowStaleOnError = true)
+        val detail = withContext(Dispatchers.IO) { Ao3Parser.parseWorkDetail(html, id) }
+            ?: throw IOException("No se pudo interpretar la obra $id")
+        workCache.put(id, detail)
+        // Refresh the offline copy too (guard: never cache an adult-gate page).
+        if (!isAdultGate(html)) workDisk?.put(url, html)
+        return detail
+    }
+
+    /**
+     * Fetches and parses a work's Atom feed (published chapter count + last
+     * update date) WITHOUT touching the HTML — used by "check for updates".
+     * Returns null when the feed is unavailable. Bypasses the disk cache so a
+     * tap always reflects the live site.
+     */
+    suspend fun getWorkFeed(id: Long): WorkFeedInfo? {
+        val url = "https://archiveofourown.org/works/$id.atom"
+        val xml = runCatching { get(url, disk = null, retries = 3) }.getOrNull() ?: return null
+        return parseWorkFeed(xml)
+    }
+
+    /** Parses a work Atom feed; null on malformed/empty XML. (Pure: unit-testable.) */
+    internal fun parseWorkFeed(xml: String): WorkFeedInfo? {
+        return runCatching {
+            val doc = Jsoup.parse(xml, "", Parser.xmlParser())
+            val entries = doc.select("entry")
+            if (entries.isEmpty()) return null
+            val updated = doc.select("feed > updated").firstOrNull()?.text()?.ifBlank { null }
+                ?: entries.firstOrNull()?.select("updated")?.firstOrNull()?.text()
+            WorkFeedInfo(chapterCount = entries.size, updated = updated)
+        }.getOrNull()
     }
 
     /**

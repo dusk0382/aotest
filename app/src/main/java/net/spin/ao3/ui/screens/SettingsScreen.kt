@@ -1,6 +1,8 @@
 package net.spin.ao3.ui.screens
 
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,17 +13,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -30,11 +43,16 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.ui.theme.AppThemeMode
@@ -58,14 +76,16 @@ fun SettingsScreen(
     var paged by remember { mutableStateOf(prefs.paged) }
     var commentName by remember { mutableStateOf(prefs.commentName) }
     var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
+    val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ajustes", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(
             Modifier
@@ -75,8 +95,8 @@ fun SettingsScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             // ---- Apariencia ----
-            SettingsSection("Apariencia") {
-                Text("Tema de la app", style = MaterialTheme.typography.bodyMedium)
+            SettingsSection(stringResource(R.string.settings_appearance)) {
+                Text(stringResource(R.string.settings_app_theme), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppThemeMode.entries.forEach { option ->
@@ -94,7 +114,7 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "El lector tiene sus propios temas (incluido AMOLED) que puedes cambiar mientras lees.",
+                    stringResource(R.string.settings_reader_theme_note),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -104,12 +124,12 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Colores dinámicos", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.settings_dynamic_colors), style = MaterialTheme.typography.bodyMedium)
                         Text(
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                "Usa los colores de tu fondo de pantalla (Material You)."
+                                stringResource(R.string.settings_dynamic_colors_on)
                             } else {
-                                "Tu dispositivo no soporta colores dinámicos (requiere Android 12+)."
+                                stringResource(R.string.settings_dynamic_colors_off)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -129,8 +149,8 @@ fun SettingsScreen(
             }
 
             // ---- Lector (valores por defecto) ----
-            SettingsSection("Lector (por defecto)") {
-                Text("Modo de lectura", style = MaterialTheme.typography.bodyMedium)
+            SettingsSection(stringResource(R.string.settings_reader_defaults)) {
+                Text(stringResource(R.string.settings_reading_mode), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -140,7 +160,7 @@ fun SettingsScreen(
                             prefs.paged = false
                             store.savePrefs()
                         },
-                        label = { Text("Scroll continuo") },
+                        label = { Text(stringResource(R.string.settings_scroll)) },
                     )
                     FilterChip(
                         selected = paged,
@@ -149,11 +169,11 @@ fun SettingsScreen(
                             prefs.paged = true
                             store.savePrefs()
                         },
-                        label = { Text("Paginado") },
+                        label = { Text(stringResource(R.string.settings_paged)) },
                     )
                 }
                 Spacer(Modifier.height(16.dp))
-                Text("Tema de lectura", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.settings_reading_theme), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Store.ReaderTheme.entries.forEach { option ->
@@ -164,13 +184,13 @@ fun SettingsScreen(
                                 prefs.theme = option
                                 store.savePrefs()
                             },
-                            label = { Text(option.label) },
+                            label = { Text(stringResource(option.labelRes)) },
                         )
                     }
                 }
                 Spacer(Modifier.height(16.dp))
 
-                Text("Tamaño de letra", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.settings_font_size), style = MaterialTheme.typography.bodyMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(
@@ -193,7 +213,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(14.dp))
 
-                Text("Interlineado", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.settings_line_height), style = MaterialTheme.typography.bodyMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("1.2", style = MaterialTheme.typography.labelSmall)
                     Slider(
@@ -216,10 +236,14 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(14.dp))
 
-                Text("Márgenes", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.settings_margins), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0 to "Estrechos", 1 to "Normales", 2 to "Amplios").forEach { (value, label) ->
+                    listOf(
+                        0 to R.string.settings_margins_narrow,
+                        1 to R.string.settings_margins_normal,
+                        2 to R.string.settings_margins_wide,
+                    ).forEach { (value, labelRes) ->
                         FilterChip(
                             selected = margins == value,
                             onClick = {
@@ -227,13 +251,13 @@ fun SettingsScreen(
                                 prefs.margins = value
                                 store.savePrefs()
                             },
-                            label = { Text(label) },
+                            label = { Text(stringResource(labelRes)) },
                         )
                     }
                 }
                 Spacer(Modifier.height(14.dp))
 
-                Text("Tipografía", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.settings_typography), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -243,7 +267,7 @@ fun SettingsScreen(
                             prefs.serif = true
                             store.savePrefs()
                         },
-                        label = { Text("Serif") },
+                        label = { Text(stringResource(R.string.settings_serif)) },
                     )
                     FilterChip(
                         selected = !serif,
@@ -252,15 +276,15 @@ fun SettingsScreen(
                             prefs.serif = false
                             store.savePrefs()
                         },
-                        label = { Text("Sans serif") },
+                        label = { Text(stringResource(R.string.settings_sans)) },
                     )
                 }
             }
 
             // ---- Comentarios ----
-            SettingsSection("Comentarios (invitado)") {
+            SettingsSection(stringResource(R.string.settings_comments)) {
                 Text(
-                    "AO3 permite comentar sin cuenta usando un nombre y un email (no se publica). Se guardan aquí para rellenar el formulario.",
+                    stringResource(R.string.settings_comments_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -268,7 +292,7 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = commentName,
                     onValueChange = { commentName = it },
-                    label = { Text("Nombre") },
+                    label = { Text(stringResource(R.string.settings_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -276,22 +300,127 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = commentEmail,
                     onValueChange = { commentEmail = it },
-                    label = { Text("Email") },
+                    label = { Text(stringResource(R.string.settings_email)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
 
+            // ---- Copia de seguridad ----
+            BackupSection(store = store, snackbar = snackbar)
+
             // ---- Acerca de ----
-            SettingsSection("Acerca de") {
+            SettingsSection(stringResource(R.string.settings_about)) {
                 Text(
-                    "AO3 Lector · v0.7.4\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.",
+                    stringResource(R.string.settings_about_body),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirmImport by remember { mutableStateOf(false) }
+    var pendingImportJson by remember { mutableStateOf<String?>(null) }
+    // Resolved in composable context (stringResource is not callable inside
+    // coroutines / click callbacks), then reused by the launchers + dialog.
+    val savedMsg = stringResource(R.string.settings_backup_saved)
+    val failedMsg = stringResource(R.string.settings_backup_failed)
+    val unreadableMsg = stringResource(R.string.settings_backup_unreadable)
+    val restoredMsg = stringResource(R.string.settings_backup_restored)
+    val invalidMsg = stringResource(R.string.settings_backup_invalid)
+    val restoreTitle = stringResource(R.string.settings_restore_title)
+    val restoreBody = stringResource(R.string.settings_restore_body)
+    val restoreLabel = stringResource(R.string.settings_restore)
+    val cancelLabel = stringResource(R.string.settings_cancel)
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(store.exportBackup().toByteArray())
+                    } != null
+                }.getOrDefault(false)
+                snackbar.showSnackbar(if (ok) savedMsg else failedMsg)
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val json = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                }.getOrNull()
+                if (json.isNullOrBlank()) {
+                    snackbar.showSnackbar(unreadableMsg)
+                } else {
+                    pendingImportJson = json
+                    confirmImport = true
+                }
+            }
+        }
+    }
+
+    SettingsSection(stringResource(R.string.settings_backup)) {
+        Text(
+            stringResource(R.string.settings_backup_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.settings_export))
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.settings_import))
+        }
+    }
+
+    if (confirmImport) {
+        AlertDialog(
+            onDismissRequest = { confirmImport = false; pendingImportJson = null },
+            title = { Text(restoreTitle) },
+            text = { Text(restoreBody) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmImport = false
+                    val json = pendingImportJson
+                    pendingImportJson = null
+                    scope.launch {
+                        val ok = json != null && store.importBackup(json)
+                        snackbar.showSnackbar(if (ok) restoredMsg else invalidMsg)
+                    }
+                }) { Text(restoreLabel) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmImport = false; pendingImportJson = null }) {
+                    Text(cancelLabel)
+                }
+            },
+        )
     }
 }
 

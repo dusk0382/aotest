@@ -56,6 +56,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -86,6 +87,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
@@ -167,52 +170,64 @@ fun WorkDetailScreen(
         }
     }
 
-    LaunchedEffect(workId) {
-        offlineDetail = false
-        try {
-            detail = container.client.getWork(workId)
-        } catch (e: Exception) {
-            // Offline fallback: if the work is downloaded, build the detail from
-            // the local record (title + chapters with full content) so the user
-            // can still open it and read without any network.
-            val dl = store.download(workId)
-            if (dl != null) {
-                detail = WorkDetail(
-                    summary = WorkSummary(
-                        id = workId,
-                        title = dl.title,
-                        author = "",
-                        authorUrl = null,
-                        fandoms = emptyList(),
-                        rating = null,
-                        ratingKey = null,
-                        warnings = emptyList(),
-                        categories = emptyList(),
-                        otherTags = emptyList(),
-                        summary = "Copia local guardada en tu dispositivo · sin conexión.",
-                        words = 0,
-                        chapterCount = dl.chapters.size,
-                        chapterTotal = dl.chapters.size,
-                        hits = 0,
-                        kudos = 0,
-                        comments = 0,
-                        bookmarks = 0,
-                        published = null,
-                        updated = null,
-                        url = "https://archiveofourown.org/works/$workId",
-                    ),
-                    descriptionHtml = null,
-                    notesHtml = null,
-                    chapters = dl.chapters.sortedBy { it.index },
-                )
-                offlineDetail = true
-            } else {
-                error = e.message ?: "No se pudo cargar la obra"
+    // The load runs as a cancellable job so the user can bail out of a slow
+    // fetch (the client now also enforces a global deadline) instead of staring
+    // at a spinner for minutes.
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    fun loadDetail() {
+        loadJob?.cancel()
+        loading = true
+        error = null
+        loadJob = scope.launch {
+            offlineDetail = false
+            try {
+                detail = container.client.getWork(workId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Offline fallback: if the work is downloaded, build the detail from
+                // the local record (title + chapters with full content) so the user
+                // can still open it and read without any network.
+                val dl = store.download(workId)
+                if (dl != null) {
+                    detail = WorkDetail(
+                        summary = WorkSummary(
+                            id = workId,
+                            title = dl.title,
+                            author = "",
+                            authorUrl = null,
+                            fandoms = emptyList(),
+                            rating = null,
+                            ratingKey = null,
+                            warnings = emptyList(),
+                            categories = emptyList(),
+                            otherTags = emptyList(),
+                            summary = "Copia local guardada en tu dispositivo · sin conexión.",
+                            words = 0,
+                            chapterCount = dl.chapters.size,
+                            chapterTotal = dl.chapters.size,
+                            hits = 0,
+                            kudos = 0,
+                            comments = 0,
+                            bookmarks = 0,
+                            published = null,
+                            updated = null,
+                            url = "https://archiveofourown.org/works/$workId",
+                        ),
+                        descriptionHtml = null,
+                        notesHtml = null,
+                        chapters = dl.chapters.sortedBy { it.index },
+                    )
+                    offlineDetail = true
+                } else {
+                    error = e.message ?: "No se pudo cargar la obra"
+                }
+            } finally {
+                loading = false
             }
-        } finally {
-            loading = false
         }
     }
+    LaunchedEffect(workId) { loadDetail() }
 
     fun refreshDownloads() {
         downloadedIds = store.downloadedChapterIds(workId)
@@ -311,6 +326,56 @@ fun WorkDetailScreen(
         refreshDownloads()
     }
 
+    // Pull-to-refresh: re-fetches the work from AO3 bypassing the caches, so
+    // the user can get fresh data (e.g. new chapters) on demand while still
+    // keeping the fast cached path for normal navigation.
+    var refreshing by remember { mutableStateOf(false) }
+    fun refresh() {
+        if (refreshing) return
+        refreshing = true
+        scope.launch {
+            try {
+                detail = container.client.refreshWork(workId)
+                offlineDetail = false
+                refreshDownloads()
+            } catch (e: Exception) {
+                snackbar.showSnackbar("No se pudo actualizar: ${e.message ?: "error de red"}")
+            } finally {
+                refreshing = false
+            }
+        }
+    }
+
+    // "Check for updates": asks AO3's Atom feed (no HTML) whether the work has
+    // more published chapters than what we currently know, and when it last
+    // changed.
+    var checkingUpdates by remember { mutableStateOf(false) }
+    fun checkUpdates() {
+        if (checkingUpdates) return
+        checkingUpdates = true
+        scope.launch {
+            try {
+                val feed = container.client.getWorkFeed(workId)
+                val known = detail?.chapters?.size ?: 0
+                if (feed == null) {
+                    snackbar.showSnackbar("No se pudo consultar el feed de actualizaciones")
+                } else {
+                    val date = feed.updated?.take(10)
+                    val msg = if (feed.chapterCount > known) {
+                        "¡Hay ${feed.chapterCount - known} capítulo(s) nuevo(s)! " + (date?.let { "Última actualización: $it" } ?: "")
+                    } else {
+                        "Estás al día · ${feed.chapterCount} capítulos" + (date?.let { " · última actualización $it" } ?: "")
+                    }
+                    snackbar.showSnackbar(msg)
+                }
+            } catch (e: Exception) {
+                snackbar.showSnackbar("No se pudo comprobar: ${e.message ?: "error de red"}")
+            } finally {
+                checkingUpdates = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -339,7 +404,19 @@ fun WorkDetailScreen(
         val d = detail
         when {
             loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "Cargando obra…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = { loadJob?.cancel(); loading = false }) {
+                        Text("Cancelar")
+                    }
+                }
             }
             error != null && d == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
@@ -349,13 +426,7 @@ fun WorkDetailScreen(
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = {
-                        loading = true; error = null
-                        scope.launch {
-                            try { detail = container.client.getWork(workId) } catch (e: Exception) { error = e.message }
-                            loading = false
-                        }
-                    }) {
+                    Button(onClick = { loadDetail() }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Text("Reintentar")
                     }
@@ -385,8 +456,13 @@ fun WorkDetailScreen(
                     }
                 }
 
-                LazyColumn(
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = { refresh() },
                     modifier = Modifier.fillMaxSize().padding(padding),
+                ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     // Offline banner: shown when the detail is a local copy or
@@ -588,13 +664,29 @@ fun WorkDetailScreen(
 
                     item {
                         Section("Capítulos (${d.chapters.size})") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(
                                     "El botón \"TXT\" exporta el capítulo a la carpeta Descargas. El icono de flecha lo guarda para leer sin conexión (y se marca con ✓).",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                TextButton(onClick = { checkUpdates() }, enabled = !checkingUpdates) {
+                                    if (checkingUpdates) {
+                                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                    }
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Comprobar")
+                                }
                             }
                         }
+                    }
                     items(chapters, key = { it.index }) { ch ->
                         ChapterRow(
                             index = ch.index,
@@ -632,6 +724,7 @@ fun WorkDetailScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }

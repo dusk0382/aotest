@@ -14,8 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 37
-        versionName = "0.7.4"
+        versionCode = 39
+        versionName = "0.7.6"
     }
 
     signingConfigs {
@@ -92,7 +92,6 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.okhttp)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    implementation("androidx.compose.ui:ui-tooling-preview")
 
     testImplementation("junit:junit:4.13.2")
     // Real org.json on the test classpath (the Android stub throws on

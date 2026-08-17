@@ -134,18 +134,26 @@ data class SearchFilters(
             excludeFandomIds.isNotEmpty() || excludeCharacterIds.isNotEmpty() ||
             excludeRelationshipIds.isNotEmpty() || excludeFreeformIds.isNotEmpty()
 
-    /** Compact serialization for navigation state (\u0002 separator). */
+    /**
+     * Compact serialization for navigation state. Every field is URL-encoded
+     * and joined with a \u0002 separator, so a query containing the separator
+     * (or any other character) round-trips safely. See [urlEncode]/[urlDecode].
+     *
+     * The id sets are SORTED before joining so that two filter objects holding
+     * the same sets in a different insertion order (a Set is order-agnostic)
+     * always produce the same key — this string doubles as a cache key.
+     */
     fun serialize(): String = listOf(
         query,
         tag ?: "",
         includeTags,
         excludeTags,
         rating?.toString() ?: "",
-        warnings.joinToString(","),
-        categories.joinToString(","),
+        warnings.sorted().joinToString(","),
+        categories.sorted().joinToString(","),
         excludeRating?.toString() ?: "",
-        excludeWarnings.joinToString(","),
-        excludeCategories.joinToString(","),
+        excludeWarnings.sorted().joinToString(","),
+        excludeCategories.sorted().joinToString(","),
         if (completeOnly) "1" else "",
         if (crossoverOnly) "1" else "",
         if (excludeCrossover) "1" else "",
@@ -155,20 +163,20 @@ data class SearchFilters(
         wordsTo,
         dateFrom,
         dateTo,
-        fandomIds.joinToString(","),
-        characterIds.joinToString(","),
-        relationshipIds.joinToString(","),
-        freeformIds.joinToString(","),
-        excludeFandomIds.joinToString(","),
-        excludeCharacterIds.joinToString(","),
-        excludeRelationshipIds.joinToString(","),
-        excludeFreeformIds.joinToString(","),
-    ).joinToString("\u0002")
+        fandomIds.sorted().joinToString(","),
+        characterIds.sorted().joinToString(","),
+        relationshipIds.sorted().joinToString(","),
+        freeformIds.sorted().joinToString(","),
+        excludeFandomIds.sorted().joinToString(","),
+        excludeCharacterIds.sorted().joinToString(","),
+        excludeRelationshipIds.sorted().joinToString(","),
+        excludeFreeformIds.sorted().joinToString(","),
+    ).joinToString("\u0002") { urlEncode(it) }
 
     companion object {
         fun parse(s: String): SearchFilters {
             val p = s.split("\u0002")
-            fun g(i: Int) = p.getOrNull(i) ?: ""
+            fun g(i: Int) = urlDecode(p.getOrNull(i) ?: "")
             fun ids(i: Int) = g(i).split(",").mapNotNull { it.toIntOrNull() }.toSet()
             fun longIds(i: Int) = g(i).split(",").mapNotNull { it.toLongOrNull() }.toSet()
             return SearchFilters(
@@ -316,3 +324,23 @@ data class AuthorWorks(
     val count: Int?,
     val works: List<WorkSummary>,
 )
+
+/** Info parsed from a work's Atom feed (used to check for updates without the HTML). */
+data class WorkFeedInfo(
+    /** Number of <entry> elements (published chapters). */
+    val chapterCount: Int,
+    /** ISO-8601 last-updated timestamp from the feed, when present. */
+    val updated: String?,
+)
+
+/**
+ * URL-encodes a field for safe embedding in a serialized route/filter string.
+ * Control characters (like the \u0001/\u0002 separators) become %XX, so a user
+ * query can never break the round-trip. Shared by [SearchFilters.serialize]
+ * and [net.spin.ao3.ui.Route.serialize].
+ */
+internal fun urlEncode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
+/** Inverse of [urlEncode]; falls back to the raw string on malformed input. */
+internal fun urlDecode(s: String): String =
+    runCatching { java.net.URLDecoder.decode(s, "UTF-8") }.getOrDefault(s)

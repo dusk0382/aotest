@@ -1,5 +1,6 @@
 package net.spin.ao3.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
@@ -31,15 +32,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.spin.ao3.R
 import net.spin.ao3.ui.theme.Ao3Theme
 
 /** A single destination of the bottom navigation bar. */
 interface BottomBarDestination {
-    val label: String
+    @get:StringRes val labelRes: Int
     val icon: ImageVector
 }
 
@@ -111,7 +114,7 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = destination.label,
+                                text = stringResource(destination.labelRes),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                                 maxLines = 1,
@@ -125,10 +128,13 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
     }
 }
 
-private enum class PreviewTab(override val label: String, override val icon: ImageVector) : BottomBarDestination {
-    HOME("Inicio", Icons.Filled.Home),
-    LIBRARY("Biblioteca", Icons.AutoMirrored.Filled.List),
-    SETTINGS("Ajustes", Icons.Filled.Settings),
+private enum class PreviewTab(
+    @StringRes override val labelRes: Int,
+    override val icon: ImageVector,
+) : BottomBarDestination {
+    HOME(R.string.tab_home, Icons.Filled.Home),
+    LIBRARY(R.string.tab_library, Icons.AutoMirrored.Filled.List),
+    SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
 }
 
 @Preview(showBackground = true, widthDp = 400)

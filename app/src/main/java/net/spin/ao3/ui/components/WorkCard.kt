@@ -33,7 +33,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.spin.ao3.R
 import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.theme.Ao3Theme
 import net.spin.ao3.ui.theme.LocalSemanticColors
@@ -75,12 +78,12 @@ fun WorkCard(
     var showAllTags by remember { mutableStateOf(false) }
 
     val tagGroups = buildList {
-        if (work.fandoms.isNotEmpty()) add(TagGroup("Fandoms", work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
-        if (work.characters.isNotEmpty()) add(TagGroup("Personajes", work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
-        if (work.relationships.isNotEmpty()) add(TagGroup("Relaciones", work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
+        if (work.fandoms.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_fandoms), work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
+        if (work.characters.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_characters), work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
+        if (work.relationships.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_relationships), work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
         // otherTags also contains characters/relationships; show only the freeforms.
         val freeforms = work.otherTags.filterNot { it in work.relationships || it in work.characters }
-        if (freeforms.isNotEmpty()) add(TagGroup("Etiquetas", freeforms, AdditionalColor, TagChipVariant.OUTLINED))
+        if (freeforms.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_tags), freeforms, AdditionalColor, TagChipVariant.OUTLINED))
     }
 
     Card(
@@ -133,7 +136,7 @@ fun WorkCard(
 
             // ---- Tags: scrolling row, 3 visible + "+N más" overflow ----
             val chips = buildList {
-                if (work.isCompleted) add(Triple("Completada", semantic.success, TagChipVariant.TINTED))
+                if (work.isCompleted) add(Triple(stringResource(R.string.wc_completed), semantic.success, TagChipVariant.TINTED))
                 work.fandoms.forEach { add(Triple(it, FandomColor, TagChipVariant.FILLED_SECONDARY)) }
                 work.characters.forEach { add(Triple(it, CharacterColor, TagChipVariant.FILLED_TERTIARY)) }
                 work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
@@ -209,7 +212,7 @@ fun WorkCard(
             work.updated?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Actualizado: $it",
+                    text = stringResource(R.string.wc_updated, it),
                     style = MaterialTheme.typography.labelSmall,
                     color = colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 )
@@ -243,7 +246,7 @@ private fun AllTagsSheet(
     onTagClick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     var filter by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -253,7 +256,7 @@ private fun AllTagsSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 40.dp),
         ) {
-            Text("Todos los tags", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.wc_all_tags), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Toca un tag para explorar más obras de ese tag. Usa el filtro para encontrar uno rápido.",
@@ -265,7 +268,7 @@ private fun AllTagsSheet(
                 value = filter,
                 onValueChange = { filter = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Filtrar tags…") },
+                placeholder = { Text(stringResource(R.string.wc_filter_tags)) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
                 shape = CircleShape,
@@ -293,7 +296,7 @@ private fun AllTagsSheet(
             if (q.isNotEmpty() && groups.none { g -> g.tags.any { it.lowercase().contains(q) } }) {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "Sin coincidencias para \"$filter\"",
+                    stringResource(R.string.wc_no_matches, filter),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

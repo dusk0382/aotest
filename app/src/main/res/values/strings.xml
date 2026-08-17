@@ -1,4 +1,111 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AO3 Lector</string>
+
+    <!-- Bottom tabs -->
+    <string name="tab_home">Inicio</string>
+    <string name="tab_library">Biblioteca</string>
+    <string name="tab_settings">Ajustes</string>
+
+    <!-- Reader themes -->
+    <string name="theme_light">Claro</string>
+    <string name="theme_sepia">Sepia</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="theme_black">AMOLED</string>
+
+    <!-- Home -->
+    <string name="home_title">AO3 Lector</string>
+    <string name="home_search_placeholder">Busca por título, fandom, autor, tag…</string>
+    <string name="home_empty_desc">Busca un fandom o explora las tendencias para empezar a leer.</string>
+    <string name="home_chapter_cap">Cap. %1$d</string>
+    <string name="home_continue">Continuar leyendo</string>
+    <string name="home_explore_fandoms">Explorar fandoms</string>
+    <string name="home_explore_trends">Explorar tendencias</string>
+    <string name="home_new">Lo nuevo</string>
+    <string name="home_longest">Más largas</string>
+    <string name="home_most_read">Más leídas</string>
+    <string name="home_nothing">Nada que continuar</string>
+    <string name="home_trends">Tendencias</string>
+    <string name="home_remove_continue">Quitar de Continuar leyendo</string>
+    <string name="home_footer">AO3 Lector · app de uso personal\nEl contenido pertenece a sus autores en archiveofourown.org</string>
+
+    <!-- Library -->
+    <string name="library_title">Biblioteca</string>
+    <string name="library_favorites">Favoritos</string>
+    <string name="library_history">Historial</string>
+    <string name="library_downloads">Descargas</string>
+    <string name="library_clear_history">Borrar historial</string>
+    <string name="library_chapter_row">Cap. %1$d · %2$s</string>
+    <string name="library_queue_chapter">Capítulo %1$d de %2$d</string>
+    <string name="library_downloading">Descargando: %1$s</string>
+    <string name="library_chapter_removed">Capítulo eliminado de la descarga</string>
+    <string name="library_download_removed">Descarga eliminada</string>
+    <string name="library_collapse">Contraer</string>
+    <string name="library_expand">Expandir</string>
+    <string name="library_downloaded">Descargado</string>
+    <string name="library_delete_download">Eliminar descarga</string>
+    <string name="library_remove_chapter">Quitar capítulo</string>
+    <string name="library_remove_fav">Quitar de favoritos</string>
+    <string name="library_remove_history">Quitar del historial</string>
+    <string name="library_export_txt">Exportar .txt</string>
+    <string name="library_removed_fav">Quitado de favoritos</string>
+    <string name="library_no_favs">Sin favoritos todavía</string>
+    <string name="library_favs_empty_desc">Marca obras con la estrella en su detalle para tenerlas aquí, siempre a mano.</string>
+    <string name="library_history_empty">Tu historial está vacío</string>
+    <string name="library_history_empty_desc">Las obras que leas aparecerán aquí con tu progreso, lista para continuar.</string>
+    <string name="library_nothing_downloaded">Nada descargado</string>
+    <string name="library_downloads_empty_desc">Descarga obras completas o capítulos individuales desde su detalle para leer sin conexión.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_appearance">Apariencia</string>
+    <string name="settings_app_theme">Tema de la app</string>
+    <string name="settings_reader_theme_note">El lector tiene sus propios temas (incluido AMOLED) que puedes cambiar mientras lees.</string>
+    <string name="settings_dynamic_colors">Colores dinámicos</string>
+    <string name="settings_dynamic_colors_on">Usa los colores de tu fondo de pantalla (Material You).</string>
+    <string name="settings_dynamic_colors_off">Tu dispositivo no soporta colores dinámicos (requiere Android 12+).</string>
+    <string name="settings_reader_defaults">Lector (por defecto)</string>
+    <string name="settings_reading_mode">Modo de lectura</string>
+    <string name="settings_scroll">Scroll continuo</string>
+    <string name="settings_paged">Paginado</string>
+    <string name="settings_reading_theme">Tema de lectura</string>
+    <string name="settings_font_size">Tamaño de letra</string>
+    <string name="settings_line_height">Interlineado</string>
+    <string name="settings_margins">Márgenes</string>
+    <string name="settings_margins_narrow">Estrechos</string>
+    <string name="settings_margins_normal">Normales</string>
+    <string name="settings_margins_wide">Amplios</string>
+    <string name="settings_typography">Tipografía</string>
+    <string name="settings_serif">Serif</string>
+    <string name="settings_sans">Sans serif</string>
+    <string name="settings_comments">Comentarios (invitado)</string>
+    <string name="settings_comments_note">AO3 permite comentar sin cuenta usando un nombre y un email (no se publica). Se guardan aquí para rellenar el formulario.</string>
+    <string name="settings_name">Nombre</string>
+    <string name="settings_email">Email</string>
+    <string name="settings_backup">Copia de seguridad</string>
+    <string name="settings_backup_note">Exporta tu biblioteca (favoritos, historial, descargas y ajustes) a un archivo JSON, o restaura una copia previa en este dispositivo.</string>
+    <string name="settings_export">Exportar biblioteca</string>
+    <string name="settings_import">Importar copia de seguridad</string>
+    <string name="settings_restore_title">¿Restaurar biblioteca?</string>
+    <string name="settings_restore_body">Se reemplazará tu biblioteca actual (favoritos, historial, descargas y ajustes) por la del archivo. Esta acción no se puede deshacer. Algunos ajustes del lector se aplican al reiniciar la app.</string>
+    <string name="settings_restore">Restaurar</string>
+    <string name="settings_cancel">Cancelar</string>
+    <string name="settings_backup_saved">Copia de seguridad guardada</string>
+    <string name="settings_backup_failed">No se pudo guardar la copia</string>
+    <string name="settings_backup_unreadable">El archivo no se pudo leer</string>
+    <string name="settings_backup_restored">Biblioteca restaurada</string>
+    <string name="settings_backup_invalid">El archivo no es una copia válida</string>
+    <string name="settings_about">Acerca de</string>
+    <string name="settings_about_body">AO3 Lector · v0.7.6\nApp de uso personal. Todo el contenido pertenece a sus autores y se sirve desde archiveofourown.org.\nSé respetuoso con el sitio: las descargas y comentarios se hacen como un lector normal.</string>
+
+    <!-- Work card -->
+    <string name="wc_fandoms">Fandoms</string>
+    <string name="wc_characters">Personajes</string>
+    <string name="wc_relationships">Relaciones</string>
+    <string name="wc_tags">Etiquetas</string>
+    <string name="wc_completed">Completada</string>
+    <string name="wc_updated">Actualizado: %1$s</string>
+    <string name="wc_all_tags">Todos los tags</string>
+    <string name="wc_filter_tags">Filtrar tags…</string>
+    <string name="wc_no_matches">Sin coincidencias para "%1$s"</string>
 </resources>

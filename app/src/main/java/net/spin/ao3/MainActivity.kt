@@ -21,7 +21,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.annotation.StringRes
 import androidx.compose.material3.Scaffold
+import net.spin.ao3.R
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,10 +60,13 @@ class MainActivity : ComponentActivity() {
 }
 
 /** The three top-level destinations of the bottom navigation bar. */
-enum class AppTab(override val label: String, override val icon: ImageVector) : BottomBarDestination {
-    HOME("Inicio", Icons.Filled.Home),
-    LIBRARY("Biblioteca", Icons.AutoMirrored.Filled.List),
-    SETTINGS("Ajustes", Icons.Filled.Settings),
+enum class AppTab(
+    @get:StringRes override val labelRes: Int,
+    override val icon: ImageVector,
+) : BottomBarDestination {
+    HOME(R.string.tab_home, Icons.Filled.Home),
+    LIBRARY(R.string.tab_library, Icons.AutoMirrored.Filled.List),
+    SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
 }
 
 @Composable
