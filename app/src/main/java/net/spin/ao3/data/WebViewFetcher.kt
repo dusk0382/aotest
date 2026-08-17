@@ -80,7 +80,21 @@ object WebViewFetcher {
     private var overlay: FrameLayout? = null
     private var webView: WebView? = null
 
-    private class Bridge(private val onResult: (String) -> Unit) {
+    /** Accumulates the chunked HTML of the in-flight request. The JS bridge
+     *  can silently drop very large single strings (~hundreds of KB), so the
+     *  page is transferred in 100 KB chunks and stitched back here. */
+    private var chunkBuffer: StringBuilder? = null
+
+    private class Bridge(
+        private val onChunk: (String) -> Unit,
+        private val onResult: (String) -> Unit,
+    ) {
+        @JavascriptInterface
+        fun onChunk(text: String) {
+            // Called on a WebView background thread; hop to main.
+            mainHandler.post { onChunk(text) }
+        }
+
         @JavascriptInterface
         fun onResult(payload: String) {
             // Called on a WebView background thread; hop to main.
@@ -148,22 +162,45 @@ object WebViewFetcher {
         mainHandler.postDelayed({ processNext() }, 150)
     }
 
+    private fun handleChunk(text: String) {
+        if (text == "done") {
+            val html = chunkBuffer?.toString()
+            chunkBuffer = null
+            Log.d(TAG, "HTML completo: ${html?.length ?: 0} chars")
+            settle(html ?: "", null)
+            return
+        }
+        val sep = text.indexOf(':')
+        if (sep > 0) {
+            val offset = text.substring(0, sep).toIntOrNull()
+            val part = text.substring(sep + 1)
+            val buf = chunkBuffer ?: StringBuilder(part.length * 4).also { chunkBuffer = it }
+            if (offset == null || offset == buf.length) buf.append(part)
+            // If a chunk arrived out of order (offset mismatch), ignore it; the
+            // in-order stream will still produce the full page.
+        }
+    }
+
     private fun handleResult(payload: String) {
         Log.d(TAG, "JS devolvió: ${payload.take(120).replace('\n', ' ')}")
         when {
+            payload == "js-running" -> {
+                // Bridge works; the chunk stream will follow. Nothing to do.
+            }
             payload == "challenge" -> {
                 // Let the user solve the captcha: show the WebView full-screen.
                 setOverlayVisible(true)
                 // The challenge reloads the page when solved; onPageFinished
                 // fires again and the JS detector will report success then.
             }
-            payload.startsWith("success:") -> {
-                val html = payload.removePrefix("success:")
-                Log.d(TAG, "HTML extraído: ${html.length} chars")
-                settle(html, null)
+            payload.startsWith("error:") -> {
+                chunkBuffer = null
+                settle(null, IOException(payload.removePrefix("error:")))
             }
-            payload.startsWith("error:") -> settle(null, IOException(payload.removePrefix("error:")))
-            else -> settle(null, IOException("WebView devolvió una respuesta inesperada"))
+            else -> {
+                chunkBuffer = null
+                settle(null, IOException("WebView devolvió una respuesta inesperada"))
+            }
         }
     }
 
@@ -215,6 +252,12 @@ object WebViewFetcher {
                     super.onPageFinished(view, url)
                     Log.d(TAG, "onPageFinished: $url — inyectando detector")
                     view.evaluateJavascript(DETECT_JS, null)
+                    // Some pages take a moment to settle; if the first injection
+                    // raced with the load, retry once shortly after.
+                    mainHandler.postDelayed(
+                        { view.evaluateJavascript(DETECT_JS, null) },
+                        1_500L,
+                    )
                 }
 
                 override fun onReceivedError(
@@ -229,7 +272,7 @@ object WebViewFetcher {
                     }
                 }
             }
-            addJavascriptInterface(Bridge(::handleResult), "AO3Fetch")
+            addJavascriptInterface(Bridge(::handleChunk, ::handleResult), "AO3Fetch")
         }
 
         ov.addView(
@@ -246,10 +289,12 @@ object WebViewFetcher {
         return wv
     }
 
-    /** Detects a Cloudflare challenge vs. real content and reports back. */
+    /** Detects a Cloudflare challenge vs. real content and reports the page
+     *  back in 100 KB chunks (single huge bridge strings get dropped). */
     private val DETECT_JS = """
         (function() {
           try {
+            AO3Fetch.onResult('js-running');
             var isChallenge =
               typeof window._cf_chl_opt !== 'undefined' ||
               !!document.querySelector('script[src*="cdn-cgi/challenge-platform"]') ||
@@ -258,7 +303,12 @@ object WebViewFetcher {
               AO3Fetch.onResult('challenge');
               return;
             }
-            AO3Fetch.onResult('success:' + document.documentElement.outerHTML);
+            var html = document.documentElement.outerHTML;
+            var CHUNK = 100000;
+            for (var i = 0; i < html.length; i += CHUNK) {
+              AO3Fetch.onChunk(i + ':' + html.substr(i, CHUNK));
+            }
+            AO3Fetch.onChunk('done');
           } catch (e) {
             AO3Fetch.onResult('error:' + e.message);
           }
