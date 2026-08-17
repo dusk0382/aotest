@@ -1,6 +1,8 @@
 package net.spin.ao3.data
 
 import android.content.Context
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -34,11 +36,15 @@ import java.util.concurrent.TimeUnit
  *
  * The engine is embedded (cronet-embedded: API + full Chromium stack in one
  * AAR, no Google Play Services needed). If engine creation still fails the
- * interceptor falls through to the normal OkHttp chain. Registered via
- * addNetworkInterceptor so OkHttp's cookie handling (CookieJar) still applies
- * around it.
+ * interceptor falls through to the normal OkHttp chain.
+ *
+ * Registered as an APPLICATION interceptor (OkHttp network interceptors must
+ * call chain.proceed() exactly once and cannot short-circuit). Because that
+ * puts us BEFORE BridgeInterceptor, we handle the CookieJar ourselves:
+ * loadForRequest() cookies are attached to the Cronet request and Set-Cookie
+ * headers (incl. from redirects) are saved back via saveFromResponse().
  */
-class CronetBridge(context: Context) : Interceptor {
+class CronetBridge(context: Context, private val cookieJar: CookieJar) : Interceptor {
 
     private val engine: CronetEngine? = try {
         CronetEngine.Builder(context).enableBrotli(true).build()
@@ -74,7 +80,10 @@ class CronetBridge(context: Context) : Interceptor {
                     request.cancel()
                     return
                 }
-                info.allHeaders["set-cookie"]?.let { redirectCookies.addAll(it) }
+                info.allHeaders.entries
+                    .firstOrNull { it.key.equals("set-cookie", true) }
+                    ?.value
+                    ?.let { redirectCookies.addAll(it) }
                 request.followRedirect()
             }
 
@@ -113,13 +122,22 @@ class CronetBridge(context: Context) : Interceptor {
             // Headers Cronet manages itself — adding them throws
             // IllegalArgumentException, and Accept-Encoding would risk
             // double-decompression (Cronet negotiates + decodes its own).
+            // Cookie is added below from the CookieJar, so skip it here too.
             if (k.equals("Accept-Encoding", true) ||
                 k.equals("Host", true) ||
                 k.equals("Connection", true) ||
                 k.equals("Content-Length", true) ||
-                k.equals("Transfer-Encoding", true)
+                k.equals("Transfer-Encoding", true) ||
+                k.equals("Cookie", true)
             ) return@forEach
             builder.addHeader(k, v)
+        }
+        // BridgeInterceptor runs AFTER an application interceptor, so OkHttp's
+        // CookieJar hasn't been applied yet — do it ourselves. Single header,
+        // semicolon-joined (multiple Cookie headers can confuse servers).
+        val jarCookies = cookieJar.loadForRequest(req.url)
+        if (jarCookies.isNotEmpty()) {
+            builder.addHeader("Cookie", jarCookies.joinToString("; ") { it.toString() })
         }
         val body = req.body
         if (body != null && req.method != "GET" && req.method != "HEAD") {
@@ -152,13 +170,18 @@ class CronetBridge(context: Context) : Interceptor {
         return when (val o = outcome) {
             is Outcome.Success -> {
                 val info = o.info
+                // getAllHeaders() keys may come in any case (HTTP/1.1 passes
+                // through server casing) — look up case-insensitively.
+                val headersByLower = info.allHeaders.entries.associateBy({ it.key.lowercase() }, { it.value })
                 val headersBuilder = Headers.Builder()
                 info.allHeaders.forEach { (name, values) -> values.forEach { headersBuilder.add(name, it) } }
-                val present = headersBuilder.build()["set-cookie"]
-                if (present == null && redirectCookies.isNotEmpty()) {
-                    redirectCookies.forEach { headersBuilder.add("Set-Cookie", it) }
+                val setCookieHeaders = buildList {
+                    addAll(headersByLower["set-cookie"].orEmpty())
+                    // Cookies set by intermediate redirect responses (e.g.
+                    // login): Cronet's internal followRedirect() drops them.
+                    addAll(redirectCookies)
                 }
-                Response.Builder()
+                val response = Response.Builder()
                     .request(req)
                     .protocol(Protocol.HTTP_1_1)
                     .code(info.httpStatusCode)
@@ -166,12 +189,18 @@ class CronetBridge(context: Context) : Interceptor {
                     .headers(headersBuilder.build())
                     .body(
                         o.bytes.toResponseBody(
-                            info.allHeaders["content-type"]
+                            headersByLower["content-type"]
                                 ?.firstOrNull()
                                 ?.let { runCatching { it.toMediaType() }.getOrNull() },
                         ),
                     )
                     .build()
+                // Save session cookies (login/kudos) to the jar manually.
+                if (setCookieHeaders.isNotEmpty()) {
+                    val parsed = setCookieHeaders.mapNotNull { Cookie.parse(req.url, it) }
+                    if (parsed.isNotEmpty()) cookieJar.saveFromResponse(req.url, parsed)
+                }
+                response
             }
             is Outcome.Failure -> throw o.error
         }

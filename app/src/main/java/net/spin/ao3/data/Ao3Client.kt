@@ -69,6 +69,8 @@ class Ao3Client(private val cacheDir: File? = null, context: Context? = null) {
         const val ACCEPT_LANGUAGE = "es-ES,es;q=0.9,en;q=0.8"
     }
 
+    private val cookieJar = InMemoryCookieJar()
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -79,13 +81,21 @@ class Ao3Client(private val cacheDir: File? = null, context: Context? = null) {
         // HTTP/1.1: Cloudflare tarpit/525 a OkHttp en HTTP/2 (medido: 1 de 5
         // requests cuelga ~58s con HTTP 525; con HTTP/1.1 5/5 completan).
         .protocols(listOf(Protocol.HTTP_1_1))
-        .cookieJar(InMemoryCookieJar())
+        .cookieJar(cookieJar)
         .apply {
             // Cronet = the Chromium network stack that backs Chrome. Cloudflare
             // tarpits OkHttp's TLS fingerprint (measured) but treats Cronet's
             // like a real browser. Falls back to plain OkHttp when no provider
             // (tests, devices without Play Services).
-            if (context != null) addNetworkInterceptor(CronetBridge(context))
+            //
+            // NOTE: registered as an APPLICATION interceptor (addInterceptor),
+            // NOT a network interceptor: network interceptors MUST call
+            // chain.proceed() exactly once and cannot return their own response
+            // (OkHttp throws IllegalStateException). Application interceptors
+            // may short-circuit — which is exactly what CronetBridge does when
+            // it performs the request through Cronet. The bridge handles the
+            // CookieJar itself (BridgeInterceptor runs after us).
+            if (context != null) addInterceptor(CronetBridge(context, cookieJar))
         }
         .build()
 

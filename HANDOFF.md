@@ -821,14 +821,25 @@ Enfocado en código más eficiente (sin recortar funciones ni animaciones).
   caen al OkHttp normal); `AppContainer` pasa `applicationContext`.
 
 ### Detalles de implementación
-- El engine se construye una vez con `CronetProvider.getInstalledProvider()`;
-  si no hay provider (sin GMS), `engine == null` → fallback a OkHttp puro.
+- Engine construido con `CronetEngine.Builder(context).enableBrotli(true)`
+  (la API 141 ya no tiene `CronetProvider.getInstalledProvider` ni
+  `engine.getExecutor()` — se usa un `ExecutorService` propio). Si falla,
+  `engine == null` → fallback a OkHttp puro.
+- **OJO — application interceptor, NO network interceptor**: OkHttp 5 exige que
+  los network interceptors llamen `chain.proceed()` exactamente una vez (si
+  devuelves tu propia Response sin proceed, lanza
+  `IllegalStateException: "network interceptor … must call proceed() exactly once"`,
+  visto en producción). `addInterceptor` (application) sí puede cortocircuitar.
+  Consecuencia: el `BridgeInterceptor` de OkHttp corre DESPUÉS, así que el
+  bridge maneja el `CookieJar` manualmente (`loadForRequest` antes del request
+  + `saveFromResponse` con los Set-Cookie finales y de redirects).
 - **Headers filtrados** al reenviar a Cronet: `Accept-Encoding` (Cronet negocia
   y descomprime él mismo — evita doble descompresión), `Host`, `Connection`,
-  `Content-Length`, `Transfer-Encoding` (Cronet los maneja / los rechaza).
+  `Content-Length`, `Transfer-Encoding`, `Cookie` (se agrega desde el jar).
 - **Cookies de redirecciones**: Cronet internamente sigue redirects pero tira
-  los `Set-Cookie` intermedios (clave en el login) → se capturan y re-inyectan
-  en la respuesta final para que el `CookieJar` de OkHttp los vea.
+  los `Set-Cookie` intermedios (clave en el login) → se capturan y se guardan
+  en el jar. Los lookups de headers de `UrlResponseInfo` son case-insensitive
+  (HTTP/1.1 pasa el casing del server).
 - Upload de POST (login) vía `UploadDataProvider`; timeout global de 75s en el
   latch + cancel.
 
