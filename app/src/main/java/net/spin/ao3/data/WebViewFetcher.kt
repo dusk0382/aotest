@@ -9,7 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -80,27 +81,10 @@ object WebViewFetcher {
     private var overlay: FrameLayout? = null
     private var webView: WebView? = null
 
-    /** Accumulates the chunked HTML of the in-flight request. The JS bridge
-     *  can silently drop very large single strings (~hundreds of KB), so the
-     *  page is transferred in 100 KB chunks and stitched back here. */
+    /** Accumulates the chunked HTML of the in-flight request. The console
+     *  channel can drop very large single strings, so the page is transferred
+     *  in 100 KB chunks and stitched back here. */
     private var chunkBuffer: StringBuilder? = null
-
-    private class Bridge(
-        private val onChunk: (String) -> Unit,
-        private val onResult: (String) -> Unit,
-    ) {
-        @JavascriptInterface
-        fun onChunk(text: String) {
-            // Called on a WebView background thread; hop to main.
-            mainHandler.post { onChunk(text) }
-        }
-
-        @JavascriptInterface
-        fun onResult(payload: String) {
-            // Called on a WebView background thread; hop to main.
-            mainHandler.post { onResult(payload) }
-        }
-    }
 
     /**
      * Fetches [url] through the system WebView and returns the final rendered
@@ -148,6 +132,7 @@ object WebViewFetcher {
             return
         }
         setOverlayVisible(false)
+        chunkBuffer = null
         Log.d(TAG, "cargando en WebView: ${inFlight!!.url}")
         wv.loadUrl(inFlight!!.url)
     }
@@ -162,30 +147,11 @@ object WebViewFetcher {
         mainHandler.postDelayed({ processNext() }, 150)
     }
 
-    private fun handleChunk(text: String) {
-        if (text == "done") {
-            val html = chunkBuffer?.toString()
-            chunkBuffer = null
-            Log.d(TAG, "HTML completo: ${html?.length ?: 0} chars")
-            settle(html ?: "", null)
-            return
-        }
-        val sep = text.indexOf(':')
-        if (sep > 0) {
-            val offset = text.substring(0, sep).toIntOrNull()
-            val part = text.substring(sep + 1)
-            val buf = chunkBuffer ?: StringBuilder(part.length * 4).also { chunkBuffer = it }
-            if (offset == null || offset == buf.length) buf.append(part)
-            // If a chunk arrived out of order (offset mismatch), ignore it; the
-            // in-order stream will still produce the full page.
-        }
-    }
-
-    private fun handleResult(payload: String) {
-        Log.d(TAG, "JS devolvió: ${payload.take(120).replace('\n', ' ')}")
+    /** Handles one AO3FETCH: console message coming from the page JS. */
+    private fun handleConsole(payload: String) {
         when {
-            payload == "js-running" -> {
-                // Bridge works; the chunk stream will follow. Nothing to do.
+            payload == "running" -> {
+                // Channel works; the chunk stream will follow. Nothing to do.
             }
             payload == "challenge" -> {
                 // Let the user solve the captcha: show the WebView full-screen.
@@ -193,14 +159,29 @@ object WebViewFetcher {
                 // The challenge reloads the page when solved; onPageFinished
                 // fires again and the JS detector will report success then.
             }
+            payload == "done" -> {
+                val html = chunkBuffer?.toString()
+                chunkBuffer = null
+                Log.d(TAG, "HTML completo: ${html?.length ?: 0} chars")
+                settle(html ?: "", null)
+            }
+            payload.startsWith("chunk:") -> {
+                val body = payload.removePrefix("chunk:")
+                val sep = body.indexOf(':')
+                if (sep > 0) {
+                    val offset = body.substring(0, sep).toIntOrNull()
+                    val part = body.substring(sep + 1)
+                    val buf = chunkBuffer ?: StringBuilder(part.length * 4).also { chunkBuffer = it }
+                    if (offset == null || offset == buf.length) buf.append(part)
+                    // Out-of-order chunk (offset mismatch): ignored; the
+                    // in-order stream still produces the full page.
+                }
+            }
             payload.startsWith("error:") -> {
                 chunkBuffer = null
                 settle(null, IOException(payload.removePrefix("error:")))
             }
-            else -> {
-                chunkBuffer = null
-                settle(null, IOException("WebView devolvió una respuesta inesperada"))
-            }
+            else -> Log.w(TAG, "mensaje AO3FETCH inesperado: ${payload.take(80)}")
         }
     }
 
@@ -224,7 +205,10 @@ object WebViewFetcher {
             if (ov.parent == null) {
                 (activity.window.decorView as ViewGroup).addView(
                     ov,
-                    FrameLayout.LayoutParams(1, 1),
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
                 )
             }
             return webView!!
@@ -247,6 +231,16 @@ object WebViewFetcher {
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             // Leave the default User-Agent: it's the real Chrome/WebView UA,
             // which is exactly what Cloudflare expects from a browser.
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                    val text = msg.message()
+                    if (text.startsWith("AO3FETCH:")) {
+                        mainHandler.post { handleConsole(text.removePrefix("AO3FETCH:")) }
+                        return true
+                    }
+                    return super.onConsoleMessage(msg)
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
@@ -272,7 +266,7 @@ object WebViewFetcher {
                     }
                 }
             }
-            addJavascriptInterface(Bridge(::handleChunk, ::handleResult), "AO3Fetch")
+
         }
 
         ov.addView(
@@ -282,7 +276,16 @@ object WebViewFetcher {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
-        (activity.window.decorView as ViewGroup).addView(ov, FrameLayout.LayoutParams(1, 1))
+        // Full-screen overlay (INVISIBLE: laid out and JS-capable, but not
+        // drawn and not touchable). A 1x1 WebView can refuse to run JS on
+        // some devices (MIUI), which silently breaks the whole bridge.
+        (activity.window.decorView as ViewGroup).addView(
+            ov,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
 
         overlay = ov
         webView = wv
@@ -290,27 +293,32 @@ object WebViewFetcher {
     }
 
     /** Detects a Cloudflare challenge vs. real content and reports the page
-     *  back in 100 KB chunks (single huge bridge strings get dropped). */
+     *  back through console.log in 100 KB chunks.
+     *
+     *  CO3 uses window.ReactNativeWebView.postMessage; the Android-native
+     *  equivalent that needs NO @JavascriptInterface annotations (R8 deletes
+     *  those in release) is WebChromeClient.onConsoleMessage — console.log
+     *  from the page always reaches it. */
     private val DETECT_JS = """
         (function() {
           try {
-            AO3Fetch.onResult('js-running');
+            console.log('AO3FETCH:running');
             var isChallenge =
               typeof window._cf_chl_opt !== 'undefined' ||
               !!document.querySelector('script[src*="cdn-cgi/challenge-platform"]') ||
               !!document.querySelector('script[src*="challenges.cloudflare.com"]');
             if (isChallenge) {
-              AO3Fetch.onResult('challenge');
+              console.log('AO3FETCH:challenge');
               return;
             }
             var html = document.documentElement.outerHTML;
             var CHUNK = 100000;
             for (var i = 0; i < html.length; i += CHUNK) {
-              AO3Fetch.onChunk(i + ':' + html.substr(i, CHUNK));
+              console.log('AO3FETCH:chunk:' + i + ':' + html.substr(i, CHUNK));
             }
-            AO3Fetch.onChunk('done');
+            console.log('AO3FETCH:done');
           } catch (e) {
-            AO3Fetch.onResult('error:' + e.message);
+            console.log('AO3FETCH:error:' + e.message);
           }
         })();
         true;
