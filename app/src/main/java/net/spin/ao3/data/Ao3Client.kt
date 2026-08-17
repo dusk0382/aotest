@@ -23,7 +23,6 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody
 import org.jsoup.Jsoup
@@ -76,8 +75,8 @@ class Ao3Client(private val cacheDir: File? = null) {
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
-        // HTTP/1.1: Cloudflare tarpit/525 a OkHttp en HTTP/2 (medido: 1 de 5.retryOnConnectionFailure(true)
-         // requests cuelga ~58s con HTTP 525; con HTTP/1.1 5/5 completan).
+        // HTTP/1.1: Cloudflare tarpit/525 a OkHttp en HTTP/2 (medido: 1 de 5
+        // requests cuelga ~58s con HTTP 525; con HTTP/1.1 5/5 completan).
         .protocols(listOf(Protocol.HTTP_1_1))
         .cookieJar(InMemoryCookieJar())
         .build()
