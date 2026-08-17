@@ -96,11 +96,20 @@ class Ao3Client(private val cacheDir: File? = null) {
     /** Cloudflare explicitly blocked the request (its bot-detection codes). */
     private class CfBlockedException(val code: Int) : IOException("Cloudflare bloquea la petición (HTTP $code)")
 
-    /** A Cloudflare JS challenge page served with HTTP 200. */
+    /**
+     * A Cloudflare JS challenge page served with HTTP 200.
+     *
+     * IMPORTANT: only match the *active* challenge markers (`_cf_chl_opt`, the
+     * Turnstile widget). `cdn-cgi/challenge-platform` alone is NOT a reliable
+     * signal: Cloudflare injects that passive detector script (`jsd/main.js`)
+     * into EVERY legitimate page it serves (verified on a real AO3 search
+     * page), so matching it made the app throw away the good WebView HTML and
+     * fall back to the doomed OkHttp retry loop -> endless spinner.
+     */
     private fun isCfChallenge(body: String): Boolean =
         body.contains("_cf_chl_opt") ||
-            body.contains("challenge-platform") ||
-            body.contains("cdn-cgi/challenge-platform")
+            body.contains("challenges.cloudflare.com") ||
+            body.contains("turnstile")
 
     /** True when the error looks like Cloudflare bot-detection (tarpit/timeout
      *  or its block codes) and is worth retrying through the WebView. */

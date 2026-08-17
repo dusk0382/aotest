@@ -902,3 +902,38 @@ fetch(url)
 - **Validar en el teléfono (release v0.7.11)**: la búsqueda debe completar,
   ahora sí, a través del WebView cuando OkHttp se cuelgue. Si aún fallara,
   logcat: buscar `WebViewFetcher` en acción y DNS/TCP de la app.
+
+## Ronda 0.7.12 → 0.7.16 — El puente JS→Kotlin (canal console.log)
+
+### Qué
+- El canal `@JavascriptInterface` NO llegaba en release: R8 borraba la
+  anotación y el WebView no exponía ningún método al JS → `onPageFinished`
+  disparaba pero el HTML nunca volvía. Verificado en el dex del APK:
+  `grep -c JavascriptInterface` = 0. Reglas proguard específicas
+  (`-keepclasseswithmembers … @android.webkit.JavascriptInterface`) lo
+  restauraron.
+- Siguiente cambio: **canal `console.log`** (el equivalente Android-nativo del
+  `window.ReactNativeWebView.postMessage` de CO3) — inmune a R8, sin
+  anotaciones. Overlay del WebView a **pantalla completa INVISIBLE** (un
+  WebView 1x1 puede negarse a ejecutar JS en MIUI).
+- `getInternal()` reestructurado: el WebView corre con **timeout propio de
+  120s FUERA del deadline global de 45s** (antes el challenge mataba el fetch
+  justo cuando el WebView completaba).
+
+### El bug que quedaba (v0.7.16, reportado por el usuario)
+- El WebView SÍ devolvía el HTML completo (verificado en logcat:
+  `HTML completo: 110000 chars` de la búsqueda) pero la UI se quedaba en
+  spinner infinito.
+- **Causa raíz**: `isCfChallenge()` buscaba `cdn-cgi/challenge-platform`
+  como marcador de challenge — pero Cloudflare **inyecta ese script pasivo
+  (`jsd/main.js`) en TODAS las páginas legítimas de AO3** (verificado:
+  presente 1 vez en el HTML real de búsqueda descargado con urllib). El
+  HTML bueno del WebView se descartaba como "challenge" → caía al retry
+  loop de OkHttp (tarpit) → spinner infinito.
+- **Fix (v0.7.17)**: `isCfChallenge()` ahora solo matchea challenges
+  ACTIVOS: `_cf_chl_opt`, `challenges.cloudflare.com` y `turnstile`. El
+  `DETECT_JS` del WebView usa el mismo criterio (añadido el iframe de
+  `challenges.cloudflare.com`).
+- Lección: nunca usar `challenge-platform`/`cdn-cgi/challenge-platform`
+  como señal de bloqueo — es el detector pasivo que Cloudflare sirve en
+  cada página.

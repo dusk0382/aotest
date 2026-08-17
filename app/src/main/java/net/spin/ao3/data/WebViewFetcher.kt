@@ -317,10 +317,14 @@ object WebViewFetcher {
         (function() {
           try {
             console.log('AO3FETCH:running');
+            // Only ACTIVE challenge markers count. Cloudflare injects its
+            // passive detector (jsd/main.js) into every legit page, so
+            // matching 'cdn-cgi/challenge-platform' would mark real pages
+            // as challenges and throw away good HTML.
             var isChallenge =
               typeof window._cf_chl_opt !== 'undefined' ||
-              !!document.querySelector('script[src*="cdn-cgi/challenge-platform"]') ||
-              !!document.querySelector('script[src*="challenges.cloudflare.com"]');
+              !!document.querySelector('script[src*="challenges.cloudflare.com"]') ||
+              !!document.querySelector('iframe[src*="challenges.cloudflare.com"]');
             if (isChallenge) {
               console.log('AO3FETCH:challenge');
               return;
