@@ -1004,6 +1004,18 @@ fetch(url)
 - Lo mismo en el `LaunchedEffect(Unit)` de restauración de scroll
   (también acotado a 3s).
 
-### Estado
-- v0.7.19 pusheado a GitHub; CI compila. Pendiente: instalar, buscar y
-  confirmar que los resultados se muestran.
+### Estado — ✅ VERIFICADO EN EL DISPOSITIVO (18:20, 17 ago 2026)
+- v0.7.19 instalado (release firmado de CI) y **la búsqueda funciona de
+  punta a punta**:
+  - Búsqueda en vivo "sherlock": `OkHttp rápido OK (106302 chars)` →
+    `parseó 20 obras` → `fetchFirst OK: 20 obras en 2369ms` →
+    `fetchFirst terminó tras 2370ms`. La UI muestra los resultados
+    (cards con título/autor/tags/stats).
+  - Búsqueda desde caché "naruto": instantánea, 20 obras.
+  - El camino OkHttp rápido funcionó en vivo (Cloudflare no tarpiteó en
+    esa sesión); el fallback WebView (WebView fresco por fetch, timeout
+    independiente de Main, challenge acotado a 25s) queda listo para
+    cuando Cloudflare bloquee OkHttp.
+- Pendiente menor: validar manualmente "Cargar más" (paginación) — los
+  taps ciegos caen en la zona de gestos del sistema (el botón está al
+  borde inferior), no es un bug del producto.
