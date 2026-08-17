@@ -14,8 +14,8 @@ android {
         applicationId = "net.spin.ao3"
         minSdk = 23
         targetSdk = 36
-        versionCode = 42
-        versionName = "0.7.9"
+        versionCode = 43
+        versionName = "0.7.10"
     }
 
     signingConfigs {
@@ -91,6 +91,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.jsoup)
     implementation(libs.okhttp)
+    // Chromium network stack (same TLS fingerprint as Chrome) — bypasses
+    // Cloudflare's OkHttp tarpit on AO3. Falls back to OkHttp if no provider.
+    implementation(libs.play.services.cronet)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation("junit:junit:4.13.2")

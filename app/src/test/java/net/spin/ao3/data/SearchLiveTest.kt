@@ -6,27 +6,25 @@ import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
 /**
- * DIAGNOSTIC smoke test (live network): runs the app's real search path against
- * archiveofourown.org and prints the outcome (timing, works, or the exact
- * failure). Print-only so a throttled/blocked CI IP never turns the pipeline
- * red — the printed line is the signal. TTL is generous because AO3 can be
- * slow under Cloudflare.
+ * DIAGNOSTIC smoke test (live network): 5 distinct queries through the app's
+ * real client to sample Cloudflare's intermittent tarpit. Print-only.
  */
 class SearchLiveTest {
 
-    @Test(timeout = 150_000)
+    @Test(timeout = 500_000)
     fun liveSearchNaruto() {
         val client = Ao3Client(cacheDir = null)
-        val t0 = System.currentTimeMillis()
-        try {
-            val result = runBlocking {
-                client.search(SearchFilters(query = "naruto"), 1, SortOption.BEST_MATCH)
+        val queries = listOf("naruto", "harry potter", "one piece", "sherlock", "avengers")
+        queries.forEachIndexed { i, q ->
+            val t0 = System.currentTimeMillis()
+            try {
+                val result = runBlocking {
+                    client.search(SearchFilters(query = q), 1, SortOption.BEST_MATCH)
+                }
+                println("LIVE[$i]_$q OK: ${System.currentTimeMillis() - t0}ms works=${result.works.size}")
+            } catch (e: Throwable) {
+                println("LIVE[$i]_$q FAIL: ${System.currentTimeMillis() - t0}ms ${e::class.simpleName}: ${e.message}")
             }
-            val ms = System.currentTimeMillis() - t0
-            println("LIVE_SEARCH_OK: ${ms}ms works=${result.works.size} total=${result.total} filtersApplied=${result.filtersApplied}")
-        } catch (e: Throwable) {
-            val ms = System.currentTimeMillis() - t0
-            println("LIVE_SEARCH_FAIL: ${ms}ms ${e::class.simpleName}: ${e.message}")
         }
     }
 }

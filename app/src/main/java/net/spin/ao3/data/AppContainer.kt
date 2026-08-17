@@ -6,7 +6,10 @@ import java.io.File
 /** Application-scoped dependencies. */
 class AppContainer(context: Context) {
     val store = Store(context)
-    val client = Ao3Client(cacheDir = File(context.cacheDir, "ao3_http"))
+    val client = Ao3Client(
+        cacheDir = File(context.cacheDir, "ao3_http"),
+        context = context.applicationContext,
+    )
 
     /** Live connectivity state, used by the offline banner + error messages. */
     val connectivity = ConnectivityMonitor(context)

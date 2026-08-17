@@ -772,3 +772,54 @@ Enfocado en código más eficiente (sin recortar funciones ni animaciones).
 - `compileDebugKotlin` OK, **75/75 tests JVM verdes**.
 - APK **debug v0.7.7** (versionCode 40) en `dist/ao3-reader-v0.7.7-debug.apk`
   (22 MB, instalable). Sin release.
+
+## Ronda 0.7.8/0.7.9 — Búsqueda rota: diagnóstico Cloudflare + UA
+
+### Síntoma
+- Búsqueda desde Inicio quedaba en **spinner infinito**; el navegador del
+  teléfono iba bien pero la app no. No era regresión: v0.7.3/v0.7.4 funcionaban
+  antes y dejaron de hacerlo → el entorno (AO3/Cloudflare) cambió.
+
+### Diagnóstico (medido)
+- **Cloudflare tarpit por fingerprint de OkHttp**: con el UA de la app (o uno
+  de Chrome), ~1 de cada 5 requests se cuelga ~60s o muere con **HTTP 525**,
+  mientras curl/OpenSSL y Chrome real pasan. El tarpit es a nivel **TLS
+  fingerprint (JA3/JA4)**, no de headers ni protocolo.
+- El UA propio `AO3-Lector/0.1…` además recibía slow-down (14-16s vs ~1s).
+- Test de diagnóstico en CI (`SearchLiveTest`): 5 queries con HTTP/1.1 → 5/5
+  OK pero lentas; con HTTP/2 → 1 de 5 falla con 525 tras 58s de stall.
+
+### Fixes
+- **v0.7.8**: UA de la app → UA real de Chrome (`BROWSER_UA`). No bastó (el
+  tarpit es por fingerprint TLS, no UA).
+- **v0.7.9**: forzar **HTTP/1.1** en OkHttp (`.protocols(listOf(Protocol.HTTP_1_1))`)
+  — 5/5 completan pero sigue lento y el tarpit es probabilístico (~20-40%).
+
+### Verificación
+- CI verde en ambos; release firmado v0.7.8 (code 41) y v0.7.9 (code 42).
+
+## Ronda 0.7.10 — Cronet: fingerprint de Chrome real
+
+### Qué
+- Nuevo `CronetBridge.kt`: interceptor OkHttp de red que ejecuta la petición a
+  través de **Cronet** (la pila Chromium de Chrome vía Play Services). Cloudflare
+  le da el mismo trato que a un navegador real (fingerprint TLS idéntico).
+- Dependencia `play-services-cronet:18.1.1` (catálogo de versiones + build.gradle).
+- `Ao3Client` recibe `context: Context?` opcional (los tests JVM lo omiten y
+  caen al OkHttp normal); `AppContainer` pasa `applicationContext`.
+
+### Detalles de implementación
+- El engine se construye una vez con `CronetProvider.getInstalledProvider()`;
+  si no hay provider (sin GMS), `engine == null` → fallback a OkHttp puro.
+- **Headers filtrados** al reenviar a Cronet: `Accept-Encoding` (Cronet negocia
+  y descomprime él mismo — evita doble descompresión), `Host`, `Connection`,
+  `Content-Length`, `Transfer-Encoding` (Cronet los maneja / los rechaza).
+- **Cookies de redirecciones**: Cronet internamente sigue redirects pero tira
+  los `Set-Cookie` intermedios (clave en el login) → se capturan y re-inyectan
+  en la respuesta final para que el `CookieJar` de OkHttp los vea.
+- Upload de POST (login) vía `UploadDataProvider`; timeout global de 75s en el
+  latch + cancel.
+
+### Pendiente
+- Validar en el teléfono real (release): la búsqueda debe completar rápido y
+  sin spinner infinito. Si aún fallara, revisar logcat + `SearchLiveTest` en CI.

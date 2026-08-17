@@ -21,6 +21,7 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import android.content.Context
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -50,7 +51,7 @@ import java.util.concurrent.TimeUnit
  * with a short TTL, everything else with a long one) so cold starts are fast:
  * pages visited in a previous session load from disk instead of the network.
  */
-class Ao3Client(private val cacheDir: File? = null) {
+class Ao3Client(private val cacheDir: File? = null, context: Context? = null) {
 
     /** Hard cap on any single logical request (all retries + backoff included). */
     private companion object {
@@ -79,6 +80,13 @@ class Ao3Client(private val cacheDir: File? = null) {
         // requests cuelga ~58s con HTTP 525; con HTTP/1.1 5/5 completan).
         .protocols(listOf(Protocol.HTTP_1_1))
         .cookieJar(InMemoryCookieJar())
+        .apply {
+            // Cronet = the Chromium network stack that backs Chrome. Cloudflare
+            // tarpits OkHttp's TLS fingerprint (measured) but treats Cronet's
+            // like a real browser. Falls back to plain OkHttp when no provider
+            // (tests, devices without Play Services).
+            if (context != null) addNetworkInterceptor(CronetBridge(context))
+        }
         .build()
 
     private val gate = Mutex()
