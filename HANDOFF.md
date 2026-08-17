@@ -690,3 +690,85 @@ Ao3FeedTest). APK release firmado con clave de debug: `releases/ao3-reader-v0.7.
 > La versión pasó de 0.7.5 → **0.7.6** (versionCode 39). APK **debug** verificado en
 > `app/build/outputs/apk/debug/app-debug.apk` (22 MB, instalable). No se generó release
 > (decidido en sesión); para la firma real, alimentar las env vars del keystore.
+
+## Ronda 0.7.6b — Optimización de rendimiento (gama baja)
+
+Enfocado en código más eficiente (sin recortar funciones ni animaciones).
+
+### Lector
+- **Paginación fuera del hilo principal**: `htmlToLines` (Jsoup) se ejecuta en
+  `Dispatchers.Default` con overlay "Cargando capítulo…"; antes bloqueaba la UI
+  al abrir cada capítulo en CPUs lentas (A53).
+- **Caché de `packPagesToViewport`**: la medición de texto (búsqueda binaria con
+  `TextMeasurer`) se memoiza por `(hash de líneas, tamaño, interlineado, serif,
+  márgenes, ancho, alto)`. Rotar o recomponer ya no re-mide todo el capítulo.
+- **WebView sin recargar al cambiar tema/tamaño**: el CSS usa variables CSS
+  (`--bg`, `--fg`, `--font-size`…) y un helper JS `applyReaderPrefs()` los aplica
+  en vivo. Antes cada toque en "A"/tema reconstruía y re-layouteaba el capítulo
+  entero (~1 s de congelamiento en gama baja). Ahora solo recarga cuando cambia
+  el contenido (capítulo/traducción).
+
+### Memoria / listas
+- **Avatares con downscale**: se decodifican con `inSampleSize` (máx. 256 px);
+  antes un avatar 4K ocupaba ~33 MB en RAM. Se muestran a ≤84 dp.
+- **Home lazy**: "Continuar leyendo" ahora vive en un `LazyColumn` (toda la
+  pantalla es lazy); antes componía cada fila de historial al abrir.
+- **WorkCard memoiza tags**: los grupos de tags y chips se calculan con
+  `remember(work)`; antes se recomputaban en cada recomposición al hacer scroll.
+
+### Verificación
+- `compileDebugKotlin` OK, **75/75 tests JVM verdes**.
+- APK debug v0.7.6 (versionCode 39) en `dist/ao3-reader-v0.7.6-debug.apk`
+  (22 MB, instalable). Sin release.
+
+## Ronda 0.7.7 — Fix de bugs reportados en 0.7.6
+
+### 1. Progreso de lectura (barra % + capítulo off-by-one)
+- **Causa raíz**: el guardado al salir dependía de un `readScrollRatio` asíncrono
+  (evaluateJavascript) que podía fallar/races cuando el WebView se destruía → se
+  perdía el % del capítulo y, al avanzar y salir rápido, quedaba el capítulo
+  anterior (off-by-one, agravado por la precarga del siguiente).
+- **Fix**: un scroll listener JS (`onScrollRatio`) reporta el ratio 0..1 en cada
+  scroll al estado `currentRatio`; `saveProgressNow()` ahora guarda SÍNCRONO con
+  ese valor (sin round-trip al WebView), así el guardado al salir siempre aterriza
+  en el capítulo correcto con su % real. También arregla el orden de "Continuar
+  leyendo" (el `at` se actualiza de forma fiable → la obra leída sube arriba).
+
+### 2. Search bar del lector
+- `android:windowSoftInputMode="adjustResize"` en el manifest: en modo inmersivo
+  el teclado podía tapar/desplazar la barra de búsqueda (adjustPan la empujaba
+  fuera). Ahora la ventana redimensiona y la búsqueda queda usable.
+- El botón de búsqueda además ahora es alcanzable (ver top bar).
+
+### 3. Top bar del lector saturada
+- Rediseño: **Volver | Título | Buscar | TTS | Ajustes | ⋮** (Traducir + Tema
+  claro/oscuro viven en el menú desplegable). Pasa de 6 botones a 4.
+
+### 4. TTS no funcionaba
+- **Causa**: los capítulos largos (>~4k chars) fallan/truncan en varios motores
+  TTS → parecía muerto. Ahora el texto se divide en trozos ≤4000 chars (por
+  límites de palabra) y se leen en secuencia.
+- El parseo de texto (Jsoup) se movió fuera del hilo principal y se muestra un
+  Toast si el dispositivo no tiene motor de voz.
+
+### 5. Modo paginado (páginas medio vacías)
+- Se eliminó la caché de paginación (key por `lines.hashCode()`), la única
+  adición nueva a la paginación y sospechosa de devolver páginas incorrectas.
+  El algoritmo de medición queda idéntico al de la versión que funcionaba.
+
+### 6. Orden de "Continuar leyendo"
+- Resuelto por el fix del guardado síncrono (el `at` se actualiza al salir), la
+  obra seleccionada vuelve a subir al primer puesto.
+
+### 7. Búsquedas
+- Hygiene de corrutinas en `Ao3Client.getInternal`/`post`: ya no se traga la
+  `CancellationException` (incl. el timeout del deadline) como error retryable,
+  lo que podía cancelar corrutinas del caller y lanzar errores espurios.
+- El round-trip de `SearchFilters.serialize/parse` ya estaba cubierto por tests
+  y es correcto. Si la búsqueda principal sigue fallando, revisar AO3/Cloudflare
+  (red).
+
+### Verificación
+- `compileDebugKotlin` OK, **75/75 tests JVM verdes**.
+- APK **debug v0.7.7** (versionCode 40) en `dist/ao3-reader-v0.7.7-debug.apk`
+  (22 MB, instalable). Sin release.

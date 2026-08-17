@@ -1,6 +1,7 @@
 package net.spin.ao3.util
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
@@ -23,6 +24,11 @@ import java.util.concurrent.TimeUnit
  */
 object AvatarImages {
     private var cacheDir: File? = null
+
+    // Avatars are only ever drawn at <= 84dp, so decoding anything larger is
+    // wasted memory (a 4K avatar would otherwise eat ~33 MB). Downscaling to
+    // 256px keeps them crisp on any density while capping memory use.
+    private const val MAX_DIM = 256
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -47,8 +53,8 @@ object AvatarImages {
         val bmp = if (dir != null) {
             val f = diskFile(dir, url)
             if (f.exists()) {
-                // Disk hit: decode the cached bytes.
-                runCatching { BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() }.getOrNull()
+                // Disk hit: decode the cached bytes (downscaled).
+                runCatching { decodeDownscaled(f.absolutePath)?.asImageBitmap() }.getOrNull()
             } else {
                 downloadBytes(url)?.let { bytes ->
                     // Best-effort write; a failure just means we re-download next time.
@@ -56,16 +62,40 @@ object AvatarImages {
                         f.parentFile?.mkdirs()
                         f.writeBytes(bytes)
                     }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                    decodeDownscaled(bytes)?.asImageBitmap()
                 }
             }
         } else {
             downloadBytes(url)?.let { bytes ->
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                decodeDownscaled(bytes)?.asImageBitmap()
             }
         }
         if (bmp != null) cache.put(url, bmp)
         bmp
+    }
+
+    /** Decodes [bytes] capping the largest edge at [MAX_DIM] (inSampleSize). */
+    private fun decodeDownscaled(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight) }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    /** Decodes the file at [path] capping the largest edge at [MAX_DIM]. */
+    private fun decodeDownscaled(path: String): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight) }
+        return BitmapFactory.decodeFile(path, opts)
+    }
+
+    /** Largest power-of-2 sample keeping the biggest edge within [MAX_DIM]..2x. */
+    private fun sampleSize(w: Int, h: Int): Int {
+        var sample = 1
+        var max = maxOf(w, h)
+        while (max / (sample * 2) >= MAX_DIM) sample *= 2
+        return sample
     }
 
     private fun downloadBytes(url: String): ByteArray? = try {

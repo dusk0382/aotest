@@ -1,5 +1,6 @@
 package net.spin.ao3.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -164,6 +165,11 @@ class Ao3Client(private val cacheDir: File? = null) {
                         runCatching { fetch(adultUrl, headers) }.getOrNull()?.let { return@withTimeoutOrNull it }
                     }
                     return@withTimeoutOrNull fetched
+                } catch (e: CancellationException) {
+                    // Never swallow cancellation (incl. the deadline's timeout)
+                    // as a retryable error: it would be rethrown as a "real"
+                    // error and could cancel the caller's coroutine.
+                    throw e
                 } catch (e: Exception) {
                     if (e is RateLimitedException) {
                         // Honor Retry-After (capped so a misbehaving server can't
@@ -212,6 +218,8 @@ class Ao3Client(private val cacheDir: File? = null) {
                         throw IOException("AO3 respondió con un error temporal (Cloudflare)")
                     }
                     return@withTimeoutOrNull posted
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     if (e is RateLimitedException) {
                         delay(e.retryAfterMillis.coerceAtMost(30_000L))

@@ -15,12 +15,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -78,7 +79,7 @@ fun HomeScreen(
     var history by remember { mutableStateOf(store.history()) }
     var query by rememberSaveable { mutableStateOf("") }
     // Scroll position survives tab switches (AnimatedContent disposes the screen).
-    val homeScroll = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
+    val homeScroll = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     Scaffold(
         topBar = {
@@ -90,94 +91,112 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        Column(
+        // LazyColumn so a long "Continuar leyendo" history only composes the
+        // rows on screen (the old Column composed every row up front, which
+        // stalled scrolling on low-end devices once history grew).
+        LazyColumn(
+            state = homeScroll,
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(homeScroll)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = CircleShape,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = { if (query.isNotBlank()) onSearch(query.trim(), SortOption.BEST_MATCH) },
-                ),
-            )
-            Spacer(Modifier.height(16.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
-                QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
-                QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
-                QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = CircleShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { if (query.isNotBlank()) onSearch(query.trim(), SortOption.BEST_MATCH) },
+                    ),
+                )
             }
-            Spacer(Modifier.height(22.dp))
-
-            SectionTitle(stringResource(R.string.home_explore_fandoms))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                listOf(
-                    "Naruto", "Harry Potter", "Marvel", "DCU",
-                    "My Hero Academia", "One Piece", "Sherlock (TV)",
-                ).forEach { fandom ->
-                    TagChip(
-                        fandom,
-                        MaterialTheme.colorScheme.secondary,
-                        variant = TagChipVariant.FILLED_SECONDARY,
-                        onClick = { onBrowseTag(fandom) },
-                    )
+            item {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
+                    QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
+                    QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
+                    QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
                 }
             }
-            Spacer(Modifier.height(22.dp))
-
-            SectionTitle(stringResource(R.string.home_continue))
-            if (history.isEmpty()) {
-                EmptyState(
-                    icon = Icons.AutoMirrored.Filled.MenuBook,
-                    title = stringResource(R.string.home_nothing),
-                    description = stringResource(R.string.home_empty_desc),
-                    actionLabel = stringResource(R.string.home_explore_trends),
-                    onAction = { onSearch("", SortOption.KUDOS) },
-                    compact = true,
-                )
-            } else {
-                // AO3 es un archivo de texto: las obras no tienen portadas, así
-                // que "Continuar leyendo" usa tarjetas de texto limpias (título,
-                // autor, capítulo, tiempo, progreso) en una lista vertical.
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    history.forEach { entry ->
-                        ContinueReadingRow(
-                            entry = entry,
-                            onOpen = { id, ch -> onOpenReader(id, ch) },
-                            onRemove = { id ->
-                                store.removeHistory(id)
-                                history = store.history()
-                            },
+            item {
+                Column {
+                    Spacer(Modifier.height(14.dp))
+                    SectionTitle(stringResource(R.string.home_explore_fandoms))
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(
+                        "Naruto", "Harry Potter", "Marvel", "DCU",
+                        "My Hero Academia", "One Piece", "Sherlock (TV)",
+                    ).forEach { fandom ->
+                        TagChip(
+                            fandom,
+                            MaterialTheme.colorScheme.secondary,
+                            variant = TagChipVariant.FILLED_SECONDARY,
+                            onClick = { onBrowseTag(fandom) },
                         )
                     }
                 }
             }
-            Spacer(Modifier.height(24.dp))
-            Text(
-                stringResource(R.string.home_footer),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            )
-            Spacer(Modifier.height(24.dp))
+            item {
+                Column {
+                    Spacer(Modifier.height(14.dp))
+                    SectionTitle(stringResource(R.string.home_continue))
+                }
+            }
+            if (history.isEmpty()) {
+                item {
+                    EmptyState(
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                        title = stringResource(R.string.home_nothing),
+                        description = stringResource(R.string.home_empty_desc),
+                        actionLabel = stringResource(R.string.home_explore_trends),
+                        onAction = { onSearch("", SortOption.KUDOS) },
+                        compact = true,
+                    )
+                }
+            } else {
+                // AO3 es un archivo de texto: las obras no tienen portadas, así
+                // que "Continuar leyendo" usa tarjetas de texto limpias (título,
+                // autor, capítulo, tiempo, progreso) en una lista vertical.
+                items(history, key = { it.id }) { entry ->
+                    ContinueReadingRow(
+                        entry = entry,
+                        onOpen = { id, ch -> onOpenReader(id, ch) },
+                        onRemove = { id ->
+                            store.removeHistory(id)
+                            history = store.history()
+                        },
+                    )
+                }
+            }
+            item {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        stringResource(R.string.home_footer),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
         }
     }
 }

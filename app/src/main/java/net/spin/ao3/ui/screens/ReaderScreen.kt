@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.widget.Toast
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -53,12 +54,15 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -121,9 +125,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.spin.ao3.data.Ao3Parser
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
@@ -176,6 +183,8 @@ fun ReaderScreen(
     var retryTick by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    // Overflow menu (Translate / DarkMode) so the top bar isn't a wall of icons.
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     // Chapter translation (unofficial gtx endpoint, per-chapter on demand).
     var translationLang by remember { mutableStateOf(store.prefs.translationLang) }
@@ -195,6 +204,7 @@ fun ReaderScreen(
     // Scroll mode: WebView's native find reports the active/total matches.
     var findCount by remember { mutableIntStateOf(0) }
     var findActive by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     // ---- Text-to-speech (read the chapter aloud) ----
     // Auto-advance: when TTS finishes a chapter and a next one exists, load it
@@ -208,9 +218,17 @@ fun ReaderScreen(
     val tts = rememberReaderTts { currentTtsDone.value() }
     fun startTts() {
         resumeTtsOnChapterLoad = false
-        val text = Ao3Parser.htmlToPlainText(content ?: return)
-        if (text.isBlank()) return
-        tts.speak(text, store.prefs.ttsRate)
+        tts.error?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Parse off the main thread: Jsoup over a long chapter is expensive and
+        // would freeze the UI right when the user taps play.
+        scope.launch {
+            val text = withContext(Dispatchers.Default) { Ao3Parser.htmlToPlainText(content ?: return@withContext "") }
+            if (text.isBlank()) return@launch
+            tts.speak(text, store.prefs.ttsRate)
+        }
     }
 
     // Stop reading when the app goes to the background (call, another app…).
@@ -275,15 +293,29 @@ fun ReaderScreen(
                 ?.scrollRatio ?: 0f,
         )
     }
-    val scope = rememberCoroutineScope()
     // Chapters whose NEXT chapter has already been prefetched (per reader session).
     var prefetched by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
     // Paginated mode data (only parsed when active). The chapter body is
     // either the original or the cached translation (per chapter + language).
     val displayContent = if (translationOn) translatedHtml ?: content else content
-    val lines = remember(displayContent, paged) {
-        if (paged) htmlToLines(displayContent ?: "") else emptyList()
+    // Lines are parsed OFF the main thread: Jsoup over a long chapter is
+    // expensive on low-end CPUs, and doing it in composition froze the reader
+    // on every chapter/settings change. [lines] is null while paginating.
+    var lines by remember(displayContent, paged) { mutableStateOf<List<Line>?>(null) }
+    var paginating by remember { mutableStateOf(false) }
+    LaunchedEffect(displayContent, paged) {
+        if (!paged) {
+            lines = emptyList()
+            paginating = false
+            return@LaunchedEffect
+        }
+        paginating = true
+        try {
+            lines = withContext(Dispatchers.Default) { htmlToLines(displayContent ?: "") }
+        } finally {
+            paginating = false
+        }
     }
     // Pages are packed to the exact viewport inside PagedReaderBody's
     // BoxWithConstraints; this mirror lets progress/search/bottom-bar read
@@ -434,8 +466,12 @@ fun ReaderScreen(
         if (paged) {
             commit(if (measuredPages.size > 1) pagerState.currentPage / (measuredPages.size - 1).toFloat() else 0f)
         } else {
-            val wv = webView.value ?: return
-            readScrollRatio(wv) { commit(it) }
+            // currentRatio is kept fresh by the JS scroll listener (onScrollRatio)
+            // on every scroll, so saving is SYNCHRONOUS — it never depends on an
+            // async evaluateJavascript round-trip that could fail or race when the
+            // reader is being disposed (the old code lost the last chapter and the
+            // within-chapter % on quick exits).
+            commit(currentRatio)
         }
     }
 
@@ -499,10 +535,16 @@ fun ReaderScreen(
 
     BackHandler { saveProgressNow(); onBack() }
 
-    // 3) Render chapter into the WebView whenever content/css changes (scroll mode only).
+    // 3) Render chapter into the WebView (scroll mode only). The full HTML is
+    // keyed ONLY on the actual content (chapter/translation), NOT on theme/size:
+    // style changes go through applyReaderPrefs() via JS without reloading.
     val css = remember(theme, fontSize, serif, lineHeight, margins) { readerCss(theme, fontSize, serif, lineHeight, margins) }
-    val html = remember(displayContent, workTitle, currentIndex, chapterTitle, css) {
+    val contentKey = "${displayContent ?: ""}|$workTitle|$currentIndex|$chapterTitle"
+    val html = remember(contentKey, css) {
         buildChapterHtml(workTitle, currentIndex, chapterTitle, displayContent ?: "", css)
+    }
+    val prefsJson = remember(theme, fontSize, serif, lineHeight, margins) {
+        readerPrefsJson(theme, fontSize, serif, lineHeight, margins)
     }
 
     val onPageFinished = rememberUpdatedState {
@@ -586,12 +628,16 @@ fun ReaderScreen(
 
     Box(Modifier.fillMaxSize()) {
         // Body: paginated pages (viewport-packed) or the scroll WebView.
-        if (paged && lines.isNotEmpty()) {
+        if (paged && lines == null) {
+            // Paginating off the main thread — the overlay below covers this.
+            Box(Modifier.fillMaxSize())
+        } else if (paged && lines!!.isNotEmpty()) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val measurer = rememberTextMeasurer()
                 val density = LocalDensity.current
-                val viewportPages = remember(lines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
-                    packPagesToViewport(lines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
+                val pageLines = lines!!
+                val viewportPages = remember(pageLines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
+                    packPagesToViewport(pageLines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
                 }
                 SideEffect {
                     // Capture the position BEFORE the pager sees the new page
@@ -629,10 +675,13 @@ fun ReaderScreen(
                     findCount = total
                 },
                 htmlToLoad = html,
+                contentKey = contentKey,
+                prefsJson = prefsJson,
                 onJsFindResult = { count ->
                     findCount = count
                     findActive = 0
                 },
+                onScrollRatio = { r -> currentRatio = r },
                 onOpenLink = { url ->
                     // A link inside the chapter opens in the system browser
                     // instead of being silently swallowed by the reader.
@@ -641,8 +690,8 @@ fun ReaderScreen(
             )
         }
 
-        // Loading overlay
-        if (loading) {
+        // Loading overlay (chapter fetch OR off-main pagination)
+        if (loading || paginating) {
             Surface(
                 color = readerBgColor(theme).copy(alpha = 0.9f),
                 modifier = Modifier.fillMaxSize(),
@@ -819,28 +868,66 @@ fun ReaderScreen(
                                 tint = if (searchOpen) readerAccentColor(theme) else readerFgColor(theme),
                             )
                         }
-                        IconButton(onClick = { showLangPicker = true }) {
-                            Icon(
-                                Icons.Default.Translate,
-                                contentDescription = "Traducir capítulo",
-                                tint = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
-                            )
-                        }
-                        IconButton(onClick = {
-                            val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
-                                Store.ReaderTheme.BLACK
-                            } else {
-                                Store.ReaderTheme.LIGHT
+                        // Overflow menu: Translate + DarkMode live here so the bar
+                        // stays at 4 actions (Search, TTS, Settings, ⋮) instead of 6.
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "Más opciones",
+                                    tint = readerFgColor(theme),
+                                )
                             }
-                            applyPrefs { theme = target }
-                            store.prefs.theme = target
-                            store.savePrefs()
-                        }) {
-                            Icon(
-                                Icons.Default.DarkMode,
-                                contentDescription = "Tema claro/oscuro",
-                                tint = readerFgColor(theme),
-                            )
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "Traducir capítulo",
+                                            color = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Translate,
+                                            contentDescription = null,
+                                            tint = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showLangPicker = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "Tema oscuro" else "Tema claro",
+                                            color = readerFgColor(theme),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.DarkMode,
+                                            contentDescription = null,
+                                            tint = readerFgColor(theme),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
+                                            Store.ReaderTheme.BLACK
+                                        } else {
+                                            Store.ReaderTheme.LIGHT
+                                        }
+                                        applyPrefs { theme = target }
+                                        store.prefs.theme = target
+                                        store.savePrefs()
+                                    },
+                                )
+                            }
                         }
                         IconButton(onClick = {
                             when {
@@ -1684,22 +1771,35 @@ private fun ReaderWebViewHost(
     modifier: Modifier = Modifier,
     backgroundColor: Int,
     htmlToLoad: String,
+    contentKey: String,
+    prefsJson: String,
     onPageFinished: () -> Unit,
     onToggleChrome: () -> Unit,
     onFindResult: (Int, Int) -> Unit,
     onJsFindResult: (Int) -> Unit,
+    onScrollRatio: (Float) -> Unit,
     onOpenLink: (String) -> Unit,
 ) {
     val currentOnPageFinished by rememberUpdatedState(onPageFinished)
     val currentToggleChrome by rememberUpdatedState(onToggleChrome)
     val currentHtml by rememberUpdatedState(htmlToLoad)
+    val currentContentKey by rememberUpdatedState(contentKey)
+    val currentPrefsJson by rememberUpdatedState(prefsJson)
     val currentOnFindResult by rememberUpdatedState(onFindResult)
     val currentOnJsFindResult by rememberUpdatedState(onJsFindResult)
+    val currentOnScrollRatio by rememberUpdatedState(onScrollRatio)
     val currentOnOpenLink by rememberUpdatedState(onOpenLink)
-    // Tracks the exact HTML already loaded into the WebView, so the initial
+    // Tracks the exact content already loaded into the WebView, so the initial
     // composition (and any recomposition with the same content) never triggers
-    // a redundant reload — the old code reloaded twice on first open.
-    var loadedHtml by remember { mutableStateOf<String?>(null) }
+    // a redundant reload — the old code reloaded twice on first open. Keyed on
+    // the CONTENT (chapter/translation), not the styling: theme/size changes
+    // are applied live via applyReaderPrefs() without touching the document.
+    var loadedContentKey by remember { mutableStateOf<String?>(null) }
+    // Re-apply styling after every page load; a prefs change that raced with a
+    // reload would otherwise be lost on the freshly-loaded document.
+    fun applyPrefs(wv: WebView) {
+        wv.evaluateJavascript("if (window.applyReaderPrefs) applyReaderPrefs($currentPrefsJson);", null)
+    }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -1725,11 +1825,17 @@ private fun ReaderWebViewHost(
                         fun onJsFindResult(count: Int) {
                             Handler(Looper.getMainLooper()).post { currentOnJsFindResult(count) }
                         }
+
+                        @JavascriptInterface
+                        fun onScrollRatio(ratio: Double) {
+                            Handler(Looper.getMainLooper()).post { currentOnScrollRatio(ratio.toFloat().coerceIn(0f, 1f)) }
+                        }
                     },
                     "Reader",
                 )
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
+                        applyPrefs(this@apply)
                         currentOnPageFinished()
                     }
 
@@ -1745,7 +1851,7 @@ private fun ReaderWebViewHost(
                     }
                 }
                 webView.value = this
-                loadedHtml = currentHtml
+                loadedContentKey = currentContentKey
                 loadDataWithBaseURL(BASE_URL, currentHtml, "text/html", "UTF-8", null)
             }
         },
@@ -1754,9 +1860,9 @@ private fun ReaderWebViewHost(
             if (current != wv) webView.value = wv
             wv.setBackgroundColor(backgroundColor)
             // Safety net: if the WebView somehow lost its content (url cleared),
-            // restore it. Guarded by loadedHtml so we never double-load.
-            if (wv.url.isNullOrEmpty() && loadedHtml != currentHtml) {
-                loadedHtml = currentHtml
+            // restore it. Guarded by loadedContentKey so we never double-load.
+            if (wv.url.isNullOrEmpty() && loadedContentKey != currentContentKey) {
+                loadedContentKey = currentContentKey
                 wv.loadDataWithBaseURL(BASE_URL, currentHtml, "text/html", "UTF-8", null)
             }
         },
@@ -1766,13 +1872,20 @@ private fun ReaderWebViewHost(
         },
     )
 
-    // Reload ONLY when the html content actually changed (new chapter, theme…).
-    LaunchedEffect(htmlToLoad) {
+    // Reload ONLY when the content actually changed (new chapter / translation).
+    LaunchedEffect(contentKey) {
         val wv = webView.value ?: return@LaunchedEffect
-        if (loadedHtml != htmlToLoad) {
-            loadedHtml = htmlToLoad
+        if (loadedContentKey != contentKey) {
+            loadedContentKey = contentKey
             wv.loadDataWithBaseURL(BASE_URL, htmlToLoad, "text/html", "UTF-8", null)
         }
+    }
+
+    // Theme/size/margins changes restyle the loaded document via CSS variables
+    // (applyReaderPrefs) — no reload, no re-layout of the whole chapter.
+    LaunchedEffect(prefsJson) {
+        val wv = webView.value ?: return@LaunchedEffect
+        applyPrefs(wv)
     }
 }
 
@@ -1873,12 +1986,6 @@ private fun jsClearFind(): String = """
 
 // ---- Scroll helpers ---------------------------------------------------------
 
-private fun readScrollRatio(wv: WebView, cb: (Float) -> Unit) {
-    wv.evaluateJavascript(
-        "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
-    ) { r -> cb(parseJsRatio(r)) }
-}
-
 /**
  * WebView.evaluateJavascript returns the JS result JSON-encoded, so a String
  * comes back quoted ("0.4321"). The old `r?.toFloatOrNull()` always failed on
@@ -1965,6 +2072,12 @@ private fun marginPadding(margins: Int): Pair<String, String> = when (margins) {
     else -> "18px 22px 60px" to "28px 34px 72px"
 }
 
+/**
+ * Reader stylesheet. All themeable values live as CSS custom properties on
+ * :root, so [applyReaderPrefs] can restyle an already-loaded chapter via JS
+ * WITHOUT reloading the WebView (a full reload re-lays-out the whole document,
+ * which is the dominant cost when changing theme/size on low-end devices).
+ */
 private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lineHeight: Float, margins: Int): String {
     val (bg, fg, accent) = readerPalette(theme)
     val subtle = if (theme == Store.ReaderTheme.SEPIA) "#7a6a50" else "#9a9a9a"
@@ -1973,43 +2086,71 @@ private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lin
     val colorScheme = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "light" else "dark"
     val (padMobile, padTablet) = marginPadding(margins)
     return """
-        :root { color-scheme: $colorScheme; }
+        :root {
+            color-scheme: $colorScheme;
+            --bg: $bg;
+            --fg: $fg;
+            --accent: $accent;
+            --accent-soft: ${accent}66;
+            --subtle: $subtle;
+            --divider: $divider;
+            --font-family: $family;
+            --font-size: ${sizeSp}px;
+            --line-height: $lineHeight;
+            --pad-mobile: $padMobile;
+            --pad-tablet: $padTablet;
+        }
         * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; }
         body {
-            background: $bg;
-            color: $fg;
-            font-family: $family;
-            font-size: ${sizeSp}px;
-            line-height: $lineHeight;
+            background: var(--bg);
+            color: var(--fg);
+            font-family: var(--font-family);
+            font-size: var(--font-size);
+            line-height: var(--line-height);
             overflow-wrap: break-word;
-            padding: $padMobile;
+            padding: var(--pad-mobile);
         }
         .meta { text-align: center; margin-bottom: 26px; }
-        .meta .work { font-size: 0.8em; color: $subtle; letter-spacing: 0.02em; }
+        .meta .work { font-size: 0.8em; color: var(--subtle); letter-spacing: 0.02em; }
         .meta .chap { font-size: 1.15em; font-weight: 600; margin-top: 4px; }
         .content h1, .content h2, .content h3 { line-height: 1.35; }
         .content p { margin: 0 0 1.1em; }
         .content blockquote {
-            border-left: 3px solid $accent;
+            border-left: 3px solid var(--accent);
             margin: 1.1em 0;
             padding: 0.2em 1em;
-            color: $subtle;
+            color: var(--subtle);
         }
-        .content hr { border: none; border-top: 1px solid $divider; margin: 1.8em 0; }
+        .content hr { border: none; border-top: 1px solid var(--divider); margin: 1.8em 0; }
         .content em, .content i { font-style: italic; }
         .content strong, .content b { font-weight: 700; }
-        .content a { color: $accent; text-decoration: none; }
+        .content a { color: var(--accent); text-decoration: none; }
         .content a:hover { text-decoration: underline; }
         .content img { max-width: 100%; height: auto; border-radius: 6px; }
-        mark.ao3findmark { background: $accent; color: #ffffff; border-radius: 2px; padding: 0 1px; }
-        ::highlight(ao3find) { background-color: ${accent}66; }
+        mark.ao3findmark { background: var(--accent); color: #ffffff; border-radius: 2px; padding: 0 1px; }
+        ::highlight(ao3find) { background-color: var(--accent-soft); }
         .content center { display: block; text-align: center; }
         .content .userstuff, .content div { line-height: inherit; }
         blockquote.notes { margin-left: 0; }
         pre { white-space: pre-wrap; }
-        @media (min-width: 720px) { body { padding: $padTablet; } }
+        @media (min-width: 720px) { body { padding: var(--pad-tablet); } }
     """.trimIndent()
+}
+
+/**
+ * Serializes the current reader preferences as a JSON object consumed by the
+ * applyReaderPrefs() JS helper, letting the WebView restyle live without a
+ * reload. Mirrors the defaults baked into [readerCss].
+ */
+private fun readerPrefsJson(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lineHeight: Float, margins: Int): String {
+    val (bg, fg, accent) = readerPalette(theme)
+    val subtle = if (theme == Store.ReaderTheme.SEPIA) "#7a6a50" else "#9a9a9a"
+    val divider = if (theme == Store.ReaderTheme.LIGHT) "#e0e0e0" else "#3a3a3f"
+    val family = if (serif) "Georgia, 'Times New Roman', serif" else "Roboto, 'Helvetica Neue', sans-serif"
+    val colorScheme = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "light" else "dark"
+    val (padMobile, padTablet) = marginPadding(margins)
+    return "{\"bg\":\"$bg\",\"fg\":\"$fg\",\"accent\":\"$accent\",\"accentSoft\":\"${accent}66\",\"subtle\":\"$subtle\",\"divider\":\"$divider\",\"fontFamily\":\"$family\",\"fontSize\":$sizeSp,\"lineHeight\":$lineHeight,\"padMobile\":\"$padMobile\",\"padTablet\":\"$padTablet\",\"colorScheme\":\"$colorScheme\"}"
 }
 
 private fun buildChapterHtml(workTitle: String, chapterIndex: Int, chapterTitle: String, contentHtml: String, css: String): String {
@@ -2032,6 +2173,43 @@ private fun buildChapterHtml(workTitle: String, chapterIndex: Int, chapterTitle:
             if (window.Reader) window.Reader.toggleChrome();
           }, true);
         })();
+        // Reports the reading position (0..1) on every scroll so progress can be
+        // saved reliably WITHOUT an async evaluateJavascript round-trip at exit
+        // (which raced chapter changes and lost the last chapter/percentage).
+        (function(){
+          var last = -1;
+          function report(){
+            var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+            var vh = window.innerHeight;
+            var y = window.scrollY || 0;
+            var r = (h > vh) ? y / (h - vh) : 0;
+            if (r < 0) r = 0; if (r > 1) r = 1;
+            if (Math.abs(r - last) > 0.001) {
+              last = r;
+              if (window.Reader && window.Reader.onScrollRatio) window.Reader.onScrollRatio(r);
+            }
+          }
+          document.addEventListener('scroll', report, true);
+          window.addEventListener('resize', report, true);
+          // Report the initial position once the document is laid out.
+          if (document.readyState === 'complete') report();
+          else document.addEventListener('DOMContentLoaded', report);
+        })();
+        function applyReaderPrefs(p){
+          var s = document.documentElement.style;
+          s.setProperty('--bg', p.bg);
+          s.setProperty('--fg', p.fg);
+          s.setProperty('--accent', p.accent);
+          s.setProperty('--accent-soft', p.accentSoft);
+          s.setProperty('--subtle', p.subtle);
+          s.setProperty('--divider', p.divider);
+          s.setProperty('--font-family', p.fontFamily);
+          s.setProperty('--font-size', p.fontSize + 'px');
+          s.setProperty('--line-height', p.lineHeight);
+          s.setProperty('--pad-mobile', p.padMobile);
+          s.setProperty('--pad-tablet', p.padTablet);
+          s.setProperty('color-scheme', p.colorScheme);
+        }
         </script>
         </head><body>
         <div class="meta">

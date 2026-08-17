@@ -77,13 +77,24 @@ fun WorkCard(
     val colorScheme = MaterialTheme.colorScheme
     var showAllTags by remember { mutableStateOf(false) }
 
-    val tagGroups = buildList {
-        if (work.fandoms.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_fandoms), work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
-        if (work.characters.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_characters), work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
-        if (work.relationships.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_relationships), work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
-        // otherTags also contains characters/relationships; show only the freeforms.
-        val freeforms = work.otherTags.filterNot { it in work.relationships || it in work.characters }
-        if (freeforms.isNotEmpty()) add(TagGroup(stringResource(R.string.wc_tags), freeforms, AdditionalColor, TagChipVariant.OUTLINED))
+    // Memoized per work: cards recompose a lot while scrolling, and the tag
+    // grouping (set-filtering + buildList allocations) is pure data work that
+    // doesn't need to rerun on every frame. (Strings are resolved in composable
+    // scope — remember's lambda isn't composable.)
+    val strFandoms = stringResource(R.string.wc_fandoms)
+    val strCharacters = stringResource(R.string.wc_characters)
+    val strRelationships = stringResource(R.string.wc_relationships)
+    val strTags = stringResource(R.string.wc_tags)
+    val strCompleted = stringResource(R.string.wc_completed)
+    val tagGroups = remember(work) {
+        buildList {
+            if (work.fandoms.isNotEmpty()) add(TagGroup(strFandoms, work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
+            if (work.characters.isNotEmpty()) add(TagGroup(strCharacters, work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
+            if (work.relationships.isNotEmpty()) add(TagGroup(strRelationships, work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
+            // otherTags also contains characters/relationships; show only the freeforms.
+            val freeforms = work.otherTags.filterNot { it in work.relationships || it in work.characters }
+            if (freeforms.isNotEmpty()) add(TagGroup(strTags, freeforms, AdditionalColor, TagChipVariant.OUTLINED))
+        }
     }
 
     Card(
@@ -135,11 +146,13 @@ fun WorkCard(
             Spacer(Modifier.height(12.dp))
 
             // ---- Tags: scrolling row, 3 visible + "+N más" overflow ----
-            val chips = buildList {
-                if (work.isCompleted) add(Triple(stringResource(R.string.wc_completed), semantic.success, TagChipVariant.TINTED))
-                work.fandoms.forEach { add(Triple(it, FandomColor, TagChipVariant.FILLED_SECONDARY)) }
-                work.characters.forEach { add(Triple(it, CharacterColor, TagChipVariant.FILLED_TERTIARY)) }
-                work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
+            val chips = remember(work) {
+                buildList {
+                    if (work.isCompleted) add(Triple(strCompleted, semantic.success, TagChipVariant.TINTED))
+                    work.fandoms.forEach { add(Triple(it, FandomColor, TagChipVariant.FILLED_SECONDARY)) }
+                    work.characters.forEach { add(Triple(it, CharacterColor, TagChipVariant.FILLED_TERTIARY)) }
+                    work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
+                }
             }
             if (chips.isNotEmpty()) {
                 // The "+N más" overflow chip must stay visible without scrolling, so
