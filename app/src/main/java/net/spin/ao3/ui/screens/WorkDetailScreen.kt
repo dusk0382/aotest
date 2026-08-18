@@ -41,8 +41,10 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -135,6 +137,7 @@ fun WorkDetailScreen(
     var saved by remember { mutableStateOf(store.isSaved(workId)) }
     var downloadedIds by remember { mutableStateOf(store.downloadedChapterIds(workId)) }
     var downloadingChapter by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var downloadJobs by remember { mutableStateOf<Map<Int, Job>>(emptyMap()) }
     var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
     var descExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -234,10 +237,12 @@ fun WorkDetailScreen(
     }
 
     LaunchedEffect(queueState.completedAt) {
-        if (queueState.completedAt > 0 && queueState.completedAt != lastQueueCompletion) {
+        if (queueState.completedAt > 0 && queueState.workId == workId && queueState.completedAt != lastQueueCompletion) {
             lastQueueCompletion = queueState.completedAt
             refreshDownloads()
-            snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+            if (DownloadQueueService.consumeCompletion(queueState.completedAt)) {
+                snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+            }
         }
     }
 
@@ -251,18 +256,28 @@ fun WorkDetailScreen(
         val d = detail ?: return
         if (ch.index in downloadingChapter) return
         downloadingChapter = downloadingChapter + ch.index
-        scope.launch {
+        val job = scope.launch {
             try {
                 val ready = if (ch.content != null) ch else container.client.getChapter(d.summary.id, ch)
                 store.addDownloadedChapter(d.summary.id, d.summary.title, ready)
                 refreshDownloads()
                 snackbar.showSnackbar("Capítulo ${ch.index + 1} descargado (sin conexión)")
+            } catch (e: CancellationException) {
+                // Cancellation is an explicit user action; it is not an error.
             } catch (e: Exception) {
-                snackbar.showSnackbar("No se pudo descargar: ${e.message}")
+                snackbar.showSnackbar("No se pudo descargar: ${e.message ?: "error de red"}")
             } finally {
                 downloadingChapter = downloadingChapter - ch.index
+                downloadJobs = downloadJobs - ch.index
             }
         }
+        downloadJobs = downloadJobs + (ch.index to job)
+    }
+
+    fun cancelChapterDownload(index: Int) {
+        downloadJobs[index]?.cancel()
+        downloadingChapter = downloadingChapter - index
+        downloadJobs = downloadJobs - index
     }
 
     fun exportChapter(ch: ChapterInfo) {
@@ -589,46 +604,75 @@ fun WorkDetailScreen(
                     }
 
                     item {
-                        Row(
+                        Column(
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Button(
                                 onClick = { onOpenChapter(history?.chapterIndex ?: 0) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
                                 Text(
                                     if (history != null) "Continuar · Cap. ${history.chapterIndex + 1}"
                                     else "Leer desde el principio",
                                 )
                             }
-                            if (downloadedIds.isNotEmpty()) {
-                                OutlinedButton(onClick = { deleteDownload() }) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Text("Descargado (${downloadedIds.size})")
-                                }
-                            } else {
-                                val queuedHere = queueState.active && queueState.workId == d.summary.id
-                                Button(
-                                    onClick = { enqueueAll() },
-                                    enabled = !queuedHere,
-                                    modifier = Modifier.weight(0.8f),
-                                ) {
-                                    if (queuedHere) {
-                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                                        Text(" ${queueState.done}/${queueState.total}")
-                                    } else {
-                                        Text("Descargar todo")
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    val queuedHere = queueState.workId == d.summary.id && (queueState.active || queueState.paused)
+                                if (queuedHere) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (queueState.paused) DownloadQueueService.resume(context)
+                                            else DownloadQueueService.cancel(context, d.summary.id)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Icon(
+                                            if (queueState.paused) Icons.Default.Download else Icons.Default.Stop,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            if (queueState.paused) "Reanudar (${queueState.done}/${queueState.total})"
+                                            else "Detener (${queueState.done}/${queueState.total})",
+                                        )
+                                    }
+                                } else if (downloadedIds.size >= d.chapters.size && d.chapters.isNotEmpty()) {
+                                    OutlinedButton(onClick = { deleteDownload() }, modifier = Modifier.weight(1f)) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Descargado (${downloadedIds.size})")
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { enqueueAll() },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            if (downloadedIds.isEmpty()) "Guardar sin conexión"
+                                            else "Guardar restantes (${d.chapters.size - downloadedIds.size})",
+                                        )
                                     }
                                 }
                             }
-                        }
-                        if (queueState.active && queueState.workId == d.summary.id) {
-                            LinearProgressIndicator(
-                                progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            )
+                            if (queueState.workId == d.summary.id && (queueState.active || queueState.paused)) {
+                                LinearProgressIndicator(
+                                    progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                if (queueState.paused) {
+                                    Text(
+                                        queueState.errorMessage ?: "Descarga pausada",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -670,7 +714,7 @@ fun WorkDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    "El botón \"TXT\" exporta el capítulo a la carpeta Descargas. El icono de flecha lo guarda para leer sin conexión (y se marca con ✓).",
+                                    "Toca un capítulo para leerlo. Las acciones de descarga y exportación están a la derecha.",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f),
@@ -696,6 +740,7 @@ fun WorkDetailScreen(
                             progress = chapterProgress[ch.index],
                             onClick = { onOpenChapter(ch.index) },
                             onDownload = { downloadChapter(ch) },
+                            onCancelDownload = { cancelChapterDownload(ch.index) },
                             onExport = { exportChapter(ch) },
                             onRemoveDownload = { removeChapterIndex = ch.index },
                         )
@@ -1094,6 +1139,7 @@ private fun ChapterRow(
     progress: Float?,
     onClick: () -> Unit,
     onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onExport: () -> Unit,
     onRemoveDownload: () -> Unit,
 ) {
@@ -1144,37 +1190,45 @@ private fun ChapterRow(
             )
             Spacer(Modifier.width(4.dp))
         }
-        // Export to .txt: clearly labeled chip, distinct from the offline download.
-        Surface(
-            shape = MaterialTheme.shapes.small,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            onClick = onExport,
-        ) {
-            Row(
-                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("TXT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        Spacer(Modifier.width(4.dp))
-        // Offline download toggle (icon button; turns green + ✓ once saved).
+        // Secondary chapter actions live in one overflow menu so the chapter
+        // list stays focused on its primary action: opening the chapter.
+        var actionsOpen by remember { mutableStateOf(false) }
         if (downloading) {
-            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            IconButton(onClick = onCancelDownload) {
+                Icon(Icons.Default.Stop, contentDescription = "Detener descarga del capítulo")
             }
         } else {
-            IconButton(onClick = if (downloaded) onRemoveDownload else onDownload) {
+            if (downloaded) {
                 Icon(
-                    if (downloaded) Icons.Default.Check else Icons.Default.Download,
-                    contentDescription = if (downloaded) "Quitar de descargas" else "Guardar para leer sin conexión",
-                    tint = if (downloaded) semantic.success else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    Icons.Default.Check,
+                    contentDescription = "Disponible sin conexión",
+                    tint = semantic.success,
+                    modifier = Modifier.size(18.dp),
                 )
             }
+            IconButton(onClick = { actionsOpen = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Acciones del capítulo")
+            }
+        }
+        DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+            DropdownMenuItem(
+                text = { Text("Exportar TXT") },
+                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                onClick = { actionsOpen = false; onExport() },
+            )
+            DropdownMenuItem(
+                text = { Text(if (downloaded) "Quitar de descargas" else "Guardar sin conexión") },
+                leadingIcon = {
+                    Icon(
+                        if (downloaded) Icons.Default.Delete else Icons.Default.Download,
+                        contentDescription = null,
+                    )
+                },
+                onClick = {
+                    actionsOpen = false
+                    if (downloaded) onRemoveDownload() else onDownload()
+                },
+            )
         }
     }
 }

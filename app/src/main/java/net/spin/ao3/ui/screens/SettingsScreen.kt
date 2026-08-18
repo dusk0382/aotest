@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -77,6 +78,7 @@ fun SettingsScreen(
     var commentName by remember { mutableStateOf(prefs.commentName) }
     var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -304,6 +306,24 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Estos datos se usarán como valores predeterminados al comentar; el email no se muestra públicamente.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        prefs.commentName = commentName.trim()
+                        prefs.commentEmail = commentEmail.trim()
+                        store.savePrefs()
+                        scope.launch { snackbar.showSnackbar("Datos de comentarios guardados") }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Guardar datos")
+                }
             }
 
             // ---- Copia de seguridad ----

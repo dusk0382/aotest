@@ -31,27 +31,41 @@ data class Line(
 /**
  * Converts chapter HTML into a flat list of [Line]s. Inline emphasis
  * (b/strong/i/em/u/a) becomes Segment flags; block elements become Lines.
+ *
+ * Container elements (div/section/article/main/center) are recursed into so a
+ * chapter wrapped in extra markup still paginates paragraph-by-paragraph;
+ * otherwise the whole chapter collapses into a single oversized line.
  */
 fun htmlToLines(html: String): List<Line> {
     val body = Jsoup.parseBodyFragment(html).body()
     val lines = mutableListOf<Line>()
 
-    body.children().forEach { el ->
-        val kind = when (el.tagName().lowercase()) {
-            "h1", "h2", "h3", "h4", "h5", "h6" -> LineKind.HEADING
-            "blockquote" -> LineKind.QUOTE
-            "li" -> LineKind.LIST
-            "pre" -> LineKind.CODE
-            "hr" -> LineKind.SEPARATOR
-            else -> LineKind.PARAGRAPH
-        }
-        if (kind == LineKind.SEPARATOR) {
-            lines += Line(emptyList(), LineKind.SEPARATOR)
-        } else {
-            val segs = if (kind == LineKind.CODE) listOf(Segment(el.text())) else inlineChildren(el)
-            if (segs.isNotEmpty()) lines += Line(segs, kind)
+    fun appendInline(el: Element, kind: LineKind) {
+        val segs = inlineChildren(el)
+        if (segs.isNotEmpty()) lines += Line(segs, kind)
+    }
+
+    fun walk(el: Element) {
+        // Loose text directly inside a container becomes its own paragraph.
+        val directText = el.childNodes()
+            .filterIsInstance<TextNode>()
+            .joinToString("") { it.text() }
+            .trim()
+        if (directText.isNotEmpty()) lines += Line(listOf(Segment(directText)), LineKind.PARAGRAPH)
+        el.children().forEach { child ->
+            when (child.tagName().lowercase()) {
+                "div", "section", "article", "main", "center" -> walk(child)
+                "h1", "h2", "h3", "h4", "h5", "h6" -> appendInline(child, LineKind.HEADING)
+                "blockquote" -> appendInline(child, LineKind.QUOTE)
+                "li" -> appendInline(child, LineKind.LIST)
+                "pre" -> lines += Line(listOf(Segment(child.text())), LineKind.CODE)
+                "hr" -> lines += Line(emptyList(), LineKind.SEPARATOR)
+                else -> appendInline(child, LineKind.PARAGRAPH)
+            }
         }
     }
+
+    walk(body)
     return lines
 }
 

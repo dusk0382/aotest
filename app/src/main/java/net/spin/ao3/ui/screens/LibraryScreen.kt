@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -98,6 +99,9 @@ fun LibraryScreen(
         if (queueState.completedAt > 0 && queueState.completedAt != lastQueueCompletion) {
             lastQueueCompletion = queueState.completedAt
             refreshTick++
+            if (DownloadQueueService.consumeCompletion(queueState.completedAt)) {
+                snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+            }
         }
     }
 
@@ -363,6 +367,7 @@ private fun HistoryTab(
     onClearAll: () -> Unit,
     onExplore: () -> Unit,
 ) {
+    var showClearDialog by remember { mutableStateOf(false) }
     if (history.isEmpty()) {
         EmptyState(
             icon = Icons.Default.History,
@@ -376,7 +381,7 @@ private fun HistoryTab(
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onClearAll) {
+                TextButton(onClick = { showClearDialog = true }) {
                     Text(stringResource(R.string.library_clear_history))
                 }
             }
@@ -408,6 +413,19 @@ private fun HistoryTab(
             )
         }
     }
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Borrar historial") },
+            text = { Text("Se quitarán todas las obras de tu historial de lectura. Las descargas y favoritos no se modificarán.") },
+            confirmButton = {
+                TextButton(onClick = { showClearDialog = false; onClearAll() }) { Text("Borrar historial") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -422,9 +440,12 @@ private fun DownloadsTab(
 ) {
     val semantic = LocalSemanticColors.current
     var expanded by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var pendingDelete by remember { mutableStateOf<Long?>(null) }
     val queueState by DownloadQueueService.state.collectAsState()
 
-    if (downloads.isEmpty() && !queueState.active) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    if (downloads.isEmpty() && !queueState.active && !queueState.paused) {
         EmptyState(
             icon = Icons.Default.Download,
             title = stringResource(R.string.library_nothing_downloaded),
@@ -435,7 +456,17 @@ private fun DownloadsTab(
         return
     }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (queueState.active) {
+        if (downloads.isNotEmpty()) {
+            item {
+                Text(
+                    "${downloads.size} ${if (downloads.size == 1) "obra" else "obras"} · ${downloads.sumOf { it.chapters.size }} capítulos disponibles sin conexión",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 2.dp),
+                )
+            }
+        }
+        if (queueState.active || queueState.paused) {
             item {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
@@ -444,11 +475,15 @@ private fun DownloadsTab(
                 ) {
                     Column(Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            if (queueState.active) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
+                            }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    stringResource(R.string.library_downloading, queueState.workTitle),
+                                    if (queueState.paused) "Descarga pausada: ${queueState.workTitle}" else stringResource(R.string.library_downloading, queueState.workTitle),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
@@ -466,6 +501,19 @@ private fun DownloadsTab(
                             progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
                             modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    if (queueState.paused) DownloadQueueService.resume(context)
+                                    else DownloadQueueService.cancel(context, queueState.workId)
+                                },
+                            ) {
+                                Text(if (queueState.paused) "Reanudar" else "Detener")
+                            }
+                        }
                     }
                 }
             }
@@ -493,7 +541,7 @@ private fun DownloadsTab(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(onClick = { onDeleteDownload(dl.id) }) {
+                            IconButton(onClick = { pendingDelete = dl.id }) {
                                 Icon(
                                     Icons.Default.DeleteOutline,
                                     contentDescription = stringResource(R.string.library_delete_download),
@@ -518,6 +566,22 @@ private fun DownloadsTab(
                 }
             }
         }
+    }
+    pendingDelete?.let { id ->
+        val download = downloads.firstOrNull { it.id == id }
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Eliminar descarga") },
+            text = {
+                Text("Se eliminarán ${download?.chapters?.size ?: 0} capítulos guardados de «${download?.title ?: "esta obra"}».")
+            },
+            confirmButton = {
+                TextButton(onClick = { pendingDelete = null; onDeleteDownload(id) }) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancelar") }
+            },
+        )
     }
 }
 

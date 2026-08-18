@@ -512,6 +512,36 @@ class Ao3Client(private val cacheDir: File? = null) {
         return resolved
     }
 
+    /** Autocomplete types accepted by AO3's /autocomplete endpoint. */
+    enum class AutocompleteType(val path: String) {
+        FANDOM("fandom"), CHARACTER("character"), RELATIONSHIP("relationship"), FREEFORM("freeform"),
+        /** All tag kinds at once — used for the exclude field. */
+        TAG("tag"),
+    }
+
+    /**
+     * Canonical tag suggestions from AO3's native autocomplete endpoint
+     * (GET /autocomplete/{type}?term=...). Returns canonical tag NAMES, which
+     * is exactly what [SearchFilters.fandomNames] & co. need — no extra
+     * resolution step (unlike a hand-typed name). Empty list on any failure so
+     * the filter sheet degrades to free text instead of erroring.
+     */
+    suspend fun autocomplete(type: AutocompleteType, term: String): List<String> {
+        if (term.length < 2) return emptyList()
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host("archiveofourown.org")
+            .addPathSegment("autocomplete")
+            .addPathSegment(type.path)
+            .addQueryParameter("term", term)
+            .build()
+            .toString()
+        return runCatching {
+            val body = get(url, retries = 3, disk = null)
+            withContext(Dispatchers.IO) { Ao3Parser.parseAutocomplete(body) }
+        }.getOrDefault(emptyList())
+    }
+
     /**
      * Suggested tags for a free-text query. AO3's /works search page has NO
      * filter sidebar, so we resolve the query to a canonical tag and read THAT
@@ -536,6 +566,13 @@ class Ao3Client(private val cacheDir: File? = null) {
         }
         add("work_search[other_tag_names]", filters.includeTags)
         add("work_search[excluded_tag_names]", filters.excludeTags)
+        // Canonical NAMES from the /autocomplete suggestions. Unlike the facet
+        // ids (which only apply on a tag page), *_names work on the free-text
+        // /works/search endpoint too — verified live (comma = AND).
+        add("work_search[fandom_names]", filters.fandomNames.joinToString(","))
+        add("work_search[character_names]", filters.characterNames.joinToString(","))
+        add("work_search[relationship_names]", filters.relationshipNames.joinToString(","))
+        add("work_search[freeform_names]", filters.freeformNames.joinToString(","))
         add("work_search[complete]", if (filters.completeOnly) "T" else "")
         add("work_search[crossover]", when {
             filters.excludeCrossover -> "F"

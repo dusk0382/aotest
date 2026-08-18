@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Search
@@ -40,14 +41,19 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
+import kotlinx.coroutines.launch
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.TagChip
@@ -76,8 +83,11 @@ fun HomeScreen(
     onOpenReader: (Long, Int) -> Unit,
 ) {
     val store = container.store
+    val online by container.connectivity.online.collectAsState()
     var history by remember { mutableStateOf(store.history()) }
     var query by rememberSaveable { mutableStateOf("") }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     // Scroll position survives tab switches (AnimatedContent disposes the screen).
     val homeScroll = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
@@ -90,6 +100,7 @@ fun HomeScreen(
                 ),
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         // LazyColumn so a long "Continuar leyendo" history only composes the
         // rows on screen (the old Column composed every row up front, which
@@ -102,13 +113,35 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (!online) {
+                item {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.CloudOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Sin conexión · mostrando tu biblioteca y datos guardados",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                        }
+                    }
+                }
+            }
             item {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Buscar obras") },
                     singleLine = true,
                     shape = CircleShape,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -180,8 +213,19 @@ fun HomeScreen(
                         entry = entry,
                         onOpen = { id, ch -> onOpenReader(id, ch) },
                         onRemove = { id ->
+                            val removed = history.firstOrNull { it.id == id } ?: return@ContinueReadingRow
                             store.removeHistory(id)
                             history = store.history()
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = "Quitado de Continuar leyendo",
+                                    actionLabel = "Deshacer",
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    store.updateHistory(removed)
+                                    history = store.history()
+                                }
+                            }
                         },
                     )
                 }
@@ -268,7 +312,7 @@ private fun ContinueReadingRow(
                 Spacer(Modifier.height(5.dp))
                 Text(
                     buildString {
-                        append("${(progress * 100).toInt()}% del capítulo")
+                        append(if (progress >= 0.97f) "Capítulo terminado" else "${(progress * 100).toInt()}% del capítulo")
                         if (readCount > 0) append(" · $readCount cap. leídos")
                     },
                     style = MaterialTheme.typography.labelSmall,

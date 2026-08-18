@@ -55,11 +55,13 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -77,6 +79,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
@@ -100,6 +103,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -211,21 +215,28 @@ fun ReaderScreen(
     // and keep reading. The flag makes the chapter-load effect re-start TTS
     // once the new chapter's content is ready (it is async).
     var resumeTtsOnChapterLoad by remember { mutableStateOf(false) }
+    var ttsWord by remember { mutableStateOf("") }
     // The done-handler is set below (after goToChapter is defined — local
     // functions aren't forward-referenced), so the TTS engine can stay
     // independent of the navigation code.
     val currentTtsDone = remember { mutableStateOf<() -> Unit>({}) }
-    val tts = rememberReaderTts { currentTtsDone.value() }
+    val tts = rememberReaderTts(
+        onUtteranceDone = { currentTtsDone.value() },
+        onWordRange = { word -> ttsWord = word },
+    )
     fun startTts() {
         resumeTtsOnChapterLoad = false
         tts.error?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             return
         }
-        // Parse off the main thread: Jsoup over a long chapter is expensive and
-        // would freeze the UI right when the user taps play.
+        // Read the visible version. Previously this always used [content], so
+        // TTS kept speaking the original after the user enabled translation.
+        val readableHtml = if (translationOn) translatedHtml ?: content else content
         scope.launch {
-            val text = withContext(Dispatchers.Default) { Ao3Parser.htmlToPlainText(content ?: return@withContext "") }
+            val text = withContext(Dispatchers.Default) {
+                Ao3Parser.htmlToPlainText(readableHtml ?: return@withContext "")
+            }
             if (text.isBlank()) return@launch
             tts.speak(text, store.prefs.ttsRate)
         }
@@ -248,6 +259,13 @@ fun ReaderScreen(
     // Tap on the text toggles the bars + full screen; scrolls and links are left alone.
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var showHint by remember { mutableStateOf(false) }
+    // Chrome is layered over the reader for immersion, but the reading surface
+    // must reserve its real height so text/pages are never hidden underneath it.
+    var topChromeHeightPx by remember { mutableIntStateOf(0) }
+    var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val topChromeInset = if (chromeVisible) with(density) { topChromeHeightPx.toDp() } else 0.dp
+    val bottomChromeInset = if (chromeVisible) with(density) { bottomChromeHeightPx.toDp() } else 0.dp
     val toggleChrome: () -> Unit = { chromeVisible = !chromeVisible }
 
     // The reader is immersive: the system bars stay hidden (a swipe reveals
@@ -313,6 +331,10 @@ fun ReaderScreen(
         paginating = true
         try {
             lines = withContext(Dispatchers.Default) { htmlToLines(displayContent ?: "") }
+        } catch (e: Exception) {
+            // A malformed chapter must not leave the reader stuck on a blank
+            // page forever: fall back to an empty pager (no crash, no hang).
+            lines = emptyList()
         } finally {
             paginating = false
         }
@@ -325,20 +347,29 @@ fun ReaderScreen(
 
     fun currentHistory(): Store.HistoryEntry? = store.historyEntry(workId)
 
-    // 1) Load work metadata + chapter list
+    // 1) Load the complete work metadata, then overlay downloaded chapter
+    // bodies. A download is a cache of content, not a replacement for the
+    // work's chapter index: opening chapter 4 after downloading 1–3 must still
+    // show 4/30 and fetch it online when available.
     LaunchedEffect(workId, retryTick) {
         if (chapters.isNotEmpty()) return@LaunchedEffect
         val downloaded = store.download(workId)
-        if (downloaded != null) {
-            workTitle = downloaded.title
-            chapters = downloaded.chapters
-        } else {
-            try {
-                val detail = container.client.getWork(workId)
-                workTitle = detail.summary.title
-                workAuthor = detail.summary.author
-                chapters = detail.chapters
-            } catch (e: Exception) {
+        try {
+            val detail = container.client.getWork(workId)
+            workTitle = detail.summary.title
+            workAuthor = detail.summary.author
+            val localByIndex = downloaded?.chapters.orEmpty().associateBy { it.index }
+            chapters = detail.chapters.map { remote ->
+                localByIndex[remote.index]?.let { local -> remote.copy(content = local.content) } ?: remote
+            }
+        } catch (e: Exception) {
+            if (downloaded != null) {
+                // Offline fallback can expose only the chapters that really
+                // exist locally; online navigation above always restores the
+                // complete chapter list.
+                workTitle = downloaded.title
+                chapters = downloaded.chapters.sortedBy { it.index }
+            } else {
                 error = if (!online) {
                     "Sin conexión y esta obra no está descargada. Descargala desde su detalle para leerla sin conexión."
                 } else {
@@ -486,7 +517,10 @@ fun ReaderScreen(
     fun goToChapter(index: Int) {
         if (index !in chapters.indices || index == currentIndex) return
         saveProgressNow()
-        pendingScroll = 0f
+        // Restore the target chapter's own saved position (chapter navigation
+        // must not reset the user to the top of the next chapter).
+        val saved = currentHistory()?.chapterProgress?.get(index) ?: 0f
+        pendingScroll = saved
         currentRatio = 0f
         currentIndex = index
     }
@@ -553,8 +587,12 @@ fun ReaderScreen(
         // first loaded with placeholder html (content == null) and its
         // onPageFinished would otherwise consume pendingScroll on an empty page.
         if (pendingScroll > 0f && content != null) {
-            restoreScroll(wv, pendingScroll)
+            val ratio = pendingScroll
             pendingScroll = 0f
+            // Layout may still be settling right after onPageFinished; a short
+            // delay makes the restore land on the true scrollHeight instead of
+            // a half-measured one (which clamped the position to 0).
+            Handler(Looper.getMainLooper()).postDelayed({ restoreScroll(wv, ratio) }, 80L)
         }
     }
 
@@ -567,15 +605,17 @@ fun ReaderScreen(
         } else {
             val wv = webView.value
             if (wv != null && content != null) {
+                // Capture the current ratio for the post-change restore, but
+                // apply the change IMMEDIATELY: the paged switch must not wait
+                // on an async JS callback (it can be delayed or lost, leaving
+                // the reader stuck in scroll mode).
                 wv.evaluateJavascript(
                     "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
                 ) { r ->
                     pendingScroll = parseJsRatio(r)
-                    block()
                 }
-            } else {
-                block()
             }
+            block()
         }
     }
 
@@ -589,21 +629,29 @@ fun ReaderScreen(
     }
 
     // Recompute matches (paged) or ask the WebView to find (scroll) on query change.
+    // Debounced: re-searching on every keystroke raced the async JS and left
+    // the DOM half-marked, which made multi-letter queries appear to break.
     LaunchedEffect(searchQuery, paged, displayContent) {
-        if (paged && searchQuery.isNotBlank()) {
+        if (searchQuery.isBlank()) {
+            searchMatches = emptyList()
+            searchIndex = -1
+            if (!paged) webView.value?.evaluateJavascript(jsClearFind(), null)
+            return@LaunchedEffect
+        }
+        delay(150)
+        if (paged) {
             searchMatches = findInPages(measuredPages, searchQuery)
             searchIndex = if (searchMatches.isEmpty()) -1 else 0
             if (searchMatches.isNotEmpty()) goToSearchMatch(
                 paged, searchMatches, searchIndex, webView, searchQuery, scope, pagerState,
             )
-        } else if (!paged) {
+        } else {
             val wv = webView.value
-            if (wv != null) {
-                // JS find (WebView's findAllAsync is unreliable with data: HTML).
-                wv.evaluateJavascript(jsClearFind(), null)
-                if (searchQuery.isNotBlank()) {
-                    wv.evaluateJavascript(jsFindInPage(searchQuery), null)
-                }
+            if (wv != null && content != null) {
+                // Single atomic call: clearing + finding in one evaluateJavascript
+                // is critical. Two separate calls race (both are async), and an
+                // interleaved clear could wipe the highlights mid-search.
+                wv.evaluateJavascript(jsFindInPage(searchQuery), null)
             }
             searchMatches = emptyList()
             searchIndex = -1
@@ -627,11 +675,44 @@ fun ReaderScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        // Body: paginated pages (viewport-packed) or the scroll WebView.
-        if (paged && lines == null) {
-            // Paginating off the main thread — the overlay below covers this.
+        // Body: paginated pages (viewport-packed) or the scroll WebView. The
+        // measured chrome insets are part of the layout, not an approximation
+        // inside the HTML/pager, so both modes use the same readable viewport.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(top = topChromeInset, bottom = bottomChromeInset),
+        ) {
+        if (!paged) {
+            ReaderWebViewHost(
+                webView = webView,
+                modifier = Modifier.fillMaxSize(),
+                backgroundColor = bgColor,
+                onPageFinished = { onPageFinished.value() },
+                onToggleChrome = toggleChrome,
+                onFindResult = { active, total ->
+                    findActive = active
+                    findCount = total
+                },
+                htmlToLoad = html,
+                contentKey = contentKey,
+                prefsJson = prefsJson,
+                ttsWord = ttsWord,
+                onJsFindResult = { count ->
+                    findCount = count
+                    findActive = 0
+                },
+                onScrollRatio = { r -> currentRatio = r },
+                onOpenLink = { url ->
+                    // A link inside the chapter opens in the system browser
+                    // instead of being silently swallowed by the reader.
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                },
+            )
+        } else if (lines == null) {
+            // Paginating off the main thread — the loading overlay below covers this.
             Box(Modifier.fillMaxSize())
-        } else if (paged && lines!!.isNotEmpty()) {
+        } else {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val measurer = rememberTextMeasurer()
                 val density = LocalDensity.current
@@ -655,6 +736,7 @@ fun ReaderScreen(
                     pages = viewportPages,
                     pagerState = pagerState,
                     highlights = highlights,
+                    ttsWord = ttsWord,
                     theme = theme,
                     fontSize = fontSize,
                     serif = serif,
@@ -663,31 +745,7 @@ fun ReaderScreen(
                     toggleChrome = toggleChrome,
                 )
             }
-        } else {
-            ReaderWebViewHost(
-                webView = webView,
-                modifier = Modifier.fillMaxSize(),
-                backgroundColor = bgColor,
-                onPageFinished = { onPageFinished.value() },
-                onToggleChrome = toggleChrome,
-                onFindResult = { active, total ->
-                    findActive = active
-                    findCount = total
-                },
-                htmlToLoad = html,
-                contentKey = contentKey,
-                prefsJson = prefsJson,
-                onJsFindResult = { count ->
-                    findCount = count
-                    findActive = 0
-                },
-                onScrollRatio = { r -> currentRatio = r },
-                onOpenLink = { url ->
-                    // A link inside the chapter opens in the system browser
-                    // instead of being silently swallowed by the reader.
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                },
-            )
+        }
         }
 
         // Loading overlay (chapter fetch OR off-main pagination)
@@ -816,7 +874,8 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .onSizeChanged { topChromeHeightPx = it.height },
             ) {
                 Column {
                     Row(
@@ -868,8 +927,8 @@ fun ReaderScreen(
                                 tint = if (searchOpen) readerAccentColor(theme) else readerFgColor(theme),
                             )
                         }
-                        // Overflow menu: Translate + DarkMode live here so the bar
-                        // stays at 4 actions (Search, TTS, Settings, ⋮) instead of 6.
+                        // Overflow menu keeps the reading surface focused: only
+                        // search stays visible; secondary actions live here.
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) {
                                 Icon(
@@ -927,23 +986,48 @@ fun ReaderScreen(
                                         store.savePrefs()
                                     },
                                 )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            when {
+                                                tts.speaking -> "Pausar lectura en voz alta"
+                                                tts.paused -> "Reanudar lectura en voz alta"
+                                                else -> "Leer en voz alta"
+                                            },
+                                            color = if (tts.speaking || tts.paused) readerAccentColor(theme) else readerFgColor(theme),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            when {
+                                                tts.speaking -> Icons.Default.Pause
+                                                tts.paused -> Icons.Default.PlayArrow
+                                                else -> Icons.Default.VolumeUp
+                                            },
+                                            contentDescription = null,
+                                            tint = if (tts.speaking || tts.paused) readerAccentColor(theme) else readerFgColor(theme),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        when {
+                                            tts.speaking -> tts.pause()
+                                            tts.paused -> tts.resume()
+                                            else -> startTts()
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Ajustes del lector", color = readerFgColor(theme)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Settings, contentDescription = null, tint = readerFgColor(theme))
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showSettings = true
+                                    },
+                                )
                             }
-                        }
-                        IconButton(onClick = {
-                            when {
-                                tts.speaking -> tts.stop()
-                                tts.paused -> tts.resume()
-                                else -> startTts()
-                            }
-                        }) {
-                            Icon(
-                                if (tts.speaking) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = if (tts.speaking) "Detener lectura en voz alta" else "Leer capítulo en voz alta",
-                                tint = if (tts.speaking) readerAccentColor(theme) else readerFgColor(theme),
-                            )
-                        }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = readerFgColor(theme))
                         }
                     }
                     if (translatedHtml != null && !searchOpen) {
@@ -1084,9 +1168,40 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.navigationBars),
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .onSizeChanged { bottomChromeHeightPx = it.height },
             ) {
                 Column {
+                    if (tts.speaking || tts.paused) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.VolumeUp,
+                                contentDescription = null,
+                                tint = readerAccentColor(theme),
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (tts.paused) "Lectura en voz alta en pausa" else "Leyendo en voz alta",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = readerFgColor(theme),
+                                modifier = Modifier.weight(1f),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = {
+                                    if (tts.speaking) tts.pause() else tts.resume()
+                                }) {
+                                    Text(if (tts.speaking) "Pausar" else "Reanudar", color = readerAccentColor(theme))
+                                }
+                                TextButton(onClick = { tts.stop() }) {
+                                    Text("Detener", color = readerAccentColor(theme))
+                                }
+                            }
+                        }
+                    }
                     // Offline indicator: the chapter on screen came from a
                     // local download or stale cache, not the live site.
                     if (!online) {
@@ -1108,10 +1223,15 @@ fun ReaderScreen(
                             )
                         }
                     }
+                    val visibleProgress = if (paged && measuredPages.size > 1) {
+                        pagerState.currentPage / (measuredPages.size - 1).toFloat()
+                    } else {
+                        currentRatio
+                    }
                     LinearProgressIndicator(
-                        progress = { currentRatio.coerceIn(0f, 1f) },
+                        progress = { visibleProgress.coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth().height(2.dp),
-                        color = readerFgColor(theme).copy(alpha = 0.55f),
+                        color = readerAccentColor(theme).copy(alpha = 0.8f),
                         trackColor = readerFgColor(theme).copy(alpha = 0.12f),
                     )
                     Row(
@@ -1126,8 +1246,8 @@ fun ReaderScreen(
                             )
                         }
                         Text(
-                            "${currentIndex + 1} / ${chapters.size.coerceAtLeast(1)}" +
-                                if (paged && measuredPages.size > 1) " · ${pagerState.currentPage + 1}/${measuredPages.size}" else "",
+                            "Cap. ${currentIndex + 1}/${chapters.size.coerceAtLeast(1)} · ${(visibleProgress * 100).roundToInt()} %" +
+                                if (paged && measuredPages.size > 1) " · Pág. ${pagerState.currentPage + 1}/${measuredPages.size}" else "",
                             color = readerFgColor(theme),
                             style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier
@@ -1176,6 +1296,9 @@ fun ReaderScreen(
         var draftFont by remember { mutableIntStateOf(fontSize) }
         var draftLineHeight by remember { mutableFloatStateOf(lineHeight) }
         var draftMargins by remember { mutableIntStateOf(margins) }
+        var draftTheme by remember { mutableStateOf(theme) }
+        var draftSerif by remember { mutableStateOf(serif) }
+        var draftPaged by remember { mutableStateOf(paged) }
         var draftTtsRate by remember { mutableFloatStateOf(store.prefs.ttsRate) }
         ModalBottomSheet(
             onDismissRequest = { showSettings = false },
@@ -1191,21 +1314,13 @@ fun ReaderScreen(
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
-                        selected = !paged,
-                        onClick = {
-                            applyPrefs { paged = false }
-                            store.prefs.paged = false
-                            store.savePrefs()
-                        },
+                        selected = !draftPaged,
+                        onClick = { draftPaged = false },
                         label = { Text("Scroll continuo") },
                     )
                     FilterChip(
-                        selected = paged,
-                        onClick = {
-                            applyPrefs { paged = true }
-                            store.prefs.paged = true
-                            store.savePrefs()
-                        },
+                        selected = draftPaged,
+                        onClick = { draftPaged = true },
                         label = { Text("Paginado") },
                     )
                 }
@@ -1215,8 +1330,8 @@ fun ReaderScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Store.ReaderTheme.entries.forEach { option ->
                         FilterChip(
-                            selected = theme == option,
-                            onClick = { applyPrefs { theme = option } },
+                            selected = draftTheme == option,
+                            onClick = { draftTheme = option },
                             label = { Text(stringResource(option.labelRes)) },
                         )
                     }
@@ -1225,10 +1340,10 @@ fun ReaderScreen(
                 Text("Vista previa", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 ReaderPreview(
-                    theme = theme,
+                    theme = draftTheme,
                     fontSize = draftFont,
                     lineHeight = draftLineHeight,
-                    serif = serif,
+                    serif = draftSerif,
                     margins = draftMargins,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -1283,8 +1398,8 @@ fun ReaderScreen(
                 Text("Tipografía", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = serif, onClick = { applyPrefs { serif = true } }, label = { Text("Serif") })
-                    FilterChip(selected = !serif, onClick = { applyPrefs { serif = false } }, label = { Text("Sans serif") })
+                    FilterChip(selected = draftSerif, onClick = { draftSerif = true }, label = { Text("Serif") })
+                    FilterChip(selected = !draftSerif, onClick = { draftSerif = false }, label = { Text("Sans serif") })
                 }
                 Spacer(Modifier.height(20.dp))
                 Text("Lectura en voz alta", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -1305,24 +1420,40 @@ fun ReaderScreen(
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
                 Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        store.prefs.fontSizeSp = draftFont
-                        store.prefs.lineHeight = draftLineHeight
-                        store.prefs.margins = draftMargins
-                        store.prefs.theme = theme
-                        store.prefs.serif = serif
-                        store.prefs.paged = paged
-                        store.prefs.ttsRate = draftTtsRate
-                        store.savePrefs()
-                        fontSize = draftFont
-                        lineHeight = draftLineHeight
-                        margins = draftMargins
-                        showSettings = false
-                    },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Aplicar")
+                    TextButton(
+                        onClick = { showSettings = false },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Cancelar")
+                    }
+                    Button(
+                        onClick = {
+                            applyPrefs {
+                                theme = draftTheme
+                                serif = draftSerif
+                                paged = draftPaged
+                            }
+                            store.prefs.fontSizeSp = draftFont
+                            store.prefs.lineHeight = draftLineHeight
+                            store.prefs.margins = draftMargins
+                            store.prefs.theme = draftTheme
+                            store.prefs.serif = draftSerif
+                            store.prefs.paged = draftPaged
+                            store.prefs.ttsRate = draftTtsRate
+                            store.savePrefs()
+                            fontSize = draftFont
+                            lineHeight = draftLineHeight
+                            margins = draftMargins
+                            showSettings = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Aplicar")
+                    }
                 }
             }
         }
@@ -1531,6 +1662,7 @@ private fun PagedReaderBody(
     pages: List<List<Line>>,
     pagerState: PagerState,
     highlights: List<Pair<IntRange, Float>>,
+    ttsWord: String,
     theme: Store.ReaderTheme,
     fontSize: Int,
     serif: Boolean,
@@ -1593,7 +1725,7 @@ private fun PagedReaderBody(
                     .padding(horizontal = horizontalPad, vertical = 16.dp),
             ) {
                 Text(
-                    text = linesToAnnotated(pages[page], fontSize, fg, accent, highlights),
+                    text = linesToAnnotated(pages[page], fontSize, fg, accent, highlights, ttsWord),
                     style = TextStyle(
                         color = fg,
                         fontSize = fontSize.sp,
@@ -1689,6 +1821,7 @@ private fun linesToAnnotated(
     fg: Color,
     accent: Color,
     highlights: List<Pair<IntRange, Float>> = emptyList(),
+    ttsWord: String = "",
 ): AnnotatedString {
     val builder = AnnotatedString.Builder()
     lines.forEachIndexed { i, line ->
@@ -1735,12 +1868,22 @@ private fun linesToAnnotated(
     if (highlights.isEmpty()) return base
     return buildAnnotatedString {
         append(base)
-        highlights.forEach { (range, alpha) ->
+            highlights.forEach { (range, alpha) ->
             addStyle(
                 SpanStyle(background = accent.copy(alpha = alpha)),
                 range.first.coerceIn(0, base.length),
                 range.last.coerceIn(0, base.length),
             )
+        }
+        if (ttsWord.isNotBlank()) {
+            val start = base.text.indexOf(ttsWord, ignoreCase = true)
+            if (start >= 0) {
+                addStyle(
+                    SpanStyle(background = accent.copy(alpha = 0.55f), fontWeight = FontWeight.Bold),
+                    start,
+                    (start + ttsWord.length).coerceAtMost(base.length),
+                )
+            }
         }
     }
 }
@@ -1776,6 +1919,7 @@ private fun ReaderWebViewHost(
     onPageFinished: () -> Unit,
     onToggleChrome: () -> Unit,
     onFindResult: (Int, Int) -> Unit,
+    ttsWord: String,
     onJsFindResult: (Int) -> Unit,
     onScrollRatio: (Float) -> Unit,
     onOpenLink: (String) -> Unit,
@@ -1787,6 +1931,7 @@ private fun ReaderWebViewHost(
     val currentPrefsJson by rememberUpdatedState(prefsJson)
     val currentOnFindResult by rememberUpdatedState(onFindResult)
     val currentOnJsFindResult by rememberUpdatedState(onJsFindResult)
+    val currentTtsWord by rememberUpdatedState(ttsWord)
     val currentOnScrollRatio by rememberUpdatedState(onScrollRatio)
     val currentOnOpenLink by rememberUpdatedState(onOpenLink)
     // Tracks the exact content already loaded into the WebView, so the initial
@@ -1836,7 +1981,13 @@ private fun ReaderWebViewHost(
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         applyPrefs(this@apply)
-                        currentOnPageFinished()
+                        // Only signal finished when the document that just loaded
+                        // IS the current content. The reader loads a placeholder
+                        // and (before the chapter arrives) an intermediate
+                        // title-only page; their onPageFinished must NOT consume
+                        // the pending scroll restore, or the user lands at 0%
+                        // instead of the saved position.
+                        if (loadedContentKey == currentContentKey) currentOnPageFinished()
                     }
 
                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -1887,73 +2038,110 @@ private fun ReaderWebViewHost(
         val wv = webView.value ?: return@LaunchedEffect
         applyPrefs(wv)
     }
+
+    LaunchedEffect(ttsWord) {
+        val wv = webView.value ?: return@LaunchedEffect
+        wv.evaluateJavascript(jsHighlightTtsWord(currentTtsWord), null)
+    }
 }
 
 // ---- JS find-in-page (works with data: HTML, unlike findAllAsync) -----------
 
 /**
- * Highlights all occurrences of [query] and reports the count via
- * Reader.onJsFindResult. Uses DOM <mark> wrapping (not the CSS Custom
- * Highlight API) so it behaves identically across every WebView version.
+ * Highlights every occurrence of [query] in the chapter and reports the count.
  *
- * IMPORTANT: matches are grouped by text node and each node is wrapped from
- * the LAST match backwards, so the split offsets stay valid. The previous
- * forward loop (plus an accidental mark.appendChild) corrupted the chapter
- * text (letters lost/swapped) whenever a text node had two+ matches.
+ * Works for ANY query length and any number of matches: it never touches the
+ * document text. Matches become Range objects painted via the CSS Custom
+ * Highlight API (an overlay — the DOM stays byte-identical, so re-searching
+ * can never corrupt offsets or lose text, which the old <mark>-wrapping
+ * approach did on repeated/overlapping searches). Engines without the API
+ * fall back to idempotent <mark> wrapping.
  */
 private fun jsFindInPage(query: String): String {
-    val q = query.replace("\\", "\\\\").replace("'", "\\'")
     return """
         (function(){
           try {
-            var q = '$q';
+            var q = ${jsStringLiteral(query)};
             window.__find = [];
+            // Remove any marks left by the fallback path on previous searches.
+            var stale = document.querySelectorAll('mark.ao3findmark');
+            for (var i = 0; i < stale.length; i++) {
+              var m = stale[i];
+              if (m.parentNode) m.parentNode.replaceChild(document.createTextNode(m.textContent), m);
+            }
+            try { if (window.CSS && CSS.highlights) { CSS.highlights.delete('ao3find'); CSS.highlights.delete('ao3findcurrent'); } } catch (e) {}
             if (!q) { if (window.Reader) window.Reader.onJsFindResult(0); return; }
             var root = document.querySelector('.content') || document.body;
             var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-            var lq = q.toLowerCase();
+            var nodes = [];
+            while (walker.nextNode()) nodes.push(walker.currentNode);
+            var lq = q.toLocaleLowerCase();
             var matches = [];
-            while (walker.nextNode()) {
-              var node = walker.currentNode;
-              var lower = node.nodeValue.toLowerCase();
+            var ranges = [];
+            for (var n = 0; n < nodes.length; n++) {
+              var node = nodes[n];
+              var value = node.nodeValue || '';
+              var lower = value.toLocaleLowerCase();
               var idx = lower.indexOf(lq);
               while (idx >= 0) {
-                matches.push({node: node, start: idx, end: idx + lq.length});
-                idx = lower.indexOf(lq, idx + lq.length);
+                var range = document.createRange();
+                range.setStart(node, idx);
+                range.setEnd(node, idx + q.length);
+                ranges.push(range);
+                matches.push({range: range});
+                idx = lower.indexOf(lq, idx + Math.max(1, lq.length));
               }
             }
-            // Group matches per text node (a Map keyed by node IDENTITY — an
-            // object literal would coerce every Text node to "[object Text]"
-            // and collapse all matches onto one node, corrupting the text),
-            // then wrap each node from the last match to the first so the
-            // earlier split offsets stay valid.
-            var byNode = new Map();
-            for (var i = 0; i < matches.length; i++) {
-              var m = matches[i];
-              if (!byNode.has(m.node)) byNode.set(m.node, []);
-              byNode.get(m.node).push(m);
-            }
-            byNode.forEach(function(list, node) {
-              list.sort(function(a, b) { return b.start - a.start; });
-              for (var j = 0; j < list.length; j++) {
-                var mm = list[j];
-                var mark = document.createElement('mark');
-                mark.className = 'ao3findmark';
-                var tail = node.splitText(mm.end);
-                var mid = node.splitText(mm.start);
-                node.parentNode.insertBefore(mark, tail);
-                mark.appendChild(mid);
-                mm.el = mark;
-              }
-            });
             window.__find = matches;
+            if (window.CSS && CSS.highlights && ranges.length) {
+              var hl = new Highlight();
+              for (var i = 0; i < ranges.length; i++) hl.add(ranges[i]);
+              CSS.highlights.set('ao3find', hl);
+            } else if (ranges.length) {
+              // Fallback: wrap each node once (atomic, idempotent).
+              for (var n = 0; n < nodes.length; n++) {
+                var node = nodes[n];
+                var value = node.nodeValue || '';
+                var lower = value.toLocaleLowerCase();
+                var positions = [];
+                var idx = lower.indexOf(lq);
+                while (idx >= 0) {
+                  positions.push(idx);
+                  idx = lower.indexOf(lq, idx + Math.max(1, lq.length));
+                }
+                if (positions.length === 0 || !node.parentNode) continue;
+                var fragment = document.createDocumentFragment();
+                var cursor = 0;
+                for (var p = 0; p < positions.length; p++) {
+                  var start = positions[p];
+                  fragment.appendChild(document.createTextNode(value.slice(cursor, start)));
+                  var mark = document.createElement('mark');
+                  mark.className = 'ao3findmark';
+                  mark.textContent = value.slice(start, start + q.length);
+                  fragment.appendChild(mark);
+                  cursor = start + q.length;
+                }
+                fragment.appendChild(document.createTextNode(value.slice(cursor)));
+                node.parentNode.replaceChild(fragment, node);
+              }
+            }
             if (window.Reader) window.Reader.onJsFindResult(matches.length);
           } catch (e) {
+            window.__find = [];
             if (window.Reader) window.Reader.onJsFindResult(0);
           }
         })();
-    """
+    """.trimIndent()
 }
+
+private fun jsStringLiteral(value: String): String =
+    "'" + value
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029") + "'"
 
 /** Scrolls to the [index]-th match (WebView adds ~100px of bottom chrome). */
 private fun jsGoToMatch(index: Int): String = """
@@ -1961,10 +2149,18 @@ private fun jsGoToMatch(index: Int): String = """
       try {
         if (!window.__find || index >= window.__find.length) return;
         var m = window.__find[$index];
-        var el = m.el || m.node.parentNode;
+        var el = m.el || m.range;
+        if (!el) return;
         var rect = el.getBoundingClientRect();
         var y = window.scrollY + rect.top - 140;
         window.scrollTo(0, Math.max(0, y));
+        // Emphasize the active match (CSS Custom Highlight API only).
+        if (m.range && window.CSS && CSS.highlights) {
+          try {
+            CSS.highlights.delete('ao3findcurrent');
+            CSS.highlights.set('ao3findcurrent', new Highlight(m.range));
+          } catch (e) {}
+        }
       } catch (e) {}
     })();
 """
@@ -1977,9 +2173,125 @@ private fun jsClearFind(): String = """
         var marks = document.querySelectorAll('mark.ao3findmark');
         for (var i = 0; i < marks.length; i++) {
           var m = marks[i];
-          m.parentNode.replaceChild(document.createTextNode(m.textContent), m);
+          if (m.parentNode) m.parentNode.replaceChild(document.createTextNode(m.textContent), m);
         }
-        if (window.CSS && CSS.highlights) { try { CSS.highlights.delete('ao3find'); } catch(e) {} }
+        if (window.CSS && CSS.highlights) {
+          try { CSS.highlights.delete('ao3find'); CSS.highlights.delete('ao3findcurrent'); } catch(e) {}
+        }
+      } catch (e) {}
+    })();
+"""
+
+/**
+ * Highlights the TTS phrase currently being spoken WITHOUT modifying the DOM.
+ *
+ * The old version highlighted the FIRST occurrence of the word in the whole
+ * document: for common words ("de", "y", "the"…) it jumped to the top of the
+ * chapter, then back — the visible "bouncing" bug. It also wrapped every word
+ * in a <mark>, which shifted the layout on every callback.
+ *
+ * This version:
+ *  - uses the CSS Custom Highlight API (a Range overlay: zero DOM changes), so
+ *    the layout and scroll position never move on their own;
+ *  - prefers the occurrence at/after the last spoken position (TTS reads in
+ *    document order), and falls back to the occurrence nearest the viewport
+ *    centre when the tracked position is stale (restart, manual jump);
+ *  - scrolls only when the word leaves the visible band, and jumps instantly
+ *    (behavior auto) instead of animating.
+ */
+private fun jsHighlightTtsWord(word: String): String = """
+    (function(){
+      try {
+        var old = document.querySelectorAll('mark.ao3ttsmark');
+        for (var i = 0; i < old.length; i++) {
+          if (old[i].parentNode) old[i].parentNode.replaceChild(document.createTextNode(old[i].textContent), old[i]);
+        }
+        try { if (window.CSS && CSS.highlights) CSS.highlights.delete('ao3tts'); } catch (e) {}
+        var q = ${jsStringLiteral(word)};
+        if (!q) { window.__ttsLast = null; return; }
+        var root = document.querySelector('.content') || document.body;
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+        var nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        var lq = q.toLocaleLowerCase();
+        // Long phrases can collapse whitespace between text nodes; fall back to
+        // the first word when the exact phrase has no match.
+        var first = (q.split(/\s+/)[0] || q);
+        var lfirst = first.toLocaleLowerCase();
+        var candidates = [];
+        for (var n = 0; n < nodes.length; n++) {
+          var node = nodes[n];
+          var value = node.nodeValue || '';
+          var lower = value.toLocaleLowerCase();
+          var idx = lower.indexOf(lq);
+          while (idx >= 0) {
+            candidates.push({node: node, ni: n, start: idx, end: idx + q.length});
+            idx = lower.indexOf(lq, idx + Math.max(1, lq.length));
+          }
+          if (lfirst !== lq) {
+            var idx2 = lower.indexOf(lfirst);
+            while (idx2 >= 0) {
+              candidates.push({node: node, ni: n, start: idx2, end: idx2 + first.length});
+              idx2 = lower.indexOf(lfirst, idx2 + Math.max(1, lfirst.length));
+            }
+          }
+        }
+        if (candidates.length === 0) return;
+        candidates.sort(function(a, b) { return a.ni - b.ni || a.start - b.start; });
+        var best = null;
+        var last = window.__ttsLast;
+        if (last && last.node) {
+          var li = -1;
+          for (var i = 0; i < nodes.length; i++) { if (nodes[i] === last.node) { li = i; break; } }
+          for (var c = 0; c < candidates.length; c++) {
+            var cand = candidates[c];
+            if (li >= 0) {
+              if (cand.ni > li) { best = cand; break; }
+              if (cand.ni === li && cand.start >= last.offset) { best = cand; break; }
+            } else {
+              best = cand; break;
+            }
+          }
+        } else {
+          best = candidates[0];
+        }
+        // Stale tracked position: pick the occurrence nearest the viewport
+        // centre (the one the user is actually looking at).
+        if (!best) {
+          var center = window.scrollY + window.innerHeight / 2;
+          var bestDist = Infinity;
+          for (var c = 0; c < candidates.length; c++) {
+            var cand = candidates[c];
+            var r = document.createRange();
+            r.setStart(cand.node, cand.start);
+            r.setEnd(cand.node, cand.end);
+            var rect = r.getBoundingClientRect();
+            var dist = Math.abs((rect.top + rect.height / 2) - center);
+            if (dist < bestDist) { bestDist = dist; best = cand; }
+          }
+        }
+        var range = document.createRange();
+        range.setStart(best.node, best.start);
+        range.setEnd(best.node, best.end);
+        if (window.CSS && CSS.highlights) {
+          CSS.highlights.set('ao3tts', new Highlight(range));
+        } else {
+          // Fallback for engines without the CSS Custom Highlight API.
+          var mark = document.createElement('mark');
+          mark.className = 'ao3ttsmark';
+          mark.textContent = range.toString();
+          range.deleteContents();
+          range.insertNode(mark);
+        }
+        window.__ttsLast = {node: best.node, offset: best.end};
+        var rect = range.getBoundingClientRect();
+        var vh = window.innerHeight;
+        // Keep a margin at the top and bottom: only scroll when the word is
+        // actually outside the visible band, so normal reading flow is untouched.
+        if (rect.top < 96 || rect.bottom > vh - 80) {
+          var y = window.scrollY + rect.top - vh / 3;
+          window.scrollTo(0, Math.max(0, y));
+        }
       } catch (e) {}
     })();
 """
@@ -2130,6 +2442,8 @@ private fun readerCss(theme: Store.ReaderTheme, sizeSp: Int, serif: Boolean, lin
         .content img { max-width: 100%; height: auto; border-radius: 6px; }
         mark.ao3findmark { background: var(--accent); color: #ffffff; border-radius: 2px; padding: 0 1px; }
         ::highlight(ao3find) { background-color: var(--accent-soft); }
+        ::highlight(ao3findcurrent) { background-color: var(--accent); color: #ffffff; }
+        ::highlight(ao3tts) { background-color: var(--accent); color: #ffffff; }
         .content center { display: block; text-align: center; }
         .content .userstuff, .content div { line-height: inherit; }
         blockquote.notes { margin-left: 0; }

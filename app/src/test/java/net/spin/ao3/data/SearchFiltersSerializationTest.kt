@@ -71,4 +71,28 @@ class SearchFiltersSerializationTest {
         val c = SearchFilters(query = "naruto", rating = 13, warnings = setOf(14, 17))
         assertNotEquals(a.serialize(), c.serialize())
     }
+
+    @Test
+    fun `canonical tag names round trip`() {
+        // The autocomplete picker stores canonical NAMES per metadata category.
+        // Names contain commas, slashes, & and even apostrophes — all of which
+        // used to be dangerous separators. \u0003 joins the list, then the whole
+        // field is URL-encoded, so nothing inside a name can break the round trip.
+        val filters = SearchFilters(
+            fandomNames = listOf("Naruto (Anime & Manga)", "Harry Potter - J. K. Rowling"),
+            characterNames = listOf("Uzumaki Naruto", "Hermione Granger"),
+            relationshipNames = listOf("Uchiha Sasuke/Uzumaki Naruto", "Draco Malfoy & Harry Potter"),
+            freeformNames = listOf("Slow Burn", "Hurt/Comfort, Angst with a Happy Ending"),
+        )
+        assertEquals(filters, SearchFilters.parse(filters.serialize()))
+    }
+
+    @Test
+    fun `canonical tag names count as active filters`() {
+        assert(SearchFilters(fandomNames = listOf("Naruto")).hasFilters)
+        assert(SearchFilters(characterNames = listOf("Hermione")).hasFilters)
+        assert(SearchFilters(relationshipNames = listOf("A/B")).hasFilters)
+        assert(SearchFilters(freeformNames = listOf("Fluff")).hasFilters)
+        assert(!SearchFilters().hasFilters)
+    }
 }

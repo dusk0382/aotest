@@ -155,8 +155,8 @@ fun WorkCard(
                 }
             }
             if (chips.isNotEmpty()) {
-                // The "+N más" overflow chip must stay visible without scrolling, so
-                // only the first 5 chips live inside the scrollable strip.
+                // The overflow chip must stay visible without scrolling, so
+                // only the first three chips live inside the scrollable strip.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -168,7 +168,7 @@ fun WorkCard(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        chips.take(5).forEach { (text, color, variant) ->
+                        chips.take(3).forEach { (text, color, variant) ->
                             TagChip(
                                 text = text,
                                 color = color,
@@ -177,9 +177,9 @@ fun WorkCard(
                             )
                         }
                     }
-                    if (chips.size > 5) {
+                    if (chips.size > 3) {
                         TagChip(
-                            text = "+${chips.size - 5} más",
+                            text = "+${chips.size - 3} más",
                             color = colorScheme.secondary,
                             variant = TagChipVariant.TINTED,
                             onClick = { showAllTags = true },

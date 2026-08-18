@@ -9,6 +9,7 @@ import net.spin.ao3.data.model.FacetKind
 import net.spin.ao3.data.model.FilterFacets
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
+import org.json.JSONArray
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -623,6 +624,21 @@ object Ao3Parser {
             if (t.first() in ".,;:!?…") sb.setLength(sb.length - 1)
         }
         sb.append(t).append(' ')
+    }
+
+    /**
+     * Parses the AO3 /autocomplete/{type}?term= JSON response into canonical
+     * tag names. The endpoint returns an array of `{id, name}` objects where
+     * both fields hold the tag's canonical name — we only need [name]. Unknown
+     * JSON shapes degrade to an empty list instead of crashing the filter sheet.
+     */
+    fun parseAutocomplete(json: String): List<String> {
+        return runCatching {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+            }
+        }.getOrDefault(emptyList())
     }
 }
 

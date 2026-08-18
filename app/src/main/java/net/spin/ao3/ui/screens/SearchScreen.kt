@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -68,6 +69,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -91,12 +93,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import net.spin.ao3.data.Ao3Client
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
 import net.spin.ao3.data.model.FacetKind
@@ -108,7 +112,11 @@ import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WARNING_OPTIONS
 import net.spin.ao3.data.model.WorkSummary
+import net.spin.ao3.ui.components.AdditionalColor
+import net.spin.ao3.ui.components.CharacterColor
 import net.spin.ao3.ui.components.EmptyState
+import net.spin.ao3.ui.components.FandomColor
+import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.formatCount
@@ -142,6 +150,7 @@ fun SearchScreen(
     // Editable copy of the query shown in the search field below the bar.
     var queryDraft by remember(currentFilters.query) { mutableStateOf(currentFilters.query) }
     val scope = rememberCoroutineScope()
+    val online by container.connectivity.online.collectAsState()
 
     // Scroll + pagination SURVIVE navigation: the nav's SaveableStateProvider
     // scopes this screen's saveable state by a per-instance slot key (two
@@ -422,14 +431,32 @@ fun SearchScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            if (!online) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.CloudOff, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Sin conexión · se usarán resultados guardados cuando estén disponibles",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
             Box(Modifier.weight(1f)) {
         when {
-            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            loading -> SearchLoadingState()
             error != null && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(error ?: "", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
+                    Text(friendlySearchError(error), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = { fetchFirst() }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
@@ -504,7 +531,7 @@ fun SearchScreen(
                 item {
                     if (error != null) {
                         Text(
-                            error ?: "",
+                            friendlySearchError(error),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(vertical = 4.dp),
@@ -674,10 +701,18 @@ private fun FilterSheet(
                     Text("Filtros de búsqueda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "Los mismos filtros del sidebar de AO3. Puedes incluir y excluir a la vez.",
+                        "Empieza por lo más frecuente y abre Avanzado solo si necesitas afinar más.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (activeFilterCount(f) > 0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${activeFilterCount(f)} filtros activos",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
                 if (activeFilterCount(f) > 0) {
                     TextButton(onClick = { f = SearchFilters(query = f.query, tag = f.tag) }) {
@@ -810,21 +845,52 @@ private fun FilterSheet(
                 subtitle = "Tags, estado, palabras y fechas",
                 initiallyExpanded = false,
             ) {
-                SectionLabel("Tags (separados por coma; se requieren TODOS)")
-            OutlinedTextField(
-                value = f.includeTags,
-                onValueChange = { f = f.copy(includeTags = it) },
-                label = { Text("Incluir tags") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                SectionLabel("Tags a incluir (elige de las sugerencias de AO3)")
+            AutocompleteTagInput(
+                label = "Fandoms",
+                accent = FandomColor,
+                selected = f.fandomNames,
+                onSelectedChange = { f = f.copy(fandomNames = it) },
+                type = Ao3Client.AutocompleteType.FANDOM,
+                container = container,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = f.excludeTags,
-                onValueChange = { f = f.copy(excludeTags = it) },
-                label = { Text("Excluir tags") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            AutocompleteTagInput(
+                label = "Personajes",
+                accent = CharacterColor,
+                selected = f.characterNames,
+                onSelectedChange = { f = f.copy(characterNames = it) },
+                type = Ao3Client.AutocompleteType.CHARACTER,
+                container = container,
+            )
+            Spacer(Modifier.height(8.dp))
+            AutocompleteTagInput(
+                label = "Relaciones",
+                accent = RelationshipColor,
+                selected = f.relationshipNames,
+                onSelectedChange = { f = f.copy(relationshipNames = it) },
+                type = Ao3Client.AutocompleteType.RELATIONSHIP,
+                container = container,
+            )
+            Spacer(Modifier.height(8.dp))
+            AutocompleteTagInput(
+                label = "Tags adicionales",
+                accent = AdditionalColor,
+                selected = f.freeformNames,
+                onSelectedChange = { f = f.copy(freeformNames = it) },
+                type = Ao3Client.AutocompleteType.FREEFORM,
+                container = container,
+            )
+            Spacer(Modifier.height(10.dp))
+
+            SectionLabel("Tags a excluir (elige de las sugerencias de AO3)")
+            AutocompleteTagInput(
+                label = "Excluir tags",
+                accent = MaterialTheme.colorScheme.error,
+                selected = f.excludeTags.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                onSelectedChange = { f = f.copy(excludeTags = it.joinToString(",")) },
+                type = Ao3Client.AutocompleteType.TAG,
+                container = container,
             )
             Spacer(Modifier.height(10.dp))
 
@@ -926,6 +992,48 @@ private fun FilterSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchLoadingState() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            "Buscando obras…",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        repeat(4) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Spacer(Modifier.fillMaxWidth(0.72f).height(20.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+                    Spacer(Modifier.fillMaxWidth(0.38f).height(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+                    Spacer(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+                    Spacer(Modifier.fillMaxWidth(0.85f).height(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+                }
+            }
+        }
+    }
+}
+
+private fun friendlySearchError(raw: String?): String {
+    val message = raw.orEmpty()
+    return when {
+        message.contains("timeout", ignoreCase = true) -> "AO3 está tardando demasiado en responder. Puedes reintentarlo ahora."
+        message.contains("401") || message.contains("403") || message.contains("cloudflare", ignoreCase = true) -> "AO3 ha pedido una verificación. Reintenta en unos segundos."
+        message.contains("Unable to resolve host", ignoreCase = true) || message.contains("network", ignoreCase = true) -> "No hay conexión disponible. Comprueba tu red y vuelve a intentarlo."
+        message.isBlank() -> "No se pudo completar la búsqueda."
+        else -> "No se pudo completar la búsqueda."
     }
 }
 
@@ -1121,3 +1229,119 @@ private fun toggleL(set: Set<Long>, id: Long): Set<Long> = if (id in set) set - 
 
 private fun toggle(set: Set<Int>, id: Int): Set<Int> =
     if (id in set) set - id else set + id
+
+private fun toggleName(list: List<String>, name: String): List<String> =
+    if (name in list) list - name else list + name
+
+/**
+ * Tag picker with AO3's native autocomplete (like the sidebar of the site):
+ * typing >= 2 chars fetches canonical tag suggestions (debounced 250ms), a tap
+ * turns one into a removable chip, and the Enter key adds free text as-is.
+ * The [accent] colors the chips so the metadata category stays scannable.
+ */
+@Composable
+private fun AutocompleteTagInput(
+    label: String,
+    accent: Color,
+    selected: List<String>,
+    onSelectedChange: (List<String>) -> Unit,
+    type: Ao3Client.AutocompleteType,
+    container: AppContainer,
+) {
+    var text by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+
+    // Debounced fetch: restarts on every keystroke, so only the latest term
+    // (after a 250ms pause) actually hits AO3. Results map to canonical names.
+    LaunchedEffect(type, text) {
+        val term = text.trim()
+        if (term.length < 2) {
+            suggestions = emptyList()
+            loading = false
+            return@LaunchedEffect
+        }
+        loading = true
+        suggestions = container.client.autocomplete(type, term)
+        loading = false
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        if (selected.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                selected.forEach { name ->
+                    TagChip(
+                        text = name,
+                        color = accent,
+                        onClick = { onSelectedChange(selected - name) },
+                    )
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text(label) },
+            placeholder = { Text("Escribe al menos 2 letras…") },
+            singleLine = true,
+            trailingIcon = {
+                if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                if (text.trim().isNotBlank() && text.trim() !in selected) {
+                    onSelectedChange(selected + text.trim())
+                    text = ""
+                    suggestions = emptyList()
+                }
+            }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // Suggestions appear only while the field is focused and has results.
+        if (text.trim().length >= 2 && suggestions.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    suggestions.take(8).forEachIndexed { i, name ->
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectedChange(toggleName(selected, name))
+                                    text = ""
+                                    suggestions = emptyList()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (name in selected) Icons.Default.Check else Icons.Default.Add,
+                                contentDescription = if (name in selected) "Quitar" else "Añadir",
+                                tint = if (name in selected) MaterialTheme.colorScheme.primary else accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

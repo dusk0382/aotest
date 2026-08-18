@@ -120,6 +120,16 @@ data class SearchFilters(
     val excludeCharacterIds: Set<Long> = emptySet(),
     val excludeRelationshipIds: Set<Long> = emptySet(),
     val excludeFreeformIds: Set<Long> = emptySet(),
+    /**
+     * Canonical tag NAMES picked from the AO3 /autocomplete suggestions, sent
+     * as work_search[fandom_names] (AND semantics, comma-joined). These work
+     * even for a free-text query (unlike the facet ids, which need a canonical
+     * tag page), so they are what the tag autocomplete feeds.
+     */
+    val fandomNames: List<String> = emptyList(),
+    val characterNames: List<String> = emptyList(),
+    val relationshipNames: List<String> = emptyList(),
+    val freeformNames: List<String> = emptyList(),
 ) {
     /** True when anything beyond the free-text query is set. */
     val hasFilters: Boolean
@@ -132,7 +142,9 @@ data class SearchFilters(
             fandomIds.isNotEmpty() || characterIds.isNotEmpty() ||
             relationshipIds.isNotEmpty() || freeformIds.isNotEmpty() ||
             excludeFandomIds.isNotEmpty() || excludeCharacterIds.isNotEmpty() ||
-            excludeRelationshipIds.isNotEmpty() || excludeFreeformIds.isNotEmpty()
+            excludeRelationshipIds.isNotEmpty() || excludeFreeformIds.isNotEmpty() ||
+            fandomNames.isNotEmpty() || characterNames.isNotEmpty() ||
+            relationshipNames.isNotEmpty() || freeformNames.isNotEmpty()
 
     /**
      * Compact serialization for navigation state. Every field is URL-encoded
@@ -171,6 +183,10 @@ data class SearchFilters(
         excludeCharacterIds.sorted().joinToString(","),
         excludeRelationshipIds.sorted().joinToString(","),
         excludeFreeformIds.sorted().joinToString(","),
+        fandomNames.joinToString("\u0003"),
+        characterNames.joinToString("\u0003"),
+        relationshipNames.joinToString("\u0003"),
+        freeformNames.joinToString("\u0003"),
     ).joinToString("\u0002") { urlEncode(it) }
 
     companion object {
@@ -179,6 +195,7 @@ data class SearchFilters(
             fun g(i: Int) = urlDecode(p.getOrNull(i) ?: "")
             fun ids(i: Int) = g(i).split(",").mapNotNull { it.toIntOrNull() }.toSet()
             fun longIds(i: Int) = g(i).split(",").mapNotNull { it.toLongOrNull() }.toSet()
+            fun names(i: Int) = g(i).split("\u0003").filter { it.isNotBlank() }
             return SearchFilters(
                 query = g(0),
                 tag = g(1).ifEmpty { null },
@@ -207,6 +224,10 @@ data class SearchFilters(
                 excludeCharacterIds = longIds(24),
                 excludeRelationshipIds = longIds(25),
                 excludeFreeformIds = longIds(26),
+                fandomNames = names(27),
+                characterNames = names(28),
+                relationshipNames = names(29),
+                freeformNames = names(30),
             )
         }
     }

@@ -1019,3 +1019,234 @@ fetch(url)
 - Pendiente menor: validar manualmente "Cargar más" (paginación) — los
   taps ciegos caen en la zona de gestos del sistema (el botón está al
   borde inferior), no es un bug del producto.
+
+## Ronda v0.7.20 — rediseño UX del lector
+
+### Objetivo
+Reducir la carga visual del lector y garantizar que el texto nunca quede oculto
+por las barras de controles.
+
+### Cambios
+- El área de lectura reserva dinámicamente la altura real del top bar y del
+  bottom bar mediante medición Compose; esto se aplica tanto al WebView como al
+  modo paginado.
+- El paginado mide ahora el viewport útil, no la pantalla completa detrás de
+  los overlays. Buscar, traducir y mostrar/ocultar controles ya no deberían
+  tapar texto ni alterar el área de lectura de forma inesperada.
+- El top bar deja visibles el contexto de la obra, búsqueda y menú. TTS y
+  ajustes pasan al menú progresivo junto con traducción y tema.
+- El indicador inferior muestra capítulo, página cuando corresponde y
+  porcentaje aproximado de lectura, además de la barra visual.
+- Los ajustes del lector usan un borrador coherente: todos los cambios se
+  confirman con **Aplicar** o se descartan con **Cancelar**.
+- Se eliminó el `WebviewFetcher.kt` antiguo que había quedado junto al nuevo
+  `WebViewFetcher.kt` tras la migración a v0.7.19.
+
+### Verificación
+- `compileDebugKotlin` OK.
+- 75 tests JVM no-live OK.
+- `assembleDebug` OK.
+- APK debug: `dist/ao3-reader-v0.7.20-debug.apk` (22 MB).
+- No se generó release.
+
+## Ronda v0.7.21 — revisión UI/UX integral
+
+### Objetivo
+Mejorar la jerarquía de acciones, reducir ruido visual y hacer más comprensibles
+los estados offline, carga, error y eliminación sin cambiar la arquitectura de red.
+
+### Cambios
+- Inicio: aviso offline visible, búsqueda con accesibilidad explícita y acción de
+  quitar de "Continuar leyendo" con Snackbar + **Deshacer**.
+- Biblioteca: confirmación antes de borrar todo el historial o una descarga completa,
+  y resumen visible de obras/capítulos disponibles sin conexión.
+- Búsqueda: skeleton de resultados en vez de un spinner vacío, mensajes de error
+  orientados al usuario y resumen de filtros activos dentro de la hoja avanzada.
+- Tarjetas de obras: máximo de tres tags visibles antes de "+N más" para facilitar
+  el escaneo en pantallas pequeñas.
+- Detalle: "Leer/Continuar" pasa a ser la acción primaria a ancho completo; guardar
+  sin conexión queda como acción secundaria. Las acciones de cada capítulo se
+  agrupan en un menú contextual para evitar una fila saturada.
+- Ajustes: los datos de comentarios ahora tienen botón de guardado explícito y una
+  explicación de privacidad.
+- Lector: el estado de TTS se muestra en la barra inferior con acción directa para
+  detenerlo; se conserva el rediseño de insets y controles de v0.7.20.
+- La búsqueda y el inicio comunican cuando no hay conexión y qué tipo de datos
+  pueden mostrar desde caché.
+
+### Verificación
+- `compileDebugKotlin` OK.
+- `testDebugUnitTest` OK: 76 tests, 0 fallos.
+- Se generó únicamente APK debug v0.7.21; no se generó release.
+
+## Ronda v0.7.22 — descargas, navegación offline, TTS y búsqueda del lector
+
+### Descargas
+- La cola foreground ahora avanza `done` únicamente después de guardar un capítulo
+  correctamente; un timeout o falta de red pausa la cola en el capítulo fallido y no
+  fabrica progreso.
+- Se añadieron acciones **Detener** y **Reanudar** para la descarga completa desde
+  Detalle y Biblioteca. La cola conserva los capítulos restantes en `pending`.
+- Las descargas individuales de capítulos pueden cancelarse directamente desde la
+  fila del capítulo en Detalle.
+- El evento de "Descarga completada" se consume una sola vez en la UI; la notificación
+  final sigue siendo la confirmación persistente del sistema.
+- Si solo hay una descarga parcial, Detalle ofrece "Guardar restantes" en lugar de
+  bloquearse en el estado "Descargado".
+
+### Lector y capítulos
+- El lector obtiene la lista completa de capítulos de la obra y superpone los cuerpos
+  descargados localmente. Descargar 1–3 ya no convierte una obra de 30 capítulos en
+  `Cap. 1/3`; el capítulo 4 puede abrirse y cargarse online.
+- Offline conserva el fallback limitado a los capítulos realmente guardados.
+- TTS lee la versión traducida cuando está activa, permite pausar/reanudar el fragmento
+  actual sin reiniciar todo el capítulo y expone resaltado de la palabra/frase actual
+  cuando el motor Android proporciona rangos de voz.
+- La búsqueda del WebView se reescribió sin offsets mutables: soporta consultas de
+  varias letras y múltiples coincidencias sin corromper el contenido.
+
+### Verificación
+- `compileDebugKotlin` OK.
+- `testDebugUnitTest` OK.
+- Versión debug de trabajo: `0.7.22` (versionCode 55).
+- No se generó release.
+
+## Ronda v0.7.22b — resaltado TTS, restauración de progreso, búsqueda y paginado
+
+### Resaltado TTS estable
+- El resaltado dejaba de saltar: ahora solo hace scroll cuando la palabra leída
+  sale del viewport (margen superior/inferior), y el desplazamiento es instantáneo
+  (`behavior auto`) en vez de animado. Antes `scrollIntoView({behavior:'smooth'})`
+  se disparaba por cada palabra y el viewport rebotaba arriba/abajo constantemente.
+
+### Restauración de progreso al volver a un capítulo
+- Al navegar a un capítulo, `goToChapter` ahora restaura el % guardado de ESE
+  capítulo (antes lo ponía a 0) y la restauración espera a que el layout del
+  WebView se asiente (postDelayed 80ms) para que `scrollHeight` sea el real.
+
+### Búsqueda del lector (scroll) reescrita
+- `jsFindInPage` ahora borra los `mark` anteriores al inicio (búsquedas repetidas
+  ya no encuentran coincidencias fantasma sobre un DOM ya marcado) y reconstruye
+  cada nodo de texto una sola vez con un fragmento de texto+marks, sin `splitText`
+  (que corrompía el texto con 2+ coincidencias en un mismo nodo).
+- La búsqueda se ejecuta como una única llamada atómica y con debounce de 150ms
+  para no re-buscar en cada tecla y evitar carreras entre llamadas async.
+
+### Modo paginado no regresa a scroll
+- El cuerpo del lector ahora decide por `paged`: si está activo, SIEMPRE muestra
+  el pager (con overlay de carga mientras pagina), nunca cae al WebView aunque
+  `lines` sea null o vacío.
+
+### Verificación
+- `compileDebugKotlin` OK · `testDebugUnitTest` OK (76 tests, 0 fallos).
+- APK debug v0.7.22 (versionCode 55): `dist/ao3-reader-v0.7.22-debug.apk`.
+- No se generó release.
+
+## Ronda v0.7.22c — fixes de raíz tras revisión del código (TTS, %, búsqueda, paginado)
+
+Revisión a fondo del código de la ronda anterior: los 4 síntomas persistían porque
+los fixes eran parciales. Esta ronda corrige las CAUSAS RAÍZ.
+
+### 1. Resaltado TTS saltaba arriba/abajo — CAUSA RAÍZ
+- Antes `jsHighlightTtsWord` resaltaba la PRIMERA ocurrencia de la palabra en todo
+  el documento: con palabras comunes ("de", "y", "el"…) saltaba al inicio del
+  capítulo y volvía. Además envolvía cada palabra en un `<mark>`, moviendo el
+  layout en cada callback.
+- Ahora usa la CSS Custom Highlight API (un overlay de Ranges: el DOM no cambia,
+  el layout no se mueve) y prefiere la ocurrencia en/después de la última posición
+  leída (TTS lee en orden), con fallback a la ocurrencia más cercana al centro del
+  viewport. El scroll solo ocurre si la palabra sale de la banda visible.
+
+### 2. Progreso guardado pero al volver al capítulo caía a 0% — CAUSA RAÍZ
+- El lector cargaba 3 documentos: placeholder → página intermedia con solo el
+  título → capítulo real. El `onPageFinished` de la página intermedia consumía
+  `pendingScroll` cuando `content != null` (obras descargadas), restauraba sobre un
+  documento vacío, y el capítulo real ya no restauraba.
+- Ahora `onPageFinished` solo notifica al lector cuando el documento cargado es el
+  CONTENIDO actual (`loadedContentKey == currentContentKey`): las cargas
+  placeholder/intermedias ya no pueden consumir la restauración.
+
+### 3. Búsqueda del lector (2 letras máx) — CAUSA RAÍZ
+- Modificar el DOM con `<mark>` corrompía los offsets al repetir búsquedas.
+- Ahora los matches son Ranges pintados con la CSS Custom Highlight API (el texto
+  del documento queda intacto → imposible corromper offsets para cualquier
+  longitud de consulta), con fallback a `<mark>` idempotente si el motor no
+  soporta la API. Añadido resaltado del match activo (`ao3findcurrent`).
+
+### 4. Modo paginado volvía a scroll — CAUSA RAÍZ
+- El switch a paginado dependía de un callback JS asíncrono (`applyPrefs`):
+  si el callback se perdía/retrasaba, `paged` nunca se activaba y el lector se
+  quedaba en scroll. Ahora `applyPrefs` aplica el cambio INMEDIATAMENTE y captura
+  la posición por separado (best-effort).
+- `htmlToLines` colapsaba capítulos envueltos en `<div>`/`<section>` en una sola
+  línea gigante. Ahora recorre contenedores de forma recursiva para paginar
+  párrafo a párrafo.
+- El parseo de líneas tiene try/catch: un capítulo malformado ya no deja el lector
+  en blanco para siempre.
+
+### Verificación
+- `compileDebugKotlin` OK · `testDebugUnitTest` OK (76 tests, 0 fallos) ·
+  `assembleDebug` OK.
+- APK debug v0.7.22 (versionCode 55): `dist/ao3-reader-v0.7.22-debug.apk`
+  (SHA-256 `25136ed5d2d4a4a3666e90c49188ca91138664ef2ce6c98a002333a86d5427d0`).
+- No se generó release.
+
+## Ronda v0.7.23 — Autocompletado de tags en los filtros (endpoint nativo de AO3)
+
+### Qué
+Replica el autocompletado de CO3 usando el **endpoint nativo de AO3**
+(`GET /autocomplete/{type}?term=...`), que devuelve JSON plano
+`[{"id": "<nombre canónico>", "name": "<nombre canónico>"}]` — sin HTML que
+parsear, sin login, y rápido (~1s). El `id` es EL nombre canónico, así que una
+sugerencia elegida **no necesita** `resolveCanonicalTag` (a diferencia de un
+nombre escrito a mano).
+
+### Cambios
+- `Models.kt` (`SearchFilters`): 4 campos nuevos de **nombres canónicos** por
+  categoría — `fandomNames`, `characterNames`, `relationshipNames`,
+  `freeformNames` (`List<String>`). Incluidos en `hasFilters` y en
+  `serialize()/parse()` (índices 27–30, listas unidas con `\u0003` — los
+  nombres contienen comas, barras y `&`, así que el separador de listas es
+  distinto del `\u0002` de campos). `\u0003` también pasa por `urlEncode`.
+- `Ao3Client.kt`:
+  - `enum AutocompleteType { FANDOM, CHARACTER, RELATIONSHIP, FREEFORM, TAG }`
+    con el segmento de URL de cada tipo.
+  - `suspend fun autocomplete(type, term)`: mínimo 2 letras; GET
+    `/autocomplete/{type}?term=` con `get(retries = 3, disk = null)` (pasa por
+    el mismo gate + fallback WebView de Cloudflare); parsea con
+    `Ao3Parser.parseAutocomplete`; devuelve `[]` en cualquier fallo (el sheet
+    degrada a texto libre, nunca errorea).
+  - `addCommon` ahora envía `work_search[fandom_names]`,
+    `work_search[character_names]`, `work_search[relationship_names]`,
+    `work_search[freeform_names]` (coma-joined = AND). **Verificado en vivo**:
+    `/works?work_search[fandom_names]=Naruto (Anime & Manga)` → 20 obras, y
+    dos fandoms con coma también funcionan; funciona en `/works/search` (texto
+    libre) además de `/works` (tag page) — a diferencia de los `*_ids[]` del
+    sidebar, que solo aplican en una tag page.
+- `Ao3Parser.kt`: `parseAutocomplete(json)` — parsea el array JSON con org.json
+  (mismo patrón que `Translator.parseGtx`), devuelve solo `name`, `[]` si el
+  shape no es el esperado.
+- `SearchScreen.kt` (FilterSheet → sección Avanzado): nuevo componente
+  `AutocompleteTagInput` — campo con **debounce de 250ms** (LaunchedEffect
+  reinicia en cada tecla), spinner mientras carga, sugerencias en Surface con
+  icono +/− según estén ya incluidas (máx. 8), Enter añade texto libre tal cual,
+  chips seleccionados con color semántico por categoría (FandomColor/Character/
+  Relationship/Additional) y × para quitar. Se añadieron **5 campos**: 4 de
+  inclusión (Fandoms, Personajes, Relaciones, Tags adicionales) + 1 de
+  **exclusión** ("Excluir tags", usa `AutocompleteType.TAG` que busca en todos
+  los tipos; alimenta `excludeTags` → `work_search[excluded_tag_names]`, como
+  antes pero con sugerencias). Los viejos campos de texto libre "Incluir/Excluir
+  tags" se reemplazaron por el picker (los campos del modelo se conservan).
+
+### Tests (81 total, +5)
+- `Ao3AutocompleteTest` (nuevo, 5 tests): parseo de **snapshots reales** del
+  endpoint (fandom/character/relationship/freeform guardados en
+  `app/src/test/resources/ao3/autocomplete_*.json`) + degradación de JSON
+  malformado.
+- `SearchFiltersSerializationTest` +2: round-trip de los nombres canónicos
+  (con comas/barras/&/apóstrofes) y `hasFilters` con cada campo nuevo.
+
+### Pendiente
+- Validar en el dispositivo (release firmado): escribir "naruto" en un campo
+  del sheet → sugerencias canónicas → tocar → chip → "Aplicar filtros" → la
+  búsqueda llega con `work_search[fandom_names]` y filtra de verdad.

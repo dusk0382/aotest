@@ -12,32 +12,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import java.util.Locale
 
-/**
- * Compose-friendly wrapper around Android's [TextToSpeech] for the reader.
- *
- * Exposes [ready]/[speaking]/[paused]/[error] as Compose state so the UI can
- * react to the engine, and shuts the engine down automatically when the
- * composable leaves composition. [onUtteranceDone] fires when a text finishes
- * reading — the reader uses it to auto-advance to the next chapter.
- *
- * Long chapters are split into <= [MAX_CHUNK] character pieces and read
- * sequentially: several TTS engines silently fail (or truncate) on very long
- * single utterances, which made the reader's TTS appear dead on long works.
- */
+/** Compose-friendly wrapper around Android TextToSpeech for the reader. */
 @Composable
-fun rememberReaderTts(onUtteranceDone: () -> Unit = {}): ReaderTts {
+fun rememberReaderTts(
+    onUtteranceDone: () -> Unit = {},
+    onWordRange: (String) -> Unit = {},
+): ReaderTts {
     val context = LocalContext.current.applicationContext
-    val tts = remember { ReaderTts(context, onUtteranceDone) }
+    val tts = remember { ReaderTts(context, onUtteranceDone, onWordRange) }
     DisposableEffect(tts) {
         onDispose { tts.shutdown() }
     }
     return tts
 }
 
-class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
-
+class ReaderTts(
+    context: Context,
+    private val onUtteranceDone: () -> Unit,
+    private val onWordRange: (String) -> Unit = {},
+) {
     private companion object {
-        /** Safe ceiling for a single TTS utterance (engines fail/truncate above). */
         const val MAX_CHUNK = 4000
     }
 
@@ -48,10 +42,9 @@ class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
         private set
     var speaking by mutableStateOf(false)
         private set
-    /** True after [stop]: the last read text is kept so [resume] can replay it. */
+    /** True when paused with the current chunk and remaining queue preserved. */
     var paused by mutableStateOf(false)
         private set
-    /** Non-null when the device has no usable TTS engine (user-facing message). */
     var error by mutableStateOf<String?>(null)
         private set
 
@@ -60,6 +53,7 @@ class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
     private var pendingText: String? = null
     private var pendingRate: Float = 1.0f
     private var queue = ArrayDeque<String>()
+    private var currentChunk: String? = null
 
     init {
         engine = TextToSpeech(context) { status ->
@@ -76,27 +70,32 @@ class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
         }
     }
 
-    /** Starts reading [text] at [rate] (0.5..2.0), replacing any current speech. */
+    /** Starts reading [text], replacing any current speech. */
     fun speak(text: String, rate: Float) {
         lastText = text
         lastRate = rate
-        paused = false
         error = null
+        engine?.stop()
         synchronized(lock) {
+            paused = false
             queue = ArrayDeque(chunk(text))
-            if (queue.isEmpty()) return
-            doSpeak(queue.removeFirst(), rate)
+            currentChunk = queue.removeFirstOrNull()
+            val first = currentChunk
+            if (first == null) {
+                speaking = false
+                onWordRange("")
+                return
+            }
+            doSpeak(first, rate)
         }
     }
 
-    /** Splits very long text at word boundaries so each utterance stays small. */
     private fun chunk(text: String): List<String> {
         if (text.length <= MAX_CHUNK) return listOf(text)
         val chunks = mutableListOf<String>()
         var start = 0
         while (start < text.length) {
             var end = (start + MAX_CHUNK).coerceAtMost(text.length)
-            // Prefer breaking at a space near the limit so words aren't cut.
             if (end < text.length) {
                 val space = text.lastIndexOf(' ', end)
                 if (space > start + MAX_CHUNK / 2) end = space
@@ -115,52 +114,88 @@ class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
             pendingRate = rate
             return
         }
+        currentChunk = text
         e.setSpeechRate(rate)
         e.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                speaking = true
-                paused = false
+                if (!paused && currentChunk == text) speaking = true
+            }
+
+            /** Many Android engines provide this callback; unsupported engines
+             * simply omit the highlight while continuing to speak normally. */
+            @Suppress("DEPRECATION")
+            override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                if (paused || currentChunk != text) return
+                val safeStart = start.coerceIn(0, text.length)
+                val safeEnd = end.coerceIn(safeStart, text.length)
+                if (safeEnd > safeStart) onWordRange(text.substring(safeStart, safeEnd))
             }
 
             override fun onDone(utteranceId: String?) {
-                val next = synchronized(lock) {
-                    if (queue.isNotEmpty()) queue.removeFirst() else null
-                }
-                if (next != null) {
-                    doSpeak(next, rate)
-                } else {
-                    speaking = false
-                    paused = false
-                    onUtteranceDone()
+                synchronized(lock) {
+                    // stop()/pause() can still produce a delayed onDone callback.
+                    if (paused || currentChunk != text) return
+                    val next = queue.removeFirstOrNull()
+                    if (next != null) {
+                        currentChunk = next
+                        doSpeak(next, rate)
+                    } else {
+                        currentChunk = null
+                        speaking = false
+                        paused = false
+                        onWordRange("")
+                        onUtteranceDone()
+                    }
                 }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+                if (paused) return
                 speaking = false
-                paused = false
+                currentChunk = null
+                onWordRange("")
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
+                if (paused) return
                 speaking = false
-                paused = false
+                currentChunk = null
+                onWordRange("")
             }
         })
         e.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ao3tts")
     }
 
-    /** Stops speaking but keeps the last text so [resume] can replay it. */
-    fun stop() {
+    /** Pauses at the current engine chunk; resume continues that chunk. */
+    fun pause() {
+        if (!speaking) return
         engine?.stop()
-        synchronized(lock) { queue.clear() }
-        if (speaking) paused = true
         speaking = false
+        paused = currentChunk != null
+        if (!paused) onWordRange("")
     }
 
-    /** Replays the last read text (used after [stop]). */
+    /** Stops and discards the current queue. It does not leave a fake paused state. */
+    fun stop() {
+        engine?.stop()
+        synchronized(lock) {
+            queue.clear()
+            currentChunk = null
+            paused = false
+            speaking = false
+        }
+        onWordRange("")
+    }
+
+    /** Resumes the current chunk instead of replaying the whole chapter. */
     fun resume() {
-        val t = lastText ?: return
-        speak(t, lastRate)
+        synchronized(lock) {
+            if (!paused) return
+            paused = false
+            val current = currentChunk
+            if (current != null) doSpeak(current, lastRate) else speak(lastText ?: return, lastRate)
+        }
     }
 
     fun shutdown() {
@@ -169,6 +204,11 @@ class ReaderTts(context: Context, private val onUtteranceDone: () -> Unit) {
         engine = null
         ready = false
         speaking = false
-        synchronized(lock) { queue.clear() }
+        paused = false
+        synchronized(lock) {
+            queue.clear()
+            currentChunk = null
+        }
+        onWordRange("")
     }
 }
