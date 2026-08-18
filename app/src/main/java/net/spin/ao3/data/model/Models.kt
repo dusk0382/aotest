@@ -354,6 +354,24 @@ data class WorkFeedInfo(
     val updated: String?,
 )
 
+/** One suggestion from AO3's tag autocomplete endpoint (`/autocomplete/{type}`). */
+data class TagSuggestion(
+    /** AO3's key for the tag (a string — usually the canonical tag name itself). */
+    val id: String,
+    /** The canonical tag name shown to the user and sent to the search. */
+    val name: String,
+)
+
+/** The tag categories AO3's `/autocomplete/{type}` endpoint serves. */
+enum class AutocompleteType(val path: String) {
+    FANDOM("fandom"),
+    CHARACTER("character"),
+    RELATIONSHIP("relationship"),
+    FREEFORM("freeform"),
+    /** All tag kinds at once — used for the exclude field. */
+    TAG("tag"),
+}
+
 /**
  * URL-encodes a field for safe embedding in a serialized route/filter string.
  * Control characters (like the \u0001/\u0002 separators) become %XX, so a user

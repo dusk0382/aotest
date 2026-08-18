@@ -100,8 +100,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import net.spin.ao3.data.Ao3Client
 import net.spin.ao3.data.AppContainer
+import net.spin.ao3.data.model.AutocompleteType
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
 import net.spin.ao3.data.model.FacetKind
 import net.spin.ao3.data.model.FilterFacets
@@ -113,10 +113,16 @@ import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WARNING_OPTIONS
 import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.components.AdditionalColor
+import net.spin.ao3.ui.components.AutocompleteTagField
+import net.spin.ao3.ui.components.activeTagSegment
+import net.spin.ao3.ui.components.appendCommittedTag
 import net.spin.ao3.ui.components.CharacterColor
+import net.spin.ao3.ui.components.committedTagSegments
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.FandomColor
 import net.spin.ao3.ui.components.RelationshipColor
+import net.spin.ao3.ui.components.removeCommittedTag
+import net.spin.ao3.ui.components.replaceActiveSegment
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.formatCount
@@ -724,11 +730,14 @@ private fun FilterSheet(
             }
             Spacer(Modifier.height(10.dp))
 
-            OutlinedTextField(
+            AutocompleteTagField(
+                label = "Fandom / tag a explorar",
+                placeholder = "Escribe para buscar fandoms…",
+                fetchSuggestions = { term -> container.client.autocomplete(AutocompleteType.FANDOM, term) },
                 value = f.tag ?: "",
                 onValueChange = { f = f.copy(tag = it.ifBlank { null }) },
-                label = { Text("Fandom / tag a explorar") },
-                singleLine = true,
+                onSelectSuggestion = { s -> f = f.copy(tag = s.name) },
+                singleSelect = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
@@ -846,51 +855,64 @@ private fun FilterSheet(
                 initiallyExpanded = false,
             ) {
                 SectionLabel("Tags a incluir (elige de las sugerencias de AO3)")
-            AutocompleteTagInput(
+            CategoryTagField(
                 label = "Fandoms",
+                type = AutocompleteType.FANDOM,
                 accent = FandomColor,
                 selected = f.fandomNames,
                 onSelectedChange = { f = f.copy(fandomNames = it) },
-                type = Ao3Client.AutocompleteType.FANDOM,
                 container = container,
             )
             Spacer(Modifier.height(8.dp))
-            AutocompleteTagInput(
+            CategoryTagField(
                 label = "Personajes",
+                type = AutocompleteType.CHARACTER,
                 accent = CharacterColor,
                 selected = f.characterNames,
                 onSelectedChange = { f = f.copy(characterNames = it) },
-                type = Ao3Client.AutocompleteType.CHARACTER,
                 container = container,
             )
             Spacer(Modifier.height(8.dp))
-            AutocompleteTagInput(
+            CategoryTagField(
                 label = "Relaciones",
+                type = AutocompleteType.RELATIONSHIP,
                 accent = RelationshipColor,
                 selected = f.relationshipNames,
                 onSelectedChange = { f = f.copy(relationshipNames = it) },
-                type = Ao3Client.AutocompleteType.RELATIONSHIP,
                 container = container,
             )
             Spacer(Modifier.height(8.dp))
-            AutocompleteTagInput(
+            CategoryTagField(
                 label = "Tags adicionales",
+                type = AutocompleteType.FREEFORM,
                 accent = AdditionalColor,
                 selected = f.freeformNames,
                 onSelectedChange = { f = f.copy(freeformNames = it) },
-                type = Ao3Client.AutocompleteType.FREEFORM,
                 container = container,
             )
             Spacer(Modifier.height(10.dp))
 
             SectionLabel("Tags a excluir (elige de las sugerencias de AO3)")
-            AutocompleteTagInput(
+            AutocompleteTagField(
                 label = "Excluir tags",
+                placeholder = "Escribe un tag…",
+                fetchSuggestions = { term -> container.client.autocomplete(AutocompleteType.TAG, term) },
+                value = activeTagSegment(f.excludeTags),
+                onValueChange = { active -> f = f.copy(excludeTags = replaceActiveSegment(f.excludeTags, active)) },
+                onSelectSuggestion = { s -> f = f.copy(excludeTags = appendCommittedTag(f.excludeTags, s.name)) },
+                chips = committedTagSegments(f.excludeTags),
+                onRemoveChip = { i -> f = f.copy(excludeTags = removeCommittedTag(f.excludeTags, i)) },
+                onSubmit = {
+                    val active = activeTagSegment(f.excludeTags)
+                    if (active.isNotBlank() &&
+                        committedTagSegments(f.excludeTags).none { it.equals(active, ignoreCase = true) }
+                    ) {
+                        f = f.copy(excludeTags = appendCommittedTag(f.excludeTags, active))
+                    }
+                },
                 accent = MaterialTheme.colorScheme.error,
-                selected = f.excludeTags.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                onSelectedChange = { f = f.copy(excludeTags = it.joinToString(",")) },
-                type = Ao3Client.AutocompleteType.TAG,
-                container = container,
+                onAccent = MaterialTheme.colorScheme.onError,
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
 
@@ -1230,118 +1252,45 @@ private fun toggleL(set: Set<Long>, id: Long): Set<Long> = if (id in set) set - 
 private fun toggle(set: Set<Int>, id: Int): Set<Int> =
     if (id in set) set - id else set + id
 
-private fun toggleName(list: List<String>, name: String): List<String> =
-    if (name in list) list - name else list + name
-
 /**
- * Tag picker with AO3's native autocomplete (like the sidebar of the site):
- * typing >= 2 chars fetches canonical tag suggestions (debounced 250ms), a tap
- * turns one into a removable chip, and the Enter key adds free text as-is.
- * The [accent] colors the chips so the metadata category stays scannable.
+ * One include field per metadata category, backed by the shared
+ * [AutocompleteTagField]. The model stores canonical names as a [List], while
+ * the picker edits a comma-separated value, so the field keeps its own typed
+ * text and only the committed tags live in the filter state.
  */
 @Composable
-private fun AutocompleteTagInput(
+private fun CategoryTagField(
     label: String,
+    type: AutocompleteType,
     accent: Color,
     selected: List<String>,
     onSelectedChange: (List<String>) -> Unit,
-    type: Ao3Client.AutocompleteType,
     container: AppContainer,
 ) {
     var text by remember { mutableStateOf("") }
-    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-
-    // Debounced fetch: restarts on every keystroke, so only the latest term
-    // (after a 250ms pause) actually hits AO3. Results map to canonical names.
-    LaunchedEffect(type, text) {
-        val term = text.trim()
-        if (term.length < 2) {
-            suggestions = emptyList()
-            loading = false
-            return@LaunchedEffect
-        }
-        loading = true
-        suggestions = container.client.autocomplete(type, term)
-        loading = false
-    }
-
-    Column(Modifier.fillMaxWidth()) {
-        if (selected.isNotEmpty()) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(bottom = 8.dp),
-            ) {
-                selected.forEach { name ->
-                    TagChip(
-                        text = name,
-                        color = accent,
-                        onClick = { onSelectedChange(selected - name) },
-                    )
-                }
+    AutocompleteTagField(
+        label = label,
+        placeholder = "Escribe para buscar…",
+        fetchSuggestions = { term -> container.client.autocomplete(type, term) },
+        value = text,
+        onValueChange = { text = it },
+        onSelectSuggestion = { s ->
+            onSelectedChange(
+                if (selected.any { it.equals(s.name, ignoreCase = true) }) selected else selected + s.name,
+            )
+            text = ""
+        },
+        chips = selected,
+        onRemoveChip = { i -> onSelectedChange(selected.filterIndexed { j, _ -> j != i }) },
+        onSubmit = {
+            val t = text.trim()
+            if (t.isNotBlank() && selected.none { it.equals(t, ignoreCase = true) }) {
+                onSelectedChange(selected + t)
+                text = ""
             }
-        }
-
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            label = { Text(label) },
-            placeholder = { Text("Escribe al menos 2 letras…") },
-            singleLine = true,
-            trailingIcon = {
-                if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = {
-                if (text.trim().isNotBlank() && text.trim() !in selected) {
-                    onSelectedChange(selected + text.trim())
-                    text = ""
-                    suggestions = emptyList()
-                }
-            }),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        // Suggestions appear only while the field is focused and has results.
-        if (text.trim().length >= 2 && suggestions.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column {
-                    suggestions.take(8).forEachIndexed { i, name ->
-                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onSelectedChange(toggleName(selected, name))
-                                    text = ""
-                                    suggestions = emptyList()
-                                }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (name in selected) Icons.Default.Check else Icons.Default.Add,
-                                contentDescription = if (name in selected) "Quitar" else "Añadir",
-                                tint = if (name in selected) MaterialTheme.colorScheme.primary else accent,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+        },
+        accent = accent,
+        onAccent = Color.White,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

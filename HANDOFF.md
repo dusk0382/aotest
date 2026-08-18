@@ -1194,57 +1194,84 @@ los fixes eran parciales. Esta ronda corrige las CAUSAS RAÍZ.
 ## Ronda v0.7.23 — Autocompletado de tags en los filtros (endpoint nativo de AO3)
 
 ### Qué
-Replica el autocompletado de CO3 usando el **endpoint nativo de AO3**
+Autocompletado de tags en el sheet de filtros usando el **endpoint nativo de AO3**
 (`GET /autocomplete/{type}?term=...`), que devuelve JSON plano
 `[{"id": "<nombre canónico>", "name": "<nombre canónico>"}]` — sin HTML que
-parsear, sin login, y rápido (~1s). El `id` es EL nombre canónico, así que una
+parsear, sin login, rápido (~1s). El `id` es EL nombre canónico, así que una
 sugerencia elegida **no necesita** `resolveCanonicalTag` (a diferencia de un
 nombre escrito a mano).
 
-### Cambios
-- `Models.kt` (`SearchFilters`): 4 campos nuevos de **nombres canónicos** por
-  categoría — `fandomNames`, `characterNames`, `relationshipNames`,
-  `freeformNames` (`List<String>`). Incluidos en `hasFilters` y en
-  `serialize()/parse()` (índices 27–30, listas unidas con `\u0003` — los
-  nombres contienen comas, barras y `&`, así que el separador de listas es
-  distinto del `\u0002` de campos). `\u0003` también pasa por `urlEncode`.
-- `Ao3Client.kt`:
-  - `enum AutocompleteType { FANDOM, CHARACTER, RELATIONSHIP, FREEFORM, TAG }`
-    con el segmento de URL de cada tipo.
-  - `suspend fun autocomplete(type, term)`: mínimo 2 letras; GET
-    `/autocomplete/{type}?term=` con `get(retries = 3, disk = null)` (pasa por
-    el mismo gate + fallback WebView de Cloudflare); parsea con
-    `Ao3Parser.parseAutocomplete`; devuelve `[]` en cualquier fallo (el sheet
-    degrada a texto libre, nunca errorea).
-  - `addCommon` ahora envía `work_search[fandom_names]`,
-    `work_search[character_names]`, `work_search[relationship_names]`,
-    `work_search[freeform_names]` (coma-joined = AND). **Verificado en vivo**:
-    `/works?work_search[fandom_names]=Naruto (Anime & Manga)` → 20 obras, y
-    dos fandoms con coma también funcionan; funciona en `/works/search` (texto
-    libre) además de `/works` (tag page) — a diferencia de los `*_ids[]` del
-    sidebar, que solo aplican en una tag page.
-- `Ao3Parser.kt`: `parseAutocomplete(json)` — parsea el array JSON con org.json
-  (mismo patrón que `Translator.parseGtx`), devuelve solo `name`, `[]` si el
-  shape no es el esperado.
-- `SearchScreen.kt` (FilterSheet → sección Avanzado): nuevo componente
-  `AutocompleteTagInput` — campo con **debounce de 250ms** (LaunchedEffect
-  reinicia en cada tecla), spinner mientras carga, sugerencias en Surface con
-  icono +/− según estén ya incluidas (máx. 8), Enter añade texto libre tal cual,
-  chips seleccionados con color semántico por categoría (FandomColor/Character/
-  Relationship/Additional) y × para quitar. Se añadieron **5 campos**: 4 de
-  inclusión (Fandoms, Personajes, Relaciones, Tags adicionales) + 1 de
-  **exclusión** ("Excluir tags", usa `AutocompleteType.TAG` que busca en todos
-  los tipos; alimenta `excludeTags` → `work_search[excluded_tag_names]`, como
-  antes pero con sugerencias). Los viejos campos de texto libre "Incluir/Excluir
-  tags" se reemplazaron por el picker (los campos del modelo se conservan).
+Es una **fusión** de dos implementaciones (la de esta ronda y una variante
+"0.7.22d" que llegó después): se tomó el componente reutilizable y los helpers
+de coma de la variante, y se conservaron los campos por categoría + el fallback
+WebView de esta ronda.
 
-### Tests (81 total, +5)
-- `Ao3AutocompleteTest` (nuevo, 5 tests): parseo de **snapshots reales** del
-  endpoint (fandom/character/relationship/freeform guardados en
-  `app/src/test/resources/ao3/autocomplete_*.json`) + degradación de JSON
-  malformado.
-- `SearchFiltersSerializationTest` +2: round-trip de los nombres canónicos
-  (con comas/barras/&/apóstrofes) y `hasFilters` con cada campo nuevo.
+### Componentes
+- `ui/components/AutocompleteTagField.kt` (nuevo, del 7z): campo reutilizable
+  con debounce de 300ms explícito + auto-cancel de respuestas obsoletas
+  (LaunchedEffect keyed en el término), spinner "Buscando tags…", dropdown de
+  sugerencias mientras tiene foco, dedupe case-insensitive contra chips,
+  free-form fallback (Enter commitea lo escrito aunque AO3 no sugiera nada),
+  icono de limpiar, y dos modos:
+  - `singleSelect` = true: el campo guarda el valor entero (para "Fandom a
+    explorar").
+  - `singleSelect` = false: chips de tags commiteados + el campo edita solo el
+    segmento activo de un string separado por comas.
+  - Params extra `accent`/`onAccent` para colorear los chips por categoría.
+- Helpers puros de coma (mismo archivo, testeados): `committedTagSegments`,
+  `activeTagSegment`, `appendCommittedTag`, `replaceActiveSegment`,
+  `removeCommittedTag`.
+
+### Cambios
+- `Models.kt`:
+  - `TagSuggestion(id, name)` + `AutocompleteType` enum (FANDOM, CHARACTER,
+    RELATIONSHIP, FREEFORM, TAG) en el modelo (el enum ya NO vive en
+    Ao3Client).
+  - `SearchFilters` con 4 campos nuevos de **nombres canónicos** por categoría
+    — `fandomNames`, `characterNames`, `relationshipNames`, `freeformNames`
+    (`List<String>`). Incluidos en `hasFilters` y en `serialize()/parse()`
+    (índices 27–30, listas unidas con `\u0003` — los nombres contienen comas,
+    barras y `&`, así que el separador de listas es distinto del `\u0002` de
+    campos). `\u0003` también pasa por `urlEncode`.
+- `Ao3Client.kt`:
+  - `suspend fun autocomplete(type, term): List<TagSuggestion>`: mínimo 2
+    letras; GET `/autocomplete/{type}?term=` **por el pipeline `get()` completo**
+    (gate de cortesía + retries + fallback WebView de Cloudflare) + **caché en
+    disco propia** (`autocompleteDisk`, TTL 7 días, 250 archivos — los nombres
+    de tags cambian rara vez). Devuelve `[]` en cualquier fallo (el sheet
+    degrada a texto libre, nunca errorea).
+  - `addCommon` envía `work_search[fandom_names]`, `[character_names]`,
+    `[relationship_names]`, `[freeform_names]` (coma-joined = AND) **y**
+    `cleanTagList` en `other_tag_names`/`excluded_tag_names` (el picker deja
+    una coma final tras los chips; AO3 la vería como segmento vacío).
+    **Verificado en vivo**: `/works?work_search[fandom_names]=Naruto (Anime &
+    Manga)` → 20 obras; funciona también en `/works/search` (texto libre) — a
+    diferencia de los `*_ids[]` del sidebar, que solo aplican en una tag page.
+- `Ao3Parser.kt`: `parseAutocomplete(json): List<TagSuggestion>` (id+name, el
+  id cae al name si viene vacío; nombres en blanco se descartan; shapes
+  malformados → `[]`).
+- `SearchScreen.kt` (FilterSheet):
+  - **"Fandom / tag a explorar"** ahora es un `AutocompleteTagField`
+    singleSelect con `AutocompleteType.FANDOM` (escribir sugiere fandoms
+    canónicos; seleccionar rellena el campo; texto libre sigue funcionando).
+  - **Sección Avanzado**: 4 pickers de inclusión por categoría (Fandoms,
+    Personajes, Relaciones, Tags adicionales) vía `CategoryTagField` (wrapper
+    que adapta el modelo `List<String>` al picker de coma), cada uno con su
+    color semántico (`accent` + texto blanco). Y **1 campo de exclusión**
+    ("Excluir tags") con `AutocompleteType.TAG` (busca en todos los tipos) que
+    alimenta `excludeTags` → `work_search[excluded_tag_names]` con los helpers
+    de coma.
+
+### Tests (95 total, +12 desde v0.7.22)
+- `AutocompleteTagHelpersTest` (nuevo, 7 tests): lógica de chips de coma
+  (commit/remove/replace/round-trip).
+- `AutocompleteJsonTest` (nuevo, 5 tests): parsing JSON del endpoint
+  (id≠name, blanks, malformados).
+- `Ao3AutocompleteTest` (+1, 6 tests): snapshots **reales** del endpoint
+  (fandom/character/relationship/freeform en
+  `app/src/test/resources/ao3/autocomplete_*.json`).
+- `SearchFiltersSerializationTest` +2: round-trip de nombres canónicos y
+  `hasFilters` con cada campo nuevo.
 
 ### Pendiente
 - Validar en el dispositivo (release firmado): escribir "naruto" en un campo

@@ -12,8 +12,10 @@ import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.AuthorWorks
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.FilterFacets
+import net.spin.ao3.data.model.AutocompleteType
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
+import net.spin.ao3.data.model.TagSuggestion
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkFeedInfo
 import net.spin.ao3.data.model.WorkSummary
@@ -414,6 +416,12 @@ class Ao3Client(private val cacheDir: File? = null) {
     private val workDisk: DiskCache? = cacheDir?.let {
         DiskCache(File(it, "work"), ttlMs = 6L * 60 * 60 * 1000, maxFiles = 150)
     }
+    /** Autocomplete suggestions per term: tag names change rarely, so a long
+     *  TTL is safe, and the cap keeps the folder from growing with every
+     *  keystroke. Keyed by URL, so it also serves as the response cache. */
+    private val autocompleteDisk: DiskCache? = cacheDir?.let {
+        DiskCache(File(it, "autocomplete"), ttlMs = 7L * 24 * 60 * 60 * 1000, maxFiles = 250)
+    }
 
     /** Simple thread-safe LRU map (insertion order -> evicts oldest). */
     private class LruCache<K, V>(private val maxSize: Int) {
@@ -512,32 +520,31 @@ class Ao3Client(private val cacheDir: File? = null) {
         return resolved
     }
 
-    /** Autocomplete types accepted by AO3's /autocomplete endpoint. */
-    enum class AutocompleteType(val path: String) {
-        FANDOM("fandom"), CHARACTER("character"), RELATIONSHIP("relationship"), FREEFORM("freeform"),
-        /** All tag kinds at once — used for the exclude field. */
-        TAG("tag"),
-    }
-
     /**
      * Canonical tag suggestions from AO3's native autocomplete endpoint
-     * (GET /autocomplete/{type}?term=...). Returns canonical tag NAMES, which
-     * is exactly what [SearchFilters.fandomNames] & co. need — no extra
-     * resolution step (unlike a hand-typed name). Empty list on any failure so
+     * (GET /autocomplete/{type}?term=...). Returns [TagSuggestion]s whose
+     * [TagSuggestion.name] is the canonical tag name — exactly what
+     * [SearchFilters.fandomNames] & co. need, with no extra resolution step
+     * (unlike a hand-typed name).
+     *
+     * Goes through the same [get] pipeline as everything else: the polite gate,
+     * the Cloudflare WebView fallback, retries and the on-disk cache (7-day TTL
+     * for autocomplete — tag names change rarely). Empty list on any failure so
      * the filter sheet degrades to free text instead of erroring.
      */
-    suspend fun autocomplete(type: AutocompleteType, term: String): List<String> {
-        if (term.length < 2) return emptyList()
+    suspend fun autocomplete(type: AutocompleteType, term: String): List<TagSuggestion> {
+        val trimmed = term.trim()
+        if (trimmed.length < 2) return emptyList()
         val url = HttpUrl.Builder()
             .scheme("https")
             .host("archiveofourown.org")
             .addPathSegment("autocomplete")
             .addPathSegment(type.path)
-            .addQueryParameter("term", term)
+            .addQueryParameter("term", trimmed)
             .build()
             .toString()
         return runCatching {
-            val body = get(url, retries = 3, disk = null)
+            val body = get(url, retries = 3, disk = autocompleteDisk)
             withContext(Dispatchers.IO) { Ao3Parser.parseAutocomplete(body) }
         }.getOrDefault(emptyList())
     }
@@ -559,13 +566,19 @@ class Ao3Client(private val cacheDir: File? = null) {
         return facets
     }
 
+    /** Splits a comma-separated tag list, trimming and dropping empty parts. */
+    private fun cleanTagList(input: String): String =
+        input.split(',').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
+
     /** Adds the shared work_search[...] params used by both endpoints. */
     private fun HttpUrl.Builder.addCommon(filters: SearchFilters, sort: SortOption, page: Int): HttpUrl.Builder {
         fun add(key: String, value: String) {
             if (value.isNotBlank()) addQueryParameter(key, value)
         }
-        add("work_search[other_tag_names]", filters.includeTags)
-        add("work_search[excluded_tag_names]", filters.excludeTags)
+        // The chip picker keeps a trailing comma after committed tags; AO3's
+        // search splits on commas and would see an empty segment, so drop it.
+        add("work_search[other_tag_names]", cleanTagList(filters.includeTags))
+        add("work_search[excluded_tag_names]", cleanTagList(filters.excludeTags))
         // Canonical NAMES from the /autocomplete suggestions. Unlike the facet
         // ids (which only apply on a tag page), *_names work on the free-text
         // /works/search endpoint too — verified live (comma = AND).

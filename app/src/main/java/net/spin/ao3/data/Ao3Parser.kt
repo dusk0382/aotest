@@ -7,6 +7,7 @@ import net.spin.ao3.data.model.FacetGroup
 import net.spin.ao3.data.model.FacetItem
 import net.spin.ao3.data.model.FacetKind
 import net.spin.ao3.data.model.FilterFacets
+import net.spin.ao3.data.model.TagSuggestion
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
 import org.json.JSONArray
@@ -627,16 +628,19 @@ object Ao3Parser {
     }
 
     /**
-     * Parses the AO3 /autocomplete/{type}?term= JSON response into canonical
-     * tag names. The endpoint returns an array of `{id, name}` objects where
-     * both fields hold the tag's canonical name — we only need [name]. Unknown
-     * JSON shapes degrade to an empty list instead of crashing the filter sheet.
+     * Parses the AO3 /autocomplete/{type}?term= JSON response. The endpoint
+     * returns an array of `{id, name}` objects; both fields hold the tag's
+     * canonical name in practice, but [TagSuggestion] keeps them separate in
+     * case AO3 ever diverges them. Blank names are dropped; malformed shapes
+     * degrade to an empty list instead of crashing the filter sheet.
      */
-    fun parseAutocomplete(json: String): List<String> {
+    fun parseAutocomplete(json: String): List<TagSuggestion> {
         return runCatching {
             val arr = JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
-                arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = o.optString("name").trim()
+                if (name.isEmpty()) null else TagSuggestion(o.optString("id").ifEmpty { name }, name)
             }
         }.getOrDefault(emptyList())
     }
