@@ -3,7 +3,6 @@ package net.spin.ao3.data
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 /**
  * Tests for [Ao3Parser.parseAutocomplete] against real responses from AO3's
@@ -13,7 +12,8 @@ import java.io.File
 class Ao3AutocompleteTest {
 
     private fun snapshot(name: String): String =
-        File("app/src/test/resources/ao3/$name").readText()
+        checkNotNull(javaClass.classLoader?.getResource("ao3/$name")) { "missing ao3/$name" }
+            .readText()
 
     @Test
     fun `fandom suggestions parse to canonical names`() {
