@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -326,6 +327,9 @@ private fun FavoritesTab(
     onExplore: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
+    // Scroll survives tab switches and navigation (each tab lives under its own
+    // SaveableStateProvider slot).
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     if (favorites.isEmpty()) {
         EmptyState(
             icon = Icons.Default.Star,
@@ -336,7 +340,11 @@ private fun FavoritesTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         items(favorites, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
@@ -368,6 +376,7 @@ private fun HistoryTab(
     onExplore: () -> Unit,
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     if (history.isEmpty()) {
         EmptyState(
             icon = Icons.Default.History,
@@ -378,7 +387,11 @@ private fun HistoryTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { showClearDialog = true }) {
@@ -441,6 +454,7 @@ private fun DownloadsTab(
     val semantic = LocalSemanticColors.current
     var expanded by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pendingDelete by remember { mutableStateOf<Long?>(null) }
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val queueState by DownloadQueueService.state.collectAsState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -455,7 +469,11 @@ private fun DownloadsTab(
         )
         return
     }
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         if (downloads.isNotEmpty()) {
             item {
                 Text(

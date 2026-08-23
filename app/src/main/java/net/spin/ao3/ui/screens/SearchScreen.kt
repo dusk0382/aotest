@@ -171,6 +171,15 @@ fun SearchScreen(
     // while there are still too few items).
     val restoredScroll = remember { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
     val restoredPage = remember { page }
+    // True while this composition is the resurrection of an earlier search
+    // (back navigation / process death). While it holds, fetchFirst() must NOT
+    // snap the scroll to the top: both scrollToItem calls would race on the
+    // frame where the results finally compose, and the reload's "go to top"
+    // usually won. The restore effect below owns the scroll until it has
+    // re-applied the saved position.
+    var restorePending by remember {
+        mutableStateOf(restoredPage > 1 || restoredScroll.first > 0 || restoredScroll.second > 0)
+    }
 
     fun fetchFirst() {
         loading = true
@@ -197,7 +206,11 @@ fun SearchScreen(
             // composed, and scrollToItem on a detached LazyListState suspends
             // FOREVER (the finally never ran -> endless spinner). Bounded here
             // as a safety net so a stuck scroll can never wedge the coroutine.
-            if (error == null && results.isNotEmpty()) {
+            // A restoring instance skips this (the effect below positions it);
+            // captured BEFORE awaiting so a restore settling mid-flight does
+            // not flip an in-progress reload into a scroll reset.
+            val resetScroll = !restorePending
+            if (resetScroll && error == null && results.isNotEmpty()) {
                 withTimeoutOrNull(3_000) { listState.scrollToItem(0) }
             }
             Log.d("SearchScreen", "fetchFirst terminó tras ${System.currentTimeMillis() - t0}ms")
@@ -241,22 +254,28 @@ fun SearchScreen(
     // (all cache hits -> near instant) and restore the scroll position. Only
     // runs once per screen instance; a brand-new search has page = 1 / index 0.
     LaunchedEffect(Unit) {
-        if (restoredPage > 1) {
-            while (loading) delay(50)
-            // If page 1 itself failed, don't pile page 2+ onto an empty list.
-            if (error != null) return@LaunchedEffect
+        if (!restorePending) return@LaunchedEffect
+        // Wait for the initial reload BEFORE scrolling: while `loading` the
+        // LazyColumn is not composed (skeleton) and scrollToItem would only
+        // suspend into its timeout.
+        while (loading) delay(50)
+        // Refill the pages reached before leaving (page 1 already reloaded by
+        // fetchFirst; if IT failed, don't pile page 2+ onto an empty list).
+        if (error == null && restoredPage > 1) {
             repeat(restoredPage - 1) {
-                if (noMorePages) return@LaunchedEffect
+                if (noMorePages || error != null) return@repeat
                 fetchMore()
                 while (loadingMore) delay(50)
             }
         }
         if (restoredScroll.first > 0 || restoredScroll.second > 0) {
-            // Bounded: the list may not be composed yet (see fetchFirst note).
+            // Bounded: the list may still not be composed (see fetchFirst note).
             withTimeoutOrNull(3_000) {
                 listState.scrollToItem(restoredScroll.first, restoredScroll.second)
             }
         }
+        // Restoration settled: from now on every fetchFirst() owns the scroll.
+        restorePending = false
     }
 
     val activeFilterCount = activeFilterCount(currentFilters)

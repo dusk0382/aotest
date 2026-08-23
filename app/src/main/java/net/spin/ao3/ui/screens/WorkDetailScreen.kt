@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -141,6 +142,12 @@ fun WorkDetailScreen(
     var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
     var descExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Scroll of the whole detail (metadata + chapters + comments) survives
+    // navigating to the reader/author/tag and coming back (MainActivity scopes
+    // this screen's saveable state by stack slot). While `loading` the list is
+    // replaced by a spinner, so the restored index only applies once the detail
+    // composes — which is a cache hit on back-navigation.
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var kudoed by rememberSaveable { mutableStateOf(store.isKudoed(workId)) }
     var kudosSending by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -477,6 +484,7 @@ fun WorkDetailScreen(
                     modifier = Modifier.fillMaxSize().padding(padding),
                 ) {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {

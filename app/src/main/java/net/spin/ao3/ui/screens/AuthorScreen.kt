@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +58,9 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
 import net.spin.ao3.data.model.WorkSummary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.AvatarImages
@@ -86,6 +90,15 @@ fun AuthorScreen(
     var noMoreWorks by remember { mutableStateOf(false) }
     var retryTick by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+    // Scroll survives navigating to a work and coming back (MainActivity scopes
+    // this screen's saveable state by stack slot).
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    // Snapshots taken on FIRST composition, BEFORE the reload effects below
+    // reset the per-author state: on recreation they say how far the previous
+    // instance had reached (page reached + scroll position).
+    val restoredPage = remember { worksPage }
+    val restoredScroll = remember { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+    val restoring = remember { restoredPage > 1 || restoredScroll.first > 0 || restoredScroll.second > 0 }
 
     /** Loads the next page of the author's works (AO3 paginates at 20/page). */
     fun loadMoreWorks() {
@@ -148,6 +161,25 @@ fun AuthorScreen(
         }
     }
 
+    // Resurrection path (back navigation): the reload effect above rebuilt page
+    // 1 (authorWorksCache hit -> near instant); append the pages the previous
+    // instance had reached and put the scroll back where the user left it.
+    // Runs once per screen instance.
+    LaunchedEffect(Unit) {
+        if (!restoring) return@LaunchedEffect
+        while (worksLoading) delay(50)
+        repeat(restoredPage - 1) {
+            if (noMoreWorks || worksError != null) return@repeat
+            loadMoreWorks()
+            while (loadingMore) delay(50)
+        }
+        if (restoredScroll.first > 0 || restoredScroll.second > 0) {
+            withTimeoutOrNull(3_000) {
+                listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -182,6 +214,7 @@ fun AuthorScreen(
                 Text("Perfil no encontrado")
             }
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = 32.dp),
             ) {
