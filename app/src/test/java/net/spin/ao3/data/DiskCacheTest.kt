@@ -37,6 +37,29 @@ class DiskCacheTest {
     }
 
     @Test
+    fun `getStale returns the body even past its ttl`() {
+        runBlocking {
+            val dir = tempDir()
+            val cache = DiskCache(dir, ttlMs = -1) // expired on write
+            cache.put("https://a.example/x", "cuerpo viejo")
+            // get() drops it; getStale() is the offline fallback and must keep it.
+            assertNull(cache.get("https://a.example/x"))
+            assertEquals("cuerpo viejo", cache.getStale("https://a.example/x"))
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `getStale misses unknown keys`() {
+        runBlocking {
+            val dir = tempDir()
+            val cache = DiskCache(dir, ttlMs = 60_000)
+            assertNull(cache.getStale("https://a.example/nope"))
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `unknown keys are a miss`() {
         runBlocking {
             val dir = tempDir()

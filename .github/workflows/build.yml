@@ -23,6 +23,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Un tag desalineado con versionName publicaría un APK que se identifica
+      # con otro número en Ajustes > Apps; mejor romper el CI aquí.
+      - name: Guard tag matches versionName
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          GRADLE_VER="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
+          if [ "$TAG" != "$GRADLE_VER" ]; then
+            echo "::error::El tag ($TAG) no coincide con versionName ($GRADLE_VER) en app/build.gradle.kts"
+            exit 1
+          fi
+
       # One invocation: configuración cacheada una sola vez y tareas en
       # paralelo (tests + debug + release) en vez de 3 arranques de Gradle.
       - name: Build all (tests, debug, release)
@@ -47,6 +59,15 @@ jobs:
           name: ao3-reader-release
           path: app/build/outputs/apk/release/app-release*.apk
 
+      # Sin el mapping, cualquier stack trace ofuscado de una build firmada es
+      # indecifrable (el runner efímero lo borra al terminar el job).
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: ao3-reader-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
@@ -60,8 +81,16 @@ jobs:
           name: ao3-reader-release
           path: release-apk
 
+      - name: Download R8 mapping
+        uses: actions/download-artifact@v4
+        with:
+          name: ao3-reader-mapping
+          path: mapping
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-apk/*.apk
+          files: |
+            release-apk/*.apk
+            mapping/mapping.txt
           generate_release_notes: true

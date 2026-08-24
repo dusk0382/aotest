@@ -169,6 +169,11 @@ fun ReaderScreen(
     var workTitle by remember { mutableStateOf("") }
     var workAuthor by remember { mutableStateOf("") }
     var chapters by remember { mutableStateOf<List<ChapterInfo>>(emptyList()) }
+    // Deliberately NOT rememberSaveable: nav slots are keyed by serialized
+    // route, so a saveable index would resurrect the last-read chapter when
+    // the same Route.Reader(workId, chapter) is pushed again (the explicit
+    // chapter tap would be ignored). Cost: rotating mid-read snaps back to the
+    // entry chapter — acceptable until slots get per-push identity.
     var currentIndex by remember { mutableIntStateOf(initialChapter.coerceAtLeast(0)) }
     var content by remember { mutableStateOf<String?>(null) }
     var chapterTitle by remember { mutableStateOf("") }
@@ -306,8 +311,11 @@ fun ReaderScreen(
     // which raced the chapter render: onPageFinished fired with pendingScroll
     // still 0, so the scroll never restored even though the % was saved right.
     var pendingScroll by remember(workId) {
+        // Reads currentIndex: after any recreation it points at the chapter the
+        // reader is about to render, so the restored ratio belongs to the same
+        // chapter being rendered.
         mutableFloatStateOf(
-            store.history().firstOrNull { it.id == workId && it.chapterIndex == initialChapter }
+            store.history().firstOrNull { it.id == workId && it.chapterIndex == currentIndex }
                 ?.scrollRatio ?: 0f,
         )
     }
@@ -2147,7 +2155,7 @@ private fun jsStringLiteral(value: String): String =
 private fun jsGoToMatch(index: Int): String = """
     (function(){
       try {
-        if (!window.__find || index >= window.__find.length) return;
+        if (!window.__find || $index < 0 || $index >= window.__find.length) return;
         var m = window.__find[$index];
         var el = m.el || m.range;
         if (!el) return;

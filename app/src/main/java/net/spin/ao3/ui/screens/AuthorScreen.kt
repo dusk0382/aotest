@@ -86,7 +86,11 @@ fun AuthorScreen(
     var worksError by remember { mutableStateOf<String?>(null) }
     var worksLoading by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
-    var worksPage by remember { mutableIntStateOf(1) }
+    // Saveable: the resurrection path below snapshots this at first
+    // composition to refill the reached pages; a plain remember reset it to 1
+    // on recreation while listState (saveable) still restored the old scroll,
+    // landing the user mid-list on a one-page list.
+    var worksPage by rememberSaveable { mutableIntStateOf(1) }
     var noMoreWorks by remember { mutableStateOf(false) }
     var retryTick by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()

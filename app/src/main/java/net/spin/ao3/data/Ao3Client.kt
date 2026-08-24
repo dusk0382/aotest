@@ -368,14 +368,50 @@ class Ao3Client(private val cacheDir: File? = null) {
      * Keeps Cloudflare cookies (cf_clearance, view_adult, etc.) across requests.
      * Thread-safe: [getConcurrent] fires two requests in parallel (author
      * profile + works), so the jar must survive concurrent read/write.
+     *
+     * Merges instead of replacing: OkHttp calls saveFromResponse once PER
+     * response — including every redirect hop — with only that response's
+     * Set-Cookie headers. Assigning them wholesale wiped cookies accumulated
+     * earlier (view_adult, __cf_bm), re-triggering the age gate and Cloudflare
+     * challenges on a rotating schedule.
      */
-    private class InMemoryCookieJar : CookieJar {
+    internal class InMemoryCookieJar : CookieJar {
         private val cookies = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
+
         override fun saveFromResponse(url: HttpUrl, cookieList: List<Cookie>) {
-            cookies[url.host] = cookieList
+            // A response without Set-Cookie headers must not clear the jar.
+            if (cookieList.isEmpty()) return
+            cookies.compute(url.host) { _, existing -> merge(existing.orEmpty(), cookieList) }
         }
+
         override fun loadForRequest(url: HttpUrl): List<Cookie> =
-            cookies[url.host].orEmpty()
+            cookies[url.host].orEmpty().filter {
+                // Purge on read too, not just on the next merge: sending an
+                // expired __cf_bm/view_adult invites extra CF challenges.
+                it.expiresAt > System.currentTimeMillis() && it.matches(url)
+            }
+
+        companion object {
+            /** Pure merge behind [saveFromResponse]: a fresh cookie replaces only
+             *  its own (name, path) slot, everything else survives; a fresh
+             *  EXPIRED cookie (Set-Cookie with a past date, e.g. Max-Age=0)
+             *  deletes its slot instead of storing a dead cookie, and already-
+             *  expired stored cookies drop out too. Visible for tests. */
+            internal fun merge(
+                existing: List<Cookie>,
+                fresh: List<Cookie>,
+                now: Long = System.currentTimeMillis(),
+            ): List<Cookie> {
+                val keyOf = { c: Cookie -> c.name to c.path }
+                val live = fresh.filter { it.expiresAt > now }.associateBy(keyOf)
+                val deleted = fresh.filter { it.expiresAt <= now }.mapTo(HashSet()) { keyOf(it) }
+                val kept = existing.filter {
+                    val k = keyOf(it)
+                    k !in live && k !in deleted && it.expiresAt > now
+                }
+                return kept + live.values
+            }
+        }
     }
 
     /** Bounded map (access-order LRU): evicts the oldest entry past [maxSize].
@@ -496,9 +532,9 @@ class Ao3Client(private val cacheDir: File? = null) {
     /** Fetches (and caches) /tags/{name}/works — shared by tag resolution + facets. */
     private val tagPages = BoundedMap<String, String>(40)
 
-    private suspend fun tagWorksPage(name: String): String? {
-        tagPages[name]?.let { return it }
-        val url = HttpUrl.Builder()
+    /** Pure URL builder so tests can pin the %20-vs-+ encoding. */
+    internal fun tagWorksUrl(name: String): String =
+        HttpUrl.Builder()
             .scheme("https")
             .host("archiveofourown.org")
             .addPathSegment("tags")
@@ -506,7 +542,10 @@ class Ao3Client(private val cacheDir: File? = null) {
             .addPathSegment("works")
             .build()
             .toString()
-        return runCatching { get(url, disk = searchDisk) }.getOrNull()?.also { tagPages[name] = it }
+
+    private suspend fun tagWorksPage(name: String): String? {
+        tagPages[name]?.let { return it }
+        return runCatching { get(tagWorksUrl(name), disk = searchDisk) }.getOrNull()?.also { tagPages[name] = it }
     }
 
     private suspend fun resolveCanonicalTag(name: String): String? {

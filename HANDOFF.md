@@ -1277,3 +1277,115 @@ WebView de esta ronda.
 - Validar en el dispositivo (release firmado): escribir "naruto" en un campo
   del sheet → sugerencias canónicas → tocar → chip → "Aplicar filtros" → la
   búsqueda llega con `work_search[fandom_names]` y filtra de verdad.
+
+
+## Ronda v0.7.24 — auditoría multiagente: bugs confirmados, endurecimiento y CI
+
+Auditoría exhaustiva del código (6 lentes de búsqueda + verificación adversarial
+de cada hallazgo crítico, luego una SEGUNDA revisión adversarial sobre los
+propios fixes). Esta ronda corrige 8 bugs confirmados línea a línea, endurece
+los que la revisión detectó como incompletos y arregla el pipeline de releases.
+
+### 1. Foreground service: crash potencial al encolar justo tras terminar
+- `foregroundStarted` nunca volvía a `false`: al terminar la cola el `finally`
+  hacía `stopForeground(DETACH)+stopSelf()` sin resetearlo. Un ACTION_DOWNLOAD
+  entregado a la instancia aún viva saltaba el early-return de
+  `ensureForeground()` sin llamar `startForeground()` → en API 26+ el sistema
+  mata la app (`ForegroundServiceDidNotTimeOutException`).
+- Ahora el flag se resetea ANTES de publicar `processing = false`, ambos flags
+  son `@Volatile` (escritos desde IO, leídos desde main) y el `stopSelf()` final
+  es condicional (`if (!processing)`) para no matar una cola recién arrancada.
+
+### 2. Búsqueda dentro del capítulo muerta en modo scroll
+- El guard de `jsGoToMatch` usaba la variable JS inexistente `index` (solo
+  `$index` estaba interpolado); lanzaba `ReferenceError`, el catch vacío lo
+  silenciaba y Anterior/Siguiente solo movían el contador sin scrollear.
+- Ahora `$index` está interpolado también en el guard.
+
+### 3. CookieJar pisaba las cookies del host en cada respuesta
+- `cookies[host] = lista` reemplazaba en bloque: cualquier respuesta con un
+  Set-Cookie (Cloudflare rota `__cf_bm` constantemente; cada salto de
+  redirección entrega uno) borraba `view_adult` etc., re-disparando el age gate
+  y challenges repetidas.
+- Ahora fusiona por `(name, path)` vía `ConcurrentHashMap.compute`: una cookie
+  nueva sólo ocupa su slot, un Set-Cookie expirado (Max-Age=0) BORRA su slot,
+  las expiradas almacenadas se purgan también al leer (`expiresAt > now &&
+  matches(url)`), y una respuesta sin cookies nunca limpia el jar. La función
+  pura `merge` es `internal` para tests.
+
+### 4. Cancelar durante el guardado resucitaba el trabajo cancelado
+- El guard `cancelRequested` sólo existía arriba del bucle: si ACTION_CANCEL
+  corría mientras el worker guardaba, éste reinsertaba el resto como pending.
+- Ahora la persistencia del resto está guardada por `!cancelRequested`, con
+  rollback post-escritura (re-chequeo + removePendingJob) que cierra la ventana
+  TOCTOU de la bandera volátil, en el camino de éxito.
+
+### 5. WebViewFetcher entregaba HTML truncado como válido
+- Los chunks fuera de orden (chunk perdido del canal console.log) se ignoraban
+  silenciosamente y `done` settleaba el buffer parcial como página completa.
+- Ahora un gap falla explícito (`settle(null)`), así el reintento del caller
+  recarga la URL entera.
+
+### 6. WebView huérfano podía contaminar la transferencia siguiente (pre-existente, agravado por #5)
+- `teardown()` sólo descolgaba vistas: sin `stopLoading()/destroy()`. Tras un
+  aborto, el WebView viejo seguía vivo y sus chunks tardíos caían en la
+  PETICIÓN SIGUIENTE (un `chunk:0` huérfano coincidía con el buffer vacío
+  nuevo; un `done` huérfano completaba el request nuevo con el HTML del
+  anterior, que quedaba cacheado 7 días bajo la URL equivocada).
+- Ahora cada Request lleva su WebView, `handleConsole` descarta mensajes cuya
+  fuente no es el request en vuelo, `onPageFinished` no re-inyecta el detector
+  en WebViews huérfanas, `cancelCurrent()` sólo actúa si SU request sigue en
+  vuelo, y teardown hace `stopLoading()+destroy()`.
+
+### 7. Store: el fichero de descargas (MB) se parseaba en main thread en cada arranque
+- `Store(context)` → inicializador de campo `loadDownloads()` corría dentro de
+  `Application.onCreate`: cada inicio pagaba readText+JSONObject de megabytes.
+- Ahora carga diferida: `ensureDownloadsLocked()` (bajo lock, idempotente) en
+  TODOS los accesos + calentamiento en `Dispatchers.IO` justo tras construir.
+  La migración legacy sigue siendo síncrona (evento único, así el test de
+  migración queda determinista). `importBackup` fuerza la carga antes de
+  persistir: restaurar sólo librería ya no puede pisar las descargas reales.
+
+### 8. AuthorScreen: la paginación alcanzada se perdía al volver de una obra
+- `worksPage` era `remember` plano mientras `listState` sí era saveable: al
+  volver, el scroll se restauraba sobre la lista recortada a página 1.
+- Ahora `rememberSaveable`; el snapshot de primera composición captura la
+  página real y el refill+scroll funcionan como diseñados.
+
+### Endurecimiento adicional de la revisión adversarial
+- Cola: al completar una obra se reconcilia `removePendingJob(workId)` — una
+  entrada pendiente residual ya no re-encola toda la descarga en cada arranque;
+  y si el cancel llega tras el último capítulo, no se publica "Descarga
+  completada".
+
+### Cambio revertido por la revisión (lección)
+- Se intentó hacer `currentIndex` del lector `rememberSaveable`: las claves de
+  nav son la ruta serializada y `removeState` no se llama nunca, así que
+  re-abrir la MISMA ruta Reader(id, cap) restauraba el último capítulo leído
+  ignorando el tap explícito. Revertido a `remember` plano; el fix correcto
+  exige identidad por-push en las claves de navegación (pendiente).
+
+### Documentado, no corregido a propósito
+- Modo paginado: salto de capítulo por red lenta puede consumir `pendingScroll`
+  sobre páginas del capítulo saliente y aterrizar en página 0. Corregirlo exige
+  etiquetar `pendingScroll` con su capítulo destino; se deja anotado.
+
+### CI / releases
+- build.yml: guard tag↔versionName; `mapping.txt` de R8 ahora se publica junto
+  al APK (antes se perdía con el runner efímero).
+- `versionName` 0.7.23 → **0.7.24**, `versionCode` 56 → 57 (el número 0.7.23
+  quedó consumido por la ronda de autocompletado sin llegar a publicarse).
+
+### Tests nuevos (103 total, eran 95)
+- DiskCache: `getStale` devuelve el cuerpo vencido y falla en claves
+  desconocidas.
+- CookieJarMergeTest: fusión conserva el resto del jar, expirada borra slot,
+  expiradas almacenadas se purgan, name/path distintos son slots distintos,
+  última duplicada gana; pin de `/tags/{name}/works` con `%20` (nunca `+`).
+
+### Verificación
+- `compileDebugKotlin` OK · `testDebugUnitTest` OK (103 tests, 0 fallos) ·
+  `assembleDebug` OK.
+- Dos rondas de revisión adversarial (10 agentes); 2 hallazgos serios
+  confirmados y corregidos, 1 refutado con traza completa.
+- Release generado desde el tag `v0.7.24` (CI).

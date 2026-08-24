@@ -43,8 +43,11 @@ class DownloadQueueService : Service() {
     private val client get() = (application as Ao3App).container.client
 
     private val pending = ArrayDeque<JobInfo>()
-    private var processing = false
-    private var foregroundStarted = false
+    // processing/foregroundStarted are written from the worker coroutine
+    // (Dispatchers.IO) and read from main-thread onStartCommand: without
+    // @Volatile a stale read can skip startForeground or double-start work.
+    @Volatile private var processing = false
+    @Volatile private var foregroundStarted = false
     private var worker: Job? = null
     @Volatile private var cancelRequested = false
 
@@ -134,14 +137,22 @@ class DownloadQueueService : Service() {
                     if (!completed) break
                 }
             } finally {
-                processing = false
                 worker = null
+                // A new ACTION_DOWNLOAD can land on this still-alive instance
+                // between stopSelf() and onDestroy(). Clear foregroundStarted
+                // BEFORE publishing processing=false: any ACTION_DOWNLOAD that
+                // then observes processing==false also observes that it must
+                // call startForeground itself (API 26+ demands a
+                // startForeground() per startForegroundService, or the system
+                // kills us with ForegroundServiceDidNotTimeOutException).
+                foregroundStarted = false
+                processing = false
                 if (Build.VERSION.SDK_INT >= 24) {
                     stopForeground(STOP_FOREGROUND_DETACH)
                 } else {
                     stopForeground(true)
                 }
-                stopSelf()
+                if (!processing) stopSelf()
             }
         }
     }
@@ -170,11 +181,21 @@ class DownloadQueueService : Service() {
                 if (ready.content.isNullOrBlank()) throw IllegalStateException("El capítulo llegó vacío")
                 store.addDownloadedChapter(job.workId, job.title, ready)
                 done++
-                // Persist only the not-yet-attempted part. If Android kills the
-                // service now, the completed chapters are not downloaded twice.
                 val remaining = job.chapters.drop(i + 1)
-                if (remaining.isEmpty()) store.removePendingJob(job.workId)
-                else store.addPendingJob(Store.PendingJob(job.workId, job.title, remaining))
+                if (!cancelRequested) {
+                    // Persist only the not-yet-attempted part. If Android kills
+                    // the service now, the completed chapters are not downloaded
+                    // twice.
+                    if (remaining.isEmpty()) store.removePendingJob(job.workId)
+                    else store.addPendingJob(Store.PendingJob(job.workId, job.title, remaining))
+                    // Close the read-flag/persist race with ACTION_CANCEL: if
+                    // cancel landed between the check above and the write, undo
+                    // it — a cancelled job must never survive in "pending"
+                    // (startIfPending would resurrect it on next launch).
+                    if (cancelRequested) store.removePendingJob(job.workId)
+                }
+                // else: ACTION_CANCEL already removed this job while the chapter
+                // was saving; re-adding here would resurrect a cancelled queue.
                 publishProgress(job, chapter, done, total)
             } catch (e: CancellationException) {
                 throw e
@@ -196,6 +217,12 @@ class DownloadQueueService : Service() {
                 return false
             }
         }
+
+        // Reconcile: every chapter is stored, so any leftover pending entry for
+        // this work is stale (e.g. a cancel raced the last save). Leaving it
+        // would make startIfPending re-run the whole queue on every cold start.
+        store.removePendingJob(job.workId)
+        if (cancelRequested) return true
 
         state.value = QueueState(
             active = false,

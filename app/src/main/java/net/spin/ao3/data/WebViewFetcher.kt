@@ -98,7 +98,13 @@ object WebViewFetcher {
 
     // -------------------- Queue (all WebView access on main thread) --------------------
 
-    private data class Request(val url: String, val deferred: CompletableDeferred<String>)
+    private class Request(val url: String, val deferred: CompletableDeferred<String>) {
+        /** The WebView this request runs in; console traffic from any other
+         *  WebView is stale and must be ignored (an aborted transfer's
+         *  WebView can outlive its request just long enough to corrupt the
+         *  next one). */
+        var web: WebView? = null
+    }
 
     private val queue = LinkedList<Request>()
     private var inFlight: Request? = null
@@ -120,17 +126,21 @@ object WebViewFetcher {
      */
     suspend fun fetch(url: String, timeoutMs: Long = 90_000L): String? {
         Log.d(TAG, "fetch() solicitado: $url")
-        val deferred = CompletableDeferred<String>()
-        mainHandler.post { enqueue(Request(url, deferred)) }
+        val request = Request(url, CompletableDeferred())
+        mainHandler.post { enqueue(request) }
         // Await on a BACKGROUND dispatcher: the timeout must fire even if the
         // main thread is busy (a busy main thread used to block the timeout
         // AND the gate lock that wraps this call -> endless spinner).
         val result = withContext(Dispatchers.Default) {
-            withTimeoutOrNull(timeoutMs) { runCatching { deferred.await() }.getOrNull() }
+            withTimeoutOrNull(timeoutMs) { runCatching { request.deferred.await() }.getOrNull() }
         }
         if (result == null) {
             Log.w(TAG, "timeout ($timeoutMs ms) esperando a WebView; cancelando carga")
-            mainHandler.post { cancelCurrent() }
+            mainHandler.post {
+                // A newer queued request may already own the slot; only cancel
+                // if THIS request is still the one in flight.
+                if (inFlight === request) cancelCurrent()
+            }
         }
         return result
     }
@@ -162,6 +172,7 @@ object WebViewFetcher {
             settle(null, e)
             return
         }
+        request.web = wv
         chunkBuffer = null
         Log.d(TAG, "cargando en WebView: ${request.url}")
         wv.loadUrl(request.url)
@@ -185,22 +196,32 @@ object WebViewFetcher {
         mainHandler.postDelayed({ processNext() }, 150)
     }
 
-    /** Removes the WebView + overlay from the window and frees them. */
+    /** Removes the WebView + overlay from the window and DESTROYS the WebView:
+     *  a merely detached WebView keeps loading pages and running JS, and its
+     *  console messages would keep arriving (stale chunks / a stale "done" can
+     *  otherwise complete the NEXT request with the previous page's HTML). */
     private fun teardown() {
         val ov = overlay
+        val wv = webView
         overlay = null
         webView = null
         if (ov != null) {
             (ov.parent as? ViewGroup)?.removeView(ov)
             ov.removeAllViews()
         }
+        wv?.stopLoading()
+        wv?.destroy()
     }
 
-    /** Handles one AO3FETCH: console message coming from the page JS. */
-    private fun handleConsole(payload: String) {
-        // Anything arriving without an in-flight request is stale (the WebView
-        // was torn down) and must be ignored.
+    /** Handles one AO3FETCH: console message coming from the page JS.
+     *  [source] must be the request's own WebView; anything else is stale
+     *  traffic from an aborted transfer and gets dropped. */
+    private fun handleConsole(source: WebView?, payload: String) {
         val req = inFlight ?: return
+        if (source === null || source !== req.web) {
+            Log.w(TAG, "mensaje AO3FETCH de una WebView huérfana — ignorado")
+            return
+        }
         when {
             payload == "running" -> {
                 // Channel works; the chunk stream will follow. Nothing to do.
@@ -241,9 +262,19 @@ object WebViewFetcher {
                         if (buf.length % 200_000 < part.length) {
                             Log.d(TAG, "recibidos ${buf.length} chars hasta ahora")
                         }
+                    } else {
+                        // Gap: the console channel dropped at least one chunk,
+                        // so every later offset mismatches too. Ignoring them
+                        // used to let "done" settle a silently truncated page
+                        // as if it were complete; fail instead so the caller's
+                        // retry loop refetches the whole URL.
+                        Log.w(
+                            TAG,
+                            "chunk perdido: esperaba offset ${buf.length}, llegó $offset — cancelando transferencia",
+                        )
+                        chunkBuffer = null
+                        settle(null, IOException("Se perdió un fragmento del HTML en el canal de la WebView"))
                     }
-                    // Out-of-order chunk (offset mismatch): ignored; the
-                    // in-order stream still produces the full page.
                 }
             }
             payload.startsWith("error:") -> {
@@ -286,7 +317,9 @@ object WebViewFetcher {
                     val text = msg.message()
                     if (text.startsWith("AO3FETCH:")) {
                         val payload = text.removePrefix("AO3FETCH:")
-                        mainHandler.post { handleConsole(payload) }
+                        // `this@apply` is the WebView that emitted the message:
+                        // handleConsole drops traffic from any other source.
+                        mainHandler.post { handleConsole(this@apply, payload) }
                         return true
                     }
                     return super.onConsoleMessage(msg)
@@ -295,6 +328,10 @@ object WebViewFetcher {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
+                    // Never re-arm an orphaned WebView: after teardown it must
+                    // stay inert, or a late redirect would start streaming the
+                    // old page into whatever request is live by then.
+                    if (view !== inFlight?.web) return
                     Log.d(TAG, "onPageFinished: $url — inyectando detector")
                     view.evaluateJavascript(DETECT_JS, null)
                 }
@@ -306,7 +343,7 @@ object WebViewFetcher {
                 ) {
                     super.onReceivedError(view, request, error)
                     // Only the main frame matters (subresources fail all the time).
-                    if (request.isForMainFrame) {
+                    if (request.isForMainFrame && view === inFlight?.web) {
                         Log.w(TAG, "onReceivedError: ${error.errorCode} ${error.description}")
                         settle(null, IOException("WebView error ${error.errorCode}: ${error.description}"))
                     }

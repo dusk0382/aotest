@@ -112,10 +112,24 @@ class Store(rootFile: File) {
     val prefs = Prefs()
 
     private var root: JSONObject = load()
-    private var downloadsRoot: JSONObject = loadDownloads()
+
+    // Deferred on purpose: this file holds megabytes of downloaded-chapter HTML,
+    // and parsing it here ran on the MAIN thread inside Application.onCreate,
+    // stalling every cold start. It loads lazily on first access instead, with
+    // an off-main warm-up kicked off right after construction.
+    private var downloadsRoot: JSONObject = JSONObject()
+    @Volatile private var downloadsLoaded = false
 
     init {
         migrateDownloads()
+    }
+
+    /** Loads the downloads file once; every caller holds [lock]. */
+    private fun ensureDownloadsLocked() {
+        if (!downloadsLoaded) {
+            downloadsRoot = loadDownloads()
+            downloadsLoaded = true
+        }
     }
 
     /** Splits a legacy single-file library (downloads inside the main JSON) into the new layout. */
@@ -123,6 +137,9 @@ class Store(rootFile: File) {
         synchronized(lock) {
             val legacy = root.optJSONArray("downloads")
             if (legacy != null && legacy.length() > 0 && !downloadsFile.exists()) {
+                // One-time legacy install: merging needs the (still unloaded)
+                // real content, so force the load here.
+                ensureDownloadsLocked()
                 downloadsRoot.put("downloads", legacy)
                 persistDownloadsLocked()
             }
@@ -130,6 +147,9 @@ class Store(rootFile: File) {
             root.remove("downloads")
             persist(immediate = true)
         }
+        // Warm up off-main so the first user access to downloads rarely pays
+        // the parse; any earlier access self-loads under [lock].
+        io.launch { synchronized(lock) { ensureDownloadsLocked() } }
     }
 
     // ---- Saved (favorites) --------------------------------------------------
@@ -264,12 +284,14 @@ class Store(rootFile: File) {
     // ---- Downloads (separate file, only rewritten when they change) ---------
 
     fun downloads(): List<Download> = synchronized(lock) {
+        ensureDownloadsLocked()
         downloadsRoot.optJSONArray("downloads")?.let { arr ->
             (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.toDownload() }
         }.orEmpty()
     }
 
     fun download(id: Long): Download? = synchronized(lock) {
+        ensureDownloadsLocked()
         downloadsRoot.optJSONArray("downloads")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i)
@@ -286,6 +308,7 @@ class Store(rootFile: File) {
     }
 
     fun saveDownload(id: Long, title: String, chapters: List<ChapterInfo>) = synchronized(lock) {
+        ensureDownloadsLocked()
         removeDownload(id)
         val arr = downloadsRoot.optJSONArray("downloads") ?: JSONArray()
         arr.put(JSONObject().apply {
@@ -316,6 +339,7 @@ class Store(rootFile: File) {
     }
 
     fun removeDownload(id: Long) = synchronized(lock) {
+        ensureDownloadsLocked()
         val arr = downloadsRoot.optJSONArray("downloads") ?: return
         val filtered = JSONArray()
         for (i in 0 until arr.length()) {
@@ -384,6 +408,7 @@ class Store(rootFile: File) {
 
     /** Serializes the WHOLE library (favorites, history, prefs, downloads) for export. */
     fun exportBackup(): String = synchronized(lock) {
+        ensureDownloadsLocked()
         JSONObject().apply {
             put("version", 1)
             put("exportedAt", System.currentTimeMillis())
@@ -398,6 +423,10 @@ class Store(rootFile: File) {
      */
     fun importBackup(json: String): Boolean = synchronized(lock) {
         try {
+            // Force the load first: persistDownloads() below rewrites the whole
+            // downloads file, and doing that from the unloaded placeholder
+            // would wipe real downloads on a library-only restore.
+            ensureDownloadsLocked()
             val bundle = JSONObject(json)
             val lib = bundle.optJSONObject("library")
             val dl = bundle.optJSONObject("downloads")
@@ -406,7 +435,10 @@ class Store(rootFile: File) {
                 root = lib
                 applyPrefsFrom(root)
             }
-            if (dl != null) downloadsRoot = dl
+            if (dl != null) {
+                downloadsRoot = dl
+                downloadsLoaded = true // the restored bundle IS the current state now
+            }
             historyIndex = null
             persist(immediate = true)
             persistDownloads(immediate = true)
