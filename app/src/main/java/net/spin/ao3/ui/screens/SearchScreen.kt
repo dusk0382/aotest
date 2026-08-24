@@ -68,7 +68,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,7 +76,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -160,39 +158,39 @@ fun SearchScreen(
     val scope = rememberCoroutineScope()
     val online by container.connectivity.online.collectAsState()
 
-    // Scroll + pagination SURVIVE navigation: the nav's SaveableStateProvider
-    // scopes this screen's saveable state by a per-instance slot key (two
-    // identical searches get distinct slots), so a plain positional
-    // rememberSaveable is enough — the old custom `key =` was redundant AND
-    // deprecated (it ignored the input varargs). A fresh query resets the
-    // scroll explicitly in fetchFirst().
-    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
-    var page by rememberSaveable { mutableIntStateOf(1) }
-    // Snapshot of the restored position/page taken on FIRST composition (before
-    // fetchFirst() resets `page` and before the list clamps the restored index
-    // while there are still too few items).
-    val restoredScroll = remember { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-    val restoredPage = remember { page }
-    // True while this composition is the resurrection of an earlier search
-    // (back navigation / process death). While it holds, fetchFirst() must NOT
-    // snap the scroll to the top: both scrollToItem calls would race on the
-    // frame where the results finally compose, and the reload's "go to top"
-    // usually won. The restore effect below owns the scroll until it has
-    // re-applied the saved position.
-    var restorePending by remember {
+    // Scroll + paginación sobreviven a la navegación vía ScrollStore (key = identidad
+    // de la búsqueda), no vía SaveableStateRegistry anidado — este último no
+    // restauraba LazyListState dentro de AnimatedContent en este dispositivo.
+    val searchKey = remember(filters, sort) { "${filters.serialize()}|${sort.name}" }
+    val saved = remember(searchKey) { container.scrollStore.getSearch(searchKey) }
+    val listState = remember(searchKey) {
+        if (saved != null) LazyListState(saved.index, saved.offset) else LazyListState()
+    }
+    var page by remember(searchKey) { mutableIntStateOf(saved?.page ?: 1) }
+    // Snapshot de la posición/página restauradas (capturado antes de que
+    // fetchFirst pise `page` y antes de que el LazyColumn recorte el índice).
+    val restoredScroll = remember(searchKey) { saved?.let { it.index to it.offset } ?: (0 to 0) }
+    val restoredPage = remember(searchKey) { saved?.page ?: 1 }
+    var restorePending by remember(searchKey) {
         mutableStateOf(restoredPage > 1 || restoredScroll.first > 0 || restoredScroll.second > 0)
     }
-    // DIAGNÓSTICO (temporal): estado restaurado al recomponer esta pantalla.
-    Log.d(
-        "SearchRestore",
-        "INIT idx=${restoredScroll.first} off=${restoredScroll.second} page=$restoredPage restorePending=$restorePending",
-    )
+
+    // Persiste la posición al salir (y también cuando cambia page por "Cargar más").
+    androidx.compose.runtime.DisposableEffect(searchKey) {
+        onDispose {
+            container.scrollStore.saveSearch(
+                searchKey,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                page,
+            )
+        }
+    }
 
     fun fetchFirst() {
         loading = true
         error = null
         filtersNotApplied = false
-        Log.d("SearchRestore", "fetchFirst start")
         scope.launch {
             val t0 = System.currentTimeMillis()
             try {
@@ -210,21 +208,9 @@ fun SearchScreen(
             } finally {
                 loading = false
             }
-            // Scroll AFTER loading=false: while loading the LazyColumn is not
-            // composed, and scrollToItem on a detached LazyListState suspends
-            // FOREVER (the finally never ran -> endless spinner). Bounded here
-            // as a safety net so a stuck scroll can never wedge the coroutine.
-            // A restoring instance skips this (the effect below positions it);
-            // captured BEFORE awaiting so a restore settling mid-flight does
-            // not flip an in-progress reload into a scroll reset.
             val resetScroll = !restorePending
-            Log.d(
-                "SearchRestore",
-                "fetchFirst done obras=${results.size} err=$error resetScroll=$resetScroll pos=${listState.firstVisibleItemIndex}/${listState.firstVisibleItemScrollOffset}",
-            )
             if (resetScroll && error == null && results.isNotEmpty()) {
                 withTimeoutOrNull(3_000) { listState.scrollToItem(0) }
-                Log.d("SearchRestore", "fetchFirst reset->0 aplicado")
             }
             Log.d("SearchScreen", "fetchFirst terminó tras ${System.currentTimeMillis() - t0}ms")
         }
@@ -263,64 +249,22 @@ fun SearchScreen(
 
     LaunchedEffect(currentFilters, currentSort) { fetchFirst() }
 
-    // On recreation (back from a work): reload the pages the user had reached
-    // (all cache hits -> near instant) and restore the scroll position. Only
-    // runs once per screen instance; a brand-new search has page = 1 / index 0.
-    LaunchedEffect(Unit) {
-        if (!restorePending) {
-            Log.d("SearchRestore", "restore skip (nada pendiente)")
-            return@LaunchedEffect
-        }
-        Log.d("SearchRestore", "restore begin")
-        // Wait for the initial reload BEFORE scrolling: while `loading` the
-        // LazyColumn is not composed (skeleton) and scrollToItem would only
-        // suspend into its timeout.
+    LaunchedEffect(searchKey) {
+        if (!restorePending) return@LaunchedEffect
         while (loading) delay(50)
-        Log.d("SearchRestore", "restore: carga lista obras=${results.size} err=$error")
-        // Refill the pages reached before leaving (page 1 already reloaded by
-        // fetchFirst; if IT failed, don't pile page 2+ onto an empty list).
         if (error == null && restoredPage > 1) {
             repeat(restoredPage - 1) {
                 if (noMorePages || error != null) return@repeat
                 fetchMore()
                 while (loadingMore) delay(50)
-                Log.d("SearchRestore", "restore refill -> ${results.size} obras (page=$page)")
             }
         }
         if (restoredScroll.first > 0 || restoredScroll.second > 0) {
-            // Bounded: the list may still not be composed (see fetchFirst note).
-            val scrolled = withTimeoutOrNull(3_000) {
+            withTimeoutOrNull(3_000) {
                 listState.scrollToItem(restoredScroll.first, restoredScroll.second)
-                true
-            } ?: false
-            Log.d(
-                "SearchRestore",
-                "restore scrollTo(${restoredScroll.first},${restoredScroll.second}) ok=$scrolled " +
-                    "posActual=${listState.firstVisibleItemIndex}/${listState.firstVisibleItemScrollOffset}",
-            )
+            }
         }
-        // Restoration settled: from now on every fetchFirst() owns the scroll.
         restorePending = false
-        Log.d("SearchRestore", "restore settled")
-    }
-
-    // DIAGNÓSTICO (temporal): posición viva del LazyColumn durante la ventana
-    // de restauración (15 s); muestra qué aplica el layout y si algo lo mueve.
-    LaunchedEffect(listState) {
-        withTimeoutOrNull(15_000) {
-            snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-                .collect { (i, o) -> Log.d("SearchRestore", "pos i=$i o=$o") }
-        }
-    }
-
-    // DIAGNÓSTICO (temporal): posición exacta al salir de esta pantalla (lado save).
-    DisposableEffect(listState) {
-        onDispose {
-            Log.d(
-                "SearchRestore",
-                "DISPOSE pos=${listState.firstVisibleItemIndex}/${listState.firstVisibleItemScrollOffset} page=$page",
-            )
-        }
     }
 
     val activeFilterCount = activeFilterCount(currentFilters)

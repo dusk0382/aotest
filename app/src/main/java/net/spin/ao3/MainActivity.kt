@@ -1,7 +1,6 @@
 package net.spin.ao3
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -27,8 +26,6 @@ import androidx.compose.material3.Scaffold
 import net.spin.ao3.R
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,14 +76,6 @@ private fun AppRoot() {
     val store = container.store
 
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
-
-    // DIAGNÓSTICO (temporal): identifica la build instalada en logcat.
-    LaunchedEffect(Unit) {
-        val pi = app.packageManager.getPackageInfo(app.packageName, 0)
-        val fmt = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
-        Log.i("Ao3Build", "versionName=${pi.versionName} lastUpdate=${fmt.format(java.util.Date(pi.lastUpdateTime))}")
-    }
-
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
 
@@ -122,8 +111,12 @@ private fun AppRoot() {
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
+                // Slot captured at targetState creation — frozen during transitions, so the
+                // exiting screen's SaveableStateProvider key doesn't flip to slot 0 mid-pop.
+                val navTarget: NavTarget = if (showTabs) NavTarget.Tab(tab)
+                    else NavTarget.Screen(nav.current, nav.stack.lastIndex)
                 AnimatedContent(
-                    targetState = if (showTabs) NavTarget.Tab(tab) else NavTarget.Screen(nav.current),
+                    targetState = navTarget,
                     transitionSpec = {
                         // Tab switches are a plain crossfade (no slide — they are
                         // not spatial navigation and felt wrong with a slide).
@@ -149,19 +142,9 @@ private fun AppRoot() {
                     },
                     label = "nav",
                 ) { target ->
-                    // Slot key = screen identity + stack position: identical
-                    // routes (e.g. the same tag opened twice) get distinct keys,
-                    // and the key stays stable across rotation (routes serialize).
-                    // indexOfFirst with `===` (not structural equals): two equal
-                    // Route instances stacked would otherwise share a key.
                     val slotKey = when (target) {
                         is NavTarget.Tab -> "tab-${target.tab.name}"
-                        is NavTarget.Screen ->
-                            "screen@${nav.stack.indexOfFirst { it === target.route }.coerceAtLeast(0)}-${target.route.serialize()}"
-                    }
-                    Log.d("NavKeys", "COMPOSE key=$slotKey stack=${nav.stack.joinToString("|") { it.serialize() }}")
-                    DisposableEffect(slotKey) {
-                        onDispose { Log.d("NavKeys", "DISPOSE key=$slotKey") }
+                        is NavTarget.Screen -> "screen@${target.slot}-${target.route.serialize()}"
                     }
                     screenStates.SaveableStateProvider(slotKey) {
                         when (target) {
@@ -232,7 +215,7 @@ private fun AppRoot() {
 
 private sealed interface NavTarget {
     data class Tab(val tab: AppTab) : NavTarget
-    data class Screen(val route: Route) : NavTarget
+    data class Screen(val route: Route, val slot: Int) : NavTarget
 }
 
 // MD3 standard motion easing: cubic-bezier(0,0,0,1) for enter (decelerate),
