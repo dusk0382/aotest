@@ -1,6 +1,7 @@
 package net.spin.ao3
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -26,6 +27,8 @@ import androidx.compose.material3.Scaffold
 import net.spin.ao3.R
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,6 +79,14 @@ private fun AppRoot() {
     val store = container.store
 
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
+
+    // DIAGNÓSTICO (temporal): identifica la build instalada en logcat.
+    LaunchedEffect(Unit) {
+        val pi = app.packageManager.getPackageInfo(app.packageName, 0)
+        val fmt = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+        Log.i("Ao3Build", "versionName=${pi.versionName} lastUpdate=${fmt.format(java.util.Date(pi.lastUpdateTime))}")
+    }
+
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
 
@@ -143,13 +154,16 @@ private fun AppRoot() {
                     // and the key stays stable across rotation (routes serialize).
                     // indexOfFirst with `===` (not structural equals): two equal
                     // Route instances stacked would otherwise share a key.
-                    screenStates.SaveableStateProvider(
-                        when (target) {
-                            is NavTarget.Tab -> "tab-${target.tab.name}"
-                            is NavTarget.Screen ->
-                                "screen@${nav.stack.indexOfFirst { it === target.route }.coerceAtLeast(0)}-${target.route.serialize()}"
-                        },
-                    ) {
+                    val slotKey = when (target) {
+                        is NavTarget.Tab -> "tab-${target.tab.name}"
+                        is NavTarget.Screen ->
+                            "screen@${nav.stack.indexOfFirst { it === target.route }.coerceAtLeast(0)}-${target.route.serialize()}"
+                    }
+                    Log.d("NavKeys", "COMPOSE key=$slotKey stack=${nav.stack.joinToString("|") { it.serialize() }}")
+                    DisposableEffect(slotKey) {
+                        onDispose { Log.d("NavKeys", "DISPOSE key=$slotKey") }
+                    }
+                    screenStates.SaveableStateProvider(slotKey) {
                         when (target) {
                         is NavTarget.Tab -> when (target.tab) {
                             AppTab.HOME -> HomeScreen(
