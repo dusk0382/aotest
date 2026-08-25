@@ -91,8 +91,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.model.Ao3Comment
@@ -136,7 +138,16 @@ fun WorkDetailScreen(
     var offlineDetail by remember { mutableStateOf(false) }
     val online by container.connectivity.online.collectAsState()
     var saved by remember { mutableStateOf(store.isSaved(workId)) }
-    var downloadedIds by remember { mutableStateOf(store.downloadedChapterIds(workId)) }
+    // Índices descargados: lectura FUERA del hilo principal (el fichero de
+    // descargas pesa megas y ensureDownloadsLocked puede estar cargándolo);
+    // refreshDownloads() solo incrementa el tick y el efecto recarga. Arranca
+    // vacío: como mucho, la fila de descarga muestra «Guardar restantes» un
+    // instante hasta que llega la lectura real.
+    var downloadedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var downloadRefreshTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(workId, downloadRefreshTick) {
+        downloadedIds = withContext(Dispatchers.IO) { store.downloadedChapterIds(workId) }
+    }
     var downloadingChapter by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var downloadJobs by remember { mutableStateOf<Map<Int, Job>>(emptyMap()) }
     var removeChapterIndex by remember { mutableStateOf<Int?>(null) }
@@ -240,7 +251,7 @@ fun WorkDetailScreen(
     LaunchedEffect(workId) { loadDetail() }
 
     fun refreshDownloads() {
-        downloadedIds = store.downloadedChapterIds(workId)
+        downloadRefreshTick++
     }
 
     LaunchedEffect(queueState.completedAt) {

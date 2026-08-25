@@ -287,49 +287,66 @@ class Ao3Client(private val cacheDir: File? = null) {
         return body ?: throw (lastError ?: IOException("AO3 tarda demasiado en responder. Inténtalo de nuevo."))
     }
 
-    /** POSTs a form and returns the final response body (after redirects). */
+    /**
+     * POSTs a form and returns the final response body (after redirects).
+     *
+     * NO blind retries: comments and kudos are NOT idempotent — if the POST
+     * already reached the server and the response is lost (read timeout,
+     * connection cut mid-flight), retransmitting publishes the comment TWICE.
+     * The only automatic retry is after an explicit 429 (the server returned
+     * the request unprocessed), honoring Retry-After. Any other failure is
+     * rethrown so the user can decide whether to resend after checking AO3.
+     */
     private suspend fun post(url: String, fields: Map<String, String>): String = gate.withLock {
         var lastError: Exception? = null
-        val body = withTimeoutOrNull(POST_DEADLINE_MS) {
-            repeat(5) { attempt ->
-                delay(if (attempt == 0) 400 else 1200L * attempt)
-                try {
-                    val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
-                    val posted = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url(url)
-                        .header("User-Agent", BROWSER_UA)
-                        .header("Accept-Language", ACCEPT_LANGUAGE)
-                        .header("Referer", url)
-                        .post(form as RequestBody)
-                        .build()
-                        client.newCall(request).execute().use { response ->
-                            if (response.code == 429) {
-                                val retryAfter = response.header("Retry-After")?.toLongOrNull()
-                                throw RateLimitedException((retryAfter ?: 5L).coerceAtLeast(1L) * 1000L)
-                            }
-                            val b = response.body?.string() ?: ""
-                            if (!response.isSuccessful && response.code != 302 && response.code != 303) {
-                                throw IOException("HTTP ${response.code} al enviar el formulario")
-                            }
-                            b
-                        }
+
+        suspend fun transmit(): String {
+            val form = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
+            val posted = withContext(Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", BROWSER_UA)
+                    .header("Accept-Language", ACCEPT_LANGUAGE)
+                    .header("Referer", url)
+                    .post(form as RequestBody)
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.code == 429) {
+                        val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                        throw RateLimitedException((retryAfter ?: 5L).coerceAtLeast(1L) * 1000L)
                     }
-                    if (isCloudflareErrorPage(posted)) {
-                        throw IOException("AO3 respondió con un error temporal (Cloudflare)")
+                    val b = response.body?.string() ?: ""
+                    if (!response.isSuccessful && response.code != 302 && response.code != 303) {
+                        throw IOException("HTTP ${response.code} al enviar el formulario")
                     }
-                    return@withTimeoutOrNull posted
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    if (e is RateLimitedException) {
-                        delay(e.retryAfterMillis.coerceAtMost(30_000L))
-                    }
-                    lastError = e
+                    b
                 }
             }
-            null
+            if (isCloudflareErrorPage(posted)) {
+                throw IOException("AO3 respondió con un error temporal (Cloudflare)")
+            }
+            return posted
         }
+
+        val body = withTimeoutOrNull(POST_DEADLINE_MS) {
+            try {
+                transmit()
+            } catch (e: CancellationException) {
+                // Never swallow cancellation (incl. the deadline's timeout).
+                throw e
+            } catch (e: RateLimitedException) {
+                // Single retry, only here: a 429 guarantees the first attempt
+                // was never processed, so resending cannot duplicate anything.
+                delay(e.retryAfterMillis.coerceAtMost(30_000L))
+                transmit()
+            } catch (e: Exception) {
+                // Timeout/lost-response AFTER transmission: do NOT retry.
+                lastError = e
+                throw e
+            }
+        }
+        // A null body means the deadline hit; prefer the real error, else a
+        // clear timeout message.
         body ?: throw (lastError ?: IOException("AO3 tarda demasiado en responder. Inténtalo de nuevo."))
     }
 
@@ -860,7 +877,11 @@ class Ao3Client(private val cacheDir: File? = null) {
         } else {
             "https://archiveofourown.org/works/$workId"
         }
-        val page = get(pageUrl)
+        // Página FRESCA (disk = null): el authenticity_token va ligado a la
+        // cookie de sesión, así que un HTML servido desde la caché de disco
+        // (TTL de días) puede traer un token caducado frente a la sesión
+        // actual → rechazo intermitente e inexplicable del comentario.
+        val page = get(pageUrl, disk = null)
         val token = extractAuthToken(page)
         val action = Regex("""<form[^>]*action="(/chapters/\d+/comments|/works/\d+/comments)"""").find(page)
             ?.groupValues?.get(1)
@@ -897,7 +918,9 @@ class Ao3Client(private val cacheDir: File? = null) {
      * (e.g. "already left kudos" which is not really an error).
      */
     suspend fun postKudos(workId: Long): String? {
-        val page = get("https://archiveofourown.org/works/$workId")
+        // Página FRESCA (disk = null): mismo motivo que en postComment — el
+        // token CSRF de una copia cacheada puede estar caducado.
+        val page = get("https://archiveofourown.org/works/$workId", disk = null)
         // Guest kudos are tracked with a cookie; if the form is already gone the
         // visitor has left kudos before.
         if (page.contains("You have already left kudos")) {

@@ -1389,3 +1389,107 @@ los que la revisión detectó como incompletos y arregla el pipeline de releases
 - Dos rondas de revisión adversarial (10 agentes); 2 hallazgos serios
   confirmados y corregidos, 1 refutado con traza completa.
 - Release generado desde el tag `v0.7.24` (CI).
+
+---
+
+## Ronda v0.7.26 — revisión post-auditoría: duplicados, FGS sin startForeground, POSTs idempotentes e IO fuera del hilo principal
+
+Ronda nacida de una segunda auditoría (24/08/2026) + `/code-review max`
+(15 hallazgos verificados). Trabajada sobre la copia de prueba
+`AO3_extracted/test/AO3` y portada a este repo en la rama
+`fix/ronda-post-auditoria`.
+
+### 1. SearchScreen: crash por claves duplicadas al paginar
+- `fetchMore()` concatenaba `results + more` SIN dedupe y la lista usa
+  `key = { it.id }`: si AO3 repetía una obra entre páginas (sorts dinámicos
+  tipo UPDATED/KUDOS), LazyColumn lanzaba «Key was already used» y moría la
+  pantalla. AuthorScreen ya deduplicaba; ahora también SearchScreen.
+
+### 2. DownloadQueueService: contrato de startForegroundService
+- `ACTION_DOWNLOAD` con intent inválido (`toJob()==null`) y `ACTION_RESUME`
+  con cola vacía no llamaban nunca `startForeground()` → crash
+  `ForegroundServiceDidNotStartInTime` ~5 s después (API 26+). Disparador
+  real: cancelar una descarga deja `paused=true` en pantalla sin trabajo
+  persistido → «Reanudar» → RESUME vacío → stopSelf() sin foreground.
+- Ahora `ensureForeground()` corre SIEMPRE en ambas ramas (acepta JobInfo?),
+  y los stopSelf() se guardan con `if (!processing)`.
+
+### 3. DownloadQueueService: teardown del worker sin carreras
+- El `finally` del worker corría en IO y podía intercalarse con un
+  ACTION_DOWNLOAD recién aceptado: pisaba `foregroundStarted/processing` de
+  la sesión nueva o ejecutaba `stopSelf()` DESTRUYENDO el servicio con el
+  worker nuevo dentro (descarga silenciosamente perdida pese al snackbar).
+- Ahora el cierre se publica al HILO PRINCIPAL (`mainHandler.post`) y solo
+  se ejecuta si `worker === self` (identidad de la Job): atómico frente a
+  `onStartCommand`; si otra sesión es dueña, no toca nada.
+
+### 4. DownloadQueueService: reconcile ya no borra trabajos nuevos
+- El `removePendingJob(workId)` incondicional de fin de carrera podía borrar
+  la entrada persistida por una re-encola del mismo trabajo durante la
+  ventana de cierre (muerte de proceso en ese sub-segundo = cola perdida).
+- Ahora se respeta si hay un trabajo del mismo workId aún en RAM (`superseded`).
+- Portado además el race-closer del path de FALLO (cancel-during-save) que
+  existía solo en la copia de trabajo y nunca llegó a este repo.
+
+### 5. Ao3Client: POSTs no idempotentes sin retry ciego
+- `post()` reintentaba 5 veces ante CUALQUIER fallo: un comentario cuyo POST
+  ya alcanzó el servidor pero perdió la respuesta se publicaba DOS VECES
+  (los kudos deduplican server-side; los comentarios no).
+- Ahora: un solo envío; reintento ÚNICO solo tras 429 explícito (garantiza
+  que el primer envío no se procesó), honrando Retry-After. Cualquier otro
+  error se propaga para que el usuario decida viendo AO3.
+
+### 6. Ao3Client: token CSRF siempre de página fresca
+- `postKudos`/`postComment` extraían el `authenticity_token` de `get(url)`
+  con caché de disco por defecto (TTL 7 días): token ligado a sesión puede
+  caducar frente a la cookie actual → rechazo intermitente. Ahora
+  `disk = null` en ambas (coste: una petición extra por acción manual).
+
+### 7. Store/DiskCache fuera del hilo principal
+- LibraryScreen: `remember(refreshTick, queueState) { store.downloads() }`
+  re-parseaba el fichero de MB en main POR CADA capítulo descargado. Ahora
+  `LaunchedEffect(refreshTick, completedAt, paused)` + `Dispatchers.IO`,
+  con flag `loading` para no destellar el estado vacío.
+- WorkDetailScreen: `downloadedIds` se lee fuera de main vía tick de
+  refresco (`refreshDownloads()` ya no toca Store directamente).
+- SettingsScreen: export/import de backup serializan/parsean MB → movidos a
+  `Dispatchers.IO` (jank/ANR garantizado con biblioteca grande).
+
+### 8. DiskCache.put atómico
+- Escribía directo al fichero final: un proceso muerto a mitad dejaba el
+  fichero truncado PERMANENTEMENTE y `get()` (solo existencia+mtime) lo
+  servía como válido hasta agotar el TTL. Ahora temp+rename como
+  `Store.atomicWrite`.
+
+### 9. Hallazgo refutado con evidencia (lección)
+- `/code-review` reportó que `init { migrateDownloads() }` corre antes que
+  los inicializadores de `latestSnapshot/writeJob/...` (líneas 508-511) y
+  por tanto toda persist programado en la migración se perdería. REFUTADO
+  empíricamente: probe JVM + `javap` demuestran que kotlinc NO emite los
+  stores `= null` posteriores al init (el valor escrito sobrevive; por eso
+  el test de migración pasa deterministamente). Aun así, los cuatro campos
+  se MOVIERON encima del init: el código ya no depende de una sutileza del
+  compilador que ningún lector espera.
+
+### 10. SearchScreen: identidad de búsqueda sobre filtros actuales
+- `searchKey` derivaba de los parámetros INMUTABLES de la ruta mientras los
+  resultados siguen a `currentFilters`: posiciones alcanzadas con filtros
+  editados se persistían bajo la clave original y se restauraban sobre otro
+  listado. Ahora `searchKey = remember(currentFilters, currentSort)`.
+- Comentarios obsoletos corregidos (referían rememberSaveable/durabilidad
+  que no existe).
+
+### Tests nuevos (106 total, eran 103)
+- CookieJarMergeTest a nivel de JAR (no solo merge()): respuesta sin
+  Set-Cookie no limpia el jar, purga de expiradas al LEER, filtro
+  path/domain en loadForRequest.
+
+### Verificación
+- `testDebugUnitTest` OK (106 tests, 0 fallos) · `assembleDebug` OK ·
+  árboles test/repo verificados idénticos con diff -r.
+- Pendiente para release: bump `versionName` 0.7.25 → **0.7.26** /
+  `versionCode` 58 → 59 al taggear.
+- Quedan anotados (no corregidos): identidad por-push en claves de nav
+  (colisión pop+push en transición), zombie WebView encolado tras timeout,
+  chunk-gap de WebViewFetcher reinicia buffer vs falla, ScrollStore sin
+  eviction ni supervivencia a muerte de proceso.

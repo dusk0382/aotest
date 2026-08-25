@@ -142,7 +142,8 @@ fun SearchScreen(
     var currentFilters by remember { mutableStateOf(filters) }
     var currentSort by remember { mutableStateOf(sort) }
     var results by remember { mutableStateOf<List<WorkSummary>>(emptyList()) }
-    // `page` is declared with rememberSaveable below, keyed by the search identity.
+    // `page` (más abajo) vive en remember(searchKey): sobrevive al ir y venir
+    // mientras la identidad de búsqueda no cambie; no frente a muerte de proceso.
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var noMorePages by remember { mutableStateOf(false) }
@@ -161,7 +162,10 @@ fun SearchScreen(
     // Scroll + paginación sobreviven a la navegación vía ScrollStore (key = identidad
     // de la búsqueda), no vía SaveableStateRegistry anidado — este último no
     // restauraba LazyListState dentro de AnimatedContent en este dispositivo.
-    val searchKey = remember(filters, sort) { "${filters.serialize()}|${sort.name}" }
+    // La identidad sigue a los filtros ACTUALES (currentFilters), no a los de la
+    // ruta: si el usuario edita filtros, cambia el listado y una posición guardada
+    // bajo la identidad anterior pertenece a otro conjunto de resultados.
+    val searchKey = remember(currentFilters, currentSort) { "${currentFilters.serialize()}|${currentSort.name}" }
     val saved = remember(searchKey) { container.scrollStore.getSearch(searchKey) }
     val listState = remember(searchKey) {
         if (saved != null) LazyListState(saved.index, saved.offset) else LazyListState()
@@ -175,7 +179,9 @@ fun SearchScreen(
         mutableStateOf(restoredPage > 1 || restoredScroll.first > 0 || restoredScroll.second > 0)
     }
 
-    // Persiste la posición al salir (y también cuando cambia page por "Cargar más").
+    // Persiste la posición al salir. El efecto se clavea a la identidad de la
+    // búsqueda: cada búsqueda guarda la suya; «Cargar más» avanza `page` y lo
+    // que queda guardado es el valor vigente en el momento de salir.
     androidx.compose.runtime.DisposableEffect(searchKey) {
         onDispose {
             container.scrollStore.saveSearch(
@@ -236,7 +242,12 @@ fun SearchScreen(
                     error = null
                     noMorePages = true
                 } else {
-                    results = results + more
+                    // AO3 puede repetir obras entre páginas cuando el orden cambia
+                    // entre peticiones (sorts dinámicos como UPDATED/KUDOS): un id
+                    // duplicado rompe el LazyColumn (key = work.id) con
+                    // «Key was already used». Solo se añaden los ids nuevos.
+                    val known = results.mapTo(HashSet()) { it.id }
+                    results = results + more.filter { known.add(it.id) }
                     page += 1
                 }
             } catch (e: Exception) {

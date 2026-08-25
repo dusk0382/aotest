@@ -52,7 +52,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
@@ -365,10 +367,14 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
     ) { uri ->
         if (uri != null) {
             scope.launch {
+                // Serializar la biblioteca completa (incluye las descargas, MB)
+                // es trabajo de IO: en main provocaba jank/ANR con biblioteca grande.
                 val ok = runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use {
-                        it.write(store.exportBackup().toByteArray())
-                    } != null
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(store.exportBackup().toByteArray())
+                        } != null
+                    }
                 }.getOrDefault(false)
                 snackbar.showSnackbar(if (ok) savedMsg else failedMsg)
             }
@@ -381,7 +387,9 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
         if (uri != null) {
             scope.launch {
                 val json = runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    }
                 }.getOrNull()
                 if (json.isNullOrBlank()) {
                     snackbar.showSnackbar(unreadableMsg)
@@ -430,7 +438,9 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
                     val json = pendingImportJson
                     pendingImportJson = null
                     scope.launch {
-                        val ok = json != null && store.importBackup(json)
+                        // Parsear el JSON del backup y reescribir ambos ficheros
+                        // también es trabajo de IO (mismas razones que el export).
+                        val ok = json != null && withContext(Dispatchers.IO) { store.importBackup(json) }
                         snackbar.showSnackbar(if (ok) restoredMsg else invalidMsg)
                     }
                 }) { Text(restoreLabel) }

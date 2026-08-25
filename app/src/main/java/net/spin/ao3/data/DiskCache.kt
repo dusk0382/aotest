@@ -50,7 +50,19 @@ class DiskCache(
         withContext(Dispatchers.IO) {
             try {
                 dir.mkdirs()
-                file(key).writeText(value)
+                val target = file(key)
+                // Escritura atómica (temp + rename), como Store.atomicWrite: un
+                // proceso muerto a mitad de writeText dejaba el fichero truncado
+                // PERMANENTEMENTE y, como get() solo mira existencia+mtime, ese
+                // HTML roto se servía como cache-hit válido hasta agotar el TTL
+                // (días de «No se pudo interpretar» por una sola mala suerte).
+                val tmp = File(dir, target.name + ".tmp")
+                tmp.writeText(value)
+                if (!tmp.renameTo(target)) {
+                    // rename can fail on some filesystems; fall back to a
+                    // direct write (best-effort, como antes).
+                    target.writeText(value)
+                }
                 evictIfNeeded()
             } catch (_: Exception) {
                 // Cache is best-effort; a write failure is never fatal.

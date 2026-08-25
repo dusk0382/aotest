@@ -66,7 +66,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
@@ -108,7 +110,17 @@ fun LibraryScreen(
 
     val favorites = remember(refreshTick) { store.savedWorks() }
     val history = remember(refreshTick) { store.history() }
-    val downloads = remember(refreshTick, queueState) { store.downloads() }
+    // Las descargas viven en un fichero de MB (HTML completo): leerlas en
+    // composición y re-claveadas a TODO queueState re-parseaba el fichero entero
+    // en el hilo principal POR CADA capítulo descargado. Ahora se leen fuera de
+    // main y solo en cambios relevantes (refresco manual, fin o pausa/resumen de
+    // la cola); el progreso vivo lo pinta la tarjeta de la cola con queueState.
+    var downloads by remember { mutableStateOf<List<net.spin.ao3.data.Store.Download>>(emptyList()) }
+    var downloadsLoading by remember { mutableStateOf(true) }
+    LaunchedEffect(refreshTick, queueState.completedAt, queueState.paused) {
+        downloads = withContext(Dispatchers.IO) { store.downloads() }
+        downloadsLoading = false
+    }
 
     // Resolved in composable context (stringResource can't run inside coroutines).
     val removedFavMsg = stringResource(R.string.library_removed_fav)
@@ -165,6 +177,7 @@ fun LibraryScreen(
                     )
                     else -> DownloadsTab(
                         downloads = downloads,
+                        loading = downloadsLoading,
                         onOpenDetail = onOpenDetail,
                         onOpenChapter = onOpenReader,
                         onDeleteChapter = { id, index ->
@@ -444,6 +457,7 @@ private fun HistoryTab(
 @Composable
 private fun DownloadsTab(
     downloads: List<net.spin.ao3.data.Store.Download>,
+    loading: Boolean,
     onOpenDetail: (Long) -> Unit,
     onOpenChapter: (Long, Int) -> Unit,
     onDeleteChapter: (Long, Int) -> Unit,
@@ -459,7 +473,9 @@ private fun DownloadsTab(
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    if (downloads.isEmpty() && !queueState.active && !queueState.paused) {
+    // `loading` evita el destello del estado vacío mientras la primera lectura
+    // (posiblemente MB) llega desde IO.
+    if (!loading && downloads.isEmpty() && !queueState.active && !queueState.paused) {
         EmptyState(
             icon = Icons.Default.Download,
             title = stringResource(R.string.library_nothing_downloaded),

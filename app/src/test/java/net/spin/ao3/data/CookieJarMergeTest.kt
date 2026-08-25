@@ -1,6 +1,7 @@
 package net.spin.ao3.data
 
 import okhttp3.Cookie
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,5 +88,38 @@ class CookieJarMergeTest {
         val url = Ao3Client().tagWorksUrl("Harry Potter")
         assertTrue("la URL debe llevar el tag como segmento del path: $url", url.contains("/tags/Harry%20Potter/works"))
         assertFalse("'+' en el path da 404 en AO3: $url", url.contains("+"))
+    }
+
+    // ---- Comportamiento a nivel de jar (no cubierto por merge()) -----------
+
+    @Test
+    fun `a response without set-cookie headers must not clear the jar`() {
+        val jar = Ao3Client.InMemoryCookieJar()
+        val url = "https://archiveofourown.org/works/1".toHttpUrl()
+        jar.saveFromResponse(url, listOf(cookie("view_adult", "1")))
+        // OkHttp llama saveFromResponse por CADA hop de redirección; los que no
+        // traen Set-Cookie no deben borrar lo acumulado.
+        jar.saveFromResponse(url, emptyList())
+        assertEquals(listOf("view_adult"), jar.loadForRequest(url).map { it.name })
+    }
+
+    @Test
+    fun `loadForRequest purges expired cookies on read`() {
+        val jar = Ao3Client.InMemoryCookieJar()
+        val url = "https://archiveofourown.org/works/1".toHttpUrl()
+        jar.saveFromResponse(url, listOf(cookie("__cf_bm", "old", expiredAt = 500L)))
+        // Purgar también al LEER: enviar una __cf_bm/view_adult caducada
+        // invita a Cloudflare a pedir challenges extra.
+        assertTrue(jar.loadForRequest(url).isEmpty())
+    }
+
+    @Test
+    fun `loadForRequest only returns cookies matching path and domain`() {
+        val jar = Ao3Client.InMemoryCookieJar()
+        val worksUrl = "https://archiveofourown.org/works/1".toHttpUrl()
+        val tagUrl = "https://archiveofourown.org/tags/Harry%20Potter/works".toHttpUrl()
+        jar.saveFromResponse(worksUrl, listOf(cookie("sid", "works-value", path = "/works")))
+        assertTrue(jar.loadForRequest(worksUrl).any { it.name == "sid" })
+        assertTrue(jar.loadForRequest(tagUrl).none { it.name == "sid" })
     }
 }

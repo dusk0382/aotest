@@ -120,6 +120,15 @@ class Store(rootFile: File) {
     private var downloadsRoot: JSONObject = JSONObject()
     @Volatile private var downloadsLoaded = false
 
+    // Snapshot y job del single-writer. Declarados ANTES del bloque init a
+    // propósito: migrateDownloads() programa escrituras durante la construcción,
+    // y depender de que el compilador elimine los inicializadores «= null»
+    // posteriores (lo hace hoy, verificado en bytecode) sería frágil.
+    private var latestSnapshot: String? = null
+    private var writeJob: Job? = null
+    private var latestDownloadsSnapshot: String? = null
+    private var downloadsWriteJob: Job? = null
+
     init {
         migrateDownloads()
     }
@@ -503,12 +512,6 @@ class Store(rootFile: File) {
             JSONObject()
         }
     }
-
-    /** Latest requested snapshot; written by the single-writer [writeLatest]. */
-    private var latestSnapshot: String? = null
-    private var writeJob: Job? = null
-    private var latestDownloadsSnapshot: String? = null
-    private var downloadsWriteJob: Job? = null
 
     /**
      * Persists the in-memory [root] (small file) to disk, debounced with a

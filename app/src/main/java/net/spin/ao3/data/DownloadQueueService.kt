@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
@@ -26,6 +28,7 @@ import net.spin.ao3.R
 import net.spin.ao3.data.model.ChapterInfo
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.coroutines.coroutineContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -43,6 +46,9 @@ class DownloadQueueService : Service() {
     private val client get() = (application as Ao3App).container.client
 
     private val pending = ArrayDeque<JobInfo>()
+    // Teardown del worker encolado al hilo principal: onStartCommand y el
+    // cierre de la cola quedan así ordenados sin carreras (ver processPending).
+    private val mainHandler = Handler(Looper.getMainLooper())
     // processing/foregroundStarted are written from the worker coroutine
     // (Dispatchers.IO) and read from main-thread onStartCommand: without
     // @Volatile a stale read can skip startForeground or double-start work.
@@ -59,29 +65,39 @@ class DownloadQueueService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_DOWNLOAD -> {
+                // Arrancado vía startForegroundService: hay que llamar
+                // startForeground SIEMPRE, también con un intent inválido
+                // (extras corruptos o lista de capítulos vacía), o el sistema
+                // mata la app ~5 s después (ForegroundServiceDidNotStartInTime).
                 val job = intent.toJob()
+                cancelRequested = false
+                ensureForeground(job)
                 if (job != null) {
-                    cancelRequested = false
                     store.addPendingJob(job.toPending())
                     synchronized(pending) {
                         pending.removeAll { it.workId == job.workId }
                         pending += job
                     }
-                    ensureForeground(job)
                     processPending()
+                } else if (!processing) {
+                    stopSelf()
                 }
             }
             ACTION_RESUME -> {
+                // Mismo contrato que ACTION_DOWNLOAD: la cola restaurada puede
+                // venir vacía (p.ej. tras una descarga cancelada que dejó el
+                // estado «pausado» en pantalla y sin trabajo persistido), pero
+                // startForeground no es opcional.
                 cancelRequested = false
                 if (pending.isEmpty()) {
                     val restored = store.pendingJobs().map { it.toJob() }
                     synchronized(pending) { pending.addAll(restored) }
                 }
                 val first = synchronized(pending) { pending.firstOrNull() }
+                ensureForeground(first)
                 if (first != null) {
-                    ensureForeground(first)
                     processPending()
-                } else {
+                } else if (!processing) {
                     stopSelf()
                 }
             }
@@ -107,7 +123,8 @@ class DownloadQueueService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun ensureForeground(job: JobInfo) {
+    /** Acepta [job] nulo: un intent inválido también exige startForeground. */
+    private fun ensureForeground(job: JobInfo?) {
         if (foregroundStarted) return
         startForegroundCompat(
             baseNotification(job)
@@ -137,22 +154,33 @@ class DownloadQueueService : Service() {
                     if (!completed) break
                 }
             } finally {
-                worker = null
-                // A new ACTION_DOWNLOAD can land on this still-alive instance
-                // between stopSelf() and onDestroy(). Clear foregroundStarted
-                // BEFORE publishing processing=false: any ACTION_DOWNLOAD that
-                // then observes processing==false also observes that it must
-                // call startForeground itself (API 26+ demands a
-                // startForeground() per startForegroundService, or the system
-                // kills us with ForegroundServiceDidNotTimeOutException).
-                foregroundStarted = false
-                processing = false
-                if (Build.VERSION.SDK_INT >= 24) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    stopForeground(true)
+                // El cierre corre en el HILO PRINCIPAL y solo si esta sesión
+                // sigue siendo la dueña (worker === self). Antes, el finally en
+                // IO podía intercalarse con un ACTION_DOWNLOAD que acababa de
+                // arrancar una cola nueva: le pisaba foregroundStarted/processing
+                // o llegaba a ejecutar stopSelf() DESTRUYENDO el servicio con el
+                // worker nuevo dentro. En el hilo principal el bloque es atómico
+                // frente a onStartCommand; si otra sesión es la dueña, no toca
+                // nada (esa sesión ya posee el foreground y el estado).
+                val self = coroutineContext[Job]
+                mainHandler.post {
+                    if (worker === self) {
+                        worker = null
+                        // Clear foregroundStarted BEFORE publishing
+                        // processing=false: any ACTION_DOWNLOAD that then
+                        // observes processing==false also observes that it must
+                        // call startForeground itself (API 26+ demands one per
+                        // startForegroundService).
+                        foregroundStarted = false
+                        processing = false
+                        if (Build.VERSION.SDK_INT >= 24) {
+                            stopForeground(STOP_FOREGROUND_DETACH)
+                        } else {
+                            stopForeground(true)
+                        }
+                        if (!processing) stopSelf()
+                    }
                 }
-                if (!processing) stopSelf()
             }
         }
     }
@@ -201,8 +229,17 @@ class DownloadQueueService : Service() {
                 throw e
             } catch (e: Exception) {
                 // Do not advance done on failure. Keep this chapter in the
-                // persisted queue so Resume retries it later.
-                store.addPendingJob(Store.PendingJob(job.workId, job.title, job.chapters.drop(i)))
+                // persisted queue so Resume retries it later — unless the user
+                // cancelled while the request was in flight; then the job must
+                // stay removed.
+                if (!cancelRequested) {
+                    store.addPendingJob(Store.PendingJob(job.workId, job.title, job.chapters.drop(i)))
+                    // Same race-closer as the success path above: if cancel
+                    // landed between the check and the write, undo it — a
+                    // cancelled job must never survive in "pending"
+                    // (startIfPending would resurrect it on next launch).
+                    if (cancelRequested) store.removePendingJob(job.workId)
+                }
                 state.value = QueueState(
                     active = false,
                     paused = true,
@@ -221,7 +258,12 @@ class DownloadQueueService : Service() {
         // Reconcile: every chapter is stored, so any leftover pending entry for
         // this work is stale (e.g. a cancel raced the last save). Leaving it
         // would make startIfPending re-run the whole queue on every cold start.
-        store.removePendingJob(job.workId)
+        // EXCEPT when a NEWER job for this same work is already queued (a
+        // re-enqueue that landed while this run was finishing): its persisted
+        // entry is alive, and wiping it here would drop the resumable queue if
+        // the process dies before that job saves its first chapter.
+        val superseded = synchronized(pending) { pending.any { it.workId == job.workId } }
+        if (!superseded) store.removePendingJob(job.workId)
         if (cancelRequested) return true
 
         state.value = QueueState(
@@ -276,7 +318,7 @@ class DownloadQueueService : Service() {
         }
     }
 
-    private fun baseNotification(job: JobInfo): NotificationCompat.Builder {
+    private fun baseNotification(job: JobInfo?): NotificationCompat.Builder {
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
