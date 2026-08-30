@@ -91,6 +91,41 @@ class TranslatorTest {
         assertEquals(null, translator().aiErrorFromBody("<html>502 Bad Gateway</html>"))
     }
 
+    // ---- Backend clients5 (dict-chrome-ex) ----
+
+    @Test
+    fun `parseClients5 extrae el par traducción-idioma (forma verificada en vivo)`() {
+        val json = """[["Hola mundo, esta es una prueba.","en"]]"""
+        assertEquals("Hola mundo, esta es una prueba.", translator().parseClients5(json))
+    }
+
+    @Test
+    fun `parseClients5 conserva los saltos dobles entre bloques`() {
+        val json = """[["Uno.\n\nDos.\n\nTres.","en"]]"""
+        assertEquals("Uno.\n\nDos.\n\nTres.", translator().parseClients5(json))
+    }
+
+    @Test
+    fun `parseClients5 acepta strings planos`() {
+        assertEquals("Uno.Dos.", translator().parseClients5("""["Uno.","Dos."]"""))
+    }
+
+    @Test
+    fun `parseClients5 acepta la forma anidada estilo gtx`() {
+        val json = """[[["Hola mundo","Hello world",null,null,10]],null,"en"]"""
+        assertEquals("Hola mundo", translator().parseClients5(json))
+    }
+
+    @Test
+    fun `parseClients5 rechaza JSON desconocido`() {
+        try {
+            translator().parseClients5("""{"raro":1}""")
+            fail("debió lanzar por JSON desconocido")
+        } catch (e: java.io.IOException) {
+            // esperado
+        }
+    }
+
     @Test
     fun `config IA sin configurar se detecta`() {
         val empty = Translator.Config(provider = Translator.Config.Provider.AI)

@@ -4,6 +4,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -12,8 +15,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Log
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * Chapter translation with two selectable backends:
@@ -54,10 +59,33 @@ class Translator(
             get() = aiBaseUrl.isNotBlank() && aiApiKey.isNotBlank() && aiModel.isNotBlank()
     }
 
-    /** Browser-like client for the Google endpoint. */
+
+    /** Cookies por host para el fallback gtx (solo sesión de Google). */
+    private val googleCookies = object : CookieJar {
+        private val store = HashMap<String, List<Cookie>>()
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(store) {
+            val now = System.currentTimeMillis()
+            (store[url.host].orEmpty().filter { it.expiresAt > now })
+                .also { alive -> store[url.host] = alive }
+        }
+
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            synchronized(store) { store[url.host] = cookies }
+        }
+    }
+
+    /** Browser-like client for the clients5 endpoint (no cookies needed there). */
     private val googleClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    /** Fallback gtx client WITH a cookie jar (NID from the warm-up visit). */
+    private val gtxClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .cookieJar(googleCookies)
         .build()
 
     /** LLMs are slow; give the AI backend a generous read timeout. */
@@ -66,10 +94,10 @@ class Translator(
         .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
-    /** Comfortably under the ~10k measured ceiling, big enough to keep context. */
-    private val chunkChars = 8_000
-    /** Small pause between chunks: respectful, avoids bursty behavior. */
-    private val paceMs = 150L
+    /** Comfortably under the request ceilings; smaller batches look less bot-like. */
+    private val chunkChars = 4_500
+    /** Human-ish pause between batches (+ jitter, see the translate loop). */
+    private val paceMs = 900L
 
     private val endpoint = "https://translate.googleapis.com/translate_a/single"
 
@@ -125,20 +153,64 @@ class Translator(
             val parts = out.split("\n\n").map { it.trim() }.filter { it.isNotEmpty() }
             translated += if (parts.size == batch.size) parts else listOf(out.trim())
             onProgress(i + 1, batches.size)
-            if (i < batches.lastIndex) delay(paceMs)
+            // Jitter: metronomic spacing is a bot fingerprint; human pacing is not.
+            if (i < batches.lastIndex) delay(paceMs + Random.nextLong(0, 600))
         }
         val result = rebuildHtml(translated)
         if (result.isNotBlank()) cache.put(cacheKey, result)
         return result
     }
 
-    // ---- Google (gtx) --------------------------------------------------------
+    // ---- Google (clients5 dict-chrome-ex primero, gtx con cookies de respaldo)
 
     private class GoogleThrottle(val retryAfterSeconds: Long?) :
         IOException(GOOGLE_THROTTLE_MSG)
 
-    private suspend fun translateGoogleChunk(text: String, lang: String): String =
+    /**
+     * Translates one chunk through Google. The gtx web endpoint is IP-throttled
+     * for cookie-less clients (measured: HTTP 429 even with a browser UA), so:
+     *  1. `clients5.google.com/translate_a/t?client=dict-chrome-ex` — the
+     *     endpoint of Google Translate's own Chrome extension; measured 200
+     *     without cookies, and it PRESERVES the "\n\n" block separators inside
+     *     a single string (better for our 1:1 block mapping than gtx).
+     *  2. Fallback: the classic gtx endpoint after a browser-like warm-up that
+     *     picks up session cookies (NID) in the jar.
+     */
+    private suspend fun translateGoogleChunk(text: String, lang: String): String {
+        var lastError: Exception? = null
+        try {
+            return translateClients5Chunk(text, lang)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            lastError = e
+        }
+        try {
+            return translateGtxChunk(text, lang)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            lastError = e
+        }
+        throw lastError ?: IOException("No se pudo traducir")
+    }
+
+    private suspend fun translateClients5Chunk(text: String, lang: String): String =
         withContext(Dispatchers.IO) {
+            val url = "https://clients5.google.com/translate_a/t".toHttpUrl().newBuilder()
+                .addQueryParameter("client", "dict-chrome-ex")
+                .addQueryParameter("sl", "auto")
+                .addQueryParameter("tl", lang)
+                .addQueryParameter("q", text)
+                .build()
+            fetchGoogleJson(googleClient, url, 3)
+                ?.let { return@withContext parseClients5(it) }
+            throw IOException(GOOGLE_THROTTLE_MSG)
+        }
+
+    private suspend fun translateGtxChunk(text: String, lang: String): String =
+        withContext(Dispatchers.IO) {
+            warmUpGtxCookies()
             val url = endpoint.toHttpUrl().newBuilder()
                 .addQueryParameter("client", "gtx")
                 .addQueryParameter("sl", "auto")
@@ -146,44 +218,76 @@ class Translator(
                 .addQueryParameter("dt", "t")
                 .addQueryParameter("q", text)
                 .build()
-            var lastError: Exception? = null
-            repeat(3) { attempt ->
-                try {
-                    // A real browser UA + Accept headers: Google gives
-                    // bot-looking clients 403/429 (the old app UA was the
-                    // "error de HTTP" the user saw).
-                    val request = Request.Builder()
-                        .url(url)
-                        .header("User-Agent", BROWSER_UA)
-                        .header("Accept", "*/*")
-                        .header("Accept-Language", ACCEPT_LANGUAGE)
-                        .build()
-                    googleClient.newCall(request).execute().use { response ->
-                        val body = response.body?.string().orEmpty()
-                        when {
-                            response.code == 429 -> throw GoogleThrottle(
-                                response.header("Retry-After")?.trim()?.toLongOrNull()?.coerceIn(1, 30),
-                            )
-                            response.code != 200 -> throw IOException(googleErrorMessage(response.code))
-                            // A 200 with an HTML consent/abuse page instead of
-                            // JSON is also a block; fail with the same message
-                            // instead of a raw JSONArray parse error.
-                            !body.trimStart().startsWith("[") -> throw IOException(GOOGLE_BLOCKED_MSG)
-                        }
-                        return@withContext parseGtx(body)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    lastError = e
-                    val wait = (e as? GoogleThrottle)?.retryAfterSeconds?.times(1000)
-                        ?: (1200L * (attempt + 1))
-                    delay(wait)
-                }
-            }
-            throw lastError ?: IOException("No se pudo traducir")
+            fetchGoogleJson(gtxClient, url, 2)
+                ?.let { return@withContext parseGtx(it) }
+            throw IOException(GOOGLE_THROTTLE_MSG)
         }
 
+    /**
+     * One HTTP shape for both endpoints: up to [attempts] tries with patient
+     * throttle backoff (Retry-After honored up to 45 s, else 2/6/15 s). Returns
+     * the JSON body of the first 200, or null if every try failed (the last
+     * error is logged) — the caller throws the actionable throttle message.
+     */
+    private suspend fun fetchGoogleJson(client: OkHttpClient, url: HttpUrl, attempts: Int): String? {
+        val backoff = longArrayOf(2_000L, 6_000L, 15_000L)
+        var lastError: Exception? = null
+        repeat(attempts) { attempt ->
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", BROWSER_UA)
+                    .header("Accept", "*/*")
+                    .header("Accept-Language", ACCEPT_LANGUAGE)
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    when {
+                        response.code == 429 -> throw GoogleThrottle(
+                            response.header("Retry-After")?.trim()?.toLongOrNull()?.coerceIn(1, 45),
+                        )
+                        response.code != 200 -> throw IOException(googleErrorMessage(response.code))
+                        // A 200 with an HTML consent/abuse page instead of JSON
+                        // is also a block; treat it like the throttle path.
+                        !body.trimStart().startsWith("[") -> throw IOException(GOOGLE_BLOCKED_MSG)
+                    }
+                    return body
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG_GOOGLE, "intento ${attempt + 1}/$attempts falló: ${e.message}")
+                delay((e as? GoogleThrottle)?.retryAfterSeconds?.times(1000) ?: backoff[attempt.coerceAtMost(backoff.lastIndex)])
+            }
+        }
+        lastError?.let { Log.w(TAG_GOOGLE, "agotado: ${it.message}") }
+        return null
+    }
+
+    /**
+     * Session cookies for the gtx fallback: a real browser arrives with NID
+     * from translate.google.com; a cold client is exactly what gets 429'd.
+     * One warm-up per process.
+     */
+    @Volatile
+    private var gtxWarmedUp = false
+
+    private suspend fun warmUpGtxCookies() {
+        if (gtxWarmedUp) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                gtxClient.newCall(
+                    Request.Builder()
+                        .url("https://translate.google.com/")
+                        .header("User-Agent", BROWSER_UA)
+                        .header("Accept-Language", ACCEPT_LANGUAGE)
+                        .build(),
+                ).execute().use { it.body?.string() }
+            }
+        }
+        gtxWarmedUp = true
+    }
     /** Translated text from the gtx JSON: `[[["t1","o1",...],...],null,"en",…]`. */
     internal fun parseGtx(json: String): String {
         val root = JSONArray(json)
@@ -194,6 +298,45 @@ class Translator(
             if (segment.length() > 0 && !segment.isNull(0)) out.append(segment.getString(0))
         }
         return out.toString()
+    }
+
+    /**
+     * Translated text from the clients5 (`dict-chrome-ex`) JSON. Verified live
+     * shape: `[["traducción","en"]]` — the whole chunk as ONE string with the
+     * "\n\n" separators preserved (element 1 is the detected source language).
+     * Other documented shapes handled: `["t1","t2"]` (plain strings) and the
+     * nested gtx-like `[[["t","o",...],...]]`.
+     */
+    internal fun parseClients5(json: String): String {
+        if (!json.trimStart().startsWith("[")) {
+            throw IOException("Respuesta de traducción no reconocida")
+        }
+        val root = JSONArray(json)
+        when (val first = root.opt(0)) {
+            is String -> {
+                val out = StringBuilder()
+                for (i in 0 until root.length()) {
+                    val s = root.optString(i)
+                    if (s.isNotEmpty() && s != "null") out.append(s)
+                }
+                if (out.isNotEmpty()) return out.toString()
+            }
+            is JSONArray -> {
+                if (first.opt(0) is String) {
+                    // [["t","src"], ...]: translation is element 0 of each pair.
+                    val out = StringBuilder()
+                    for (i in 0 until root.length()) {
+                        val el = root.optJSONArray(i) ?: continue
+                        val s = el.optString(0)
+                        if (s.isNotEmpty() && s != "null") out.append(s)
+                    }
+                    if (out.isNotEmpty()) return out.toString()
+                } else {
+                    return parseGtx(json)
+                }
+            }
+        }
+        throw IOException("Respuesta de traducción no reconocida")
     }
 
     private fun googleErrorMessage(code: Int): String = when (code) {
@@ -301,9 +444,11 @@ class Translator(
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         private const val ACCEPT_LANGUAGE = "es-ES,es;q=0.9,en;q=0.8"
 
+        private const val TAG_GOOGLE = "TranslatorGoogle"
+
         private const val GOOGLE_THROTTLE_MSG =
-            "Google limitó las peticiones (HTTP 429). Espera un momento y reintenta, " +
-                "o cambia a traducción con IA en Ajustes → Traducción."
+            "Google limitó las traducciones en esta red por ahora (HTTP 429). " +
+                "Espera unos minutos y reintenta, o cambia a traducción con IA en Ajustes → Traducción."
 
         private const val GOOGLE_BLOCKED_MSG =
             "Google bloqueó la traducción (respuesta no válida). Espera unos minutos " +
