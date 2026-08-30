@@ -1,5 +1,6 @@
 package net.spin.ao3.ui.screens
 
+import net.spin.ao3.ui.reader.parseJsRatio
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

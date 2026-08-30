@@ -1,10 +1,11 @@
-# `ReaderScreen.kt` — guía del lector
+# El lector — guía (`ReaderScreen.kt` + `ui/reader/`)
 
-`ui/screens/ReaderScreen.kt` (~2.700 líneas) es con diferencia el archivo más
-grande y más frágil del proyecto: concentra el lector en modo scroll (WebView),
-el modo paginado (Compose), TTS, la UI de traducción, la búsqueda en capítulo,
-la hoja de ajustes y el chrome inmersivo. Esta guía lo mapea y explica cómo
-modificarlo sin romperlo.
+El lector vive en `ui/screens/ReaderScreen.kt` (~1.750 líneas: el composable
+principal con estado y efectos) y en el paquete `ui/reader/` (piezas extraídas,
+228-465 líneas cada una). Es la zona más frágil del proyecto: concentra el modo
+scroll (WebView), el modo paginado (Compose), TTS, la UI de traducción, la
+búsqueda en capítulo, la hoja de ajustes y el chrome inmersivo. Esta guía mapea
+el conjunto y explica cómo modificarlo sin romperlo.
 
 **Antes de tocar**: leer la sección 8 (Invariantes) y ejecutar los tests
 (`./gradlew :app:testDebugUnitTest`). El lector acumula varias regresiones
@@ -13,27 +14,23 @@ código y por qué.
 
 ---
 
-## 1. Mapa funcional del archivo
+## 1. Mapa de archivos
 
-| Región | Qué contiene |
+| Archivo | Contenido |
 |---|---|
-| Estado del lector | ~líneas 158-230: título/autor/capítulos/índice, contenido, carga/error, prefs del lector, traducción, búsqueda, TTS |
-| Progreso y chrome | ~262-310: `currentRatio`, `chapterProgress`, `chromeVisible`, insets, ocultar barras del sistema (inmersivo) |
-| Datos paginados | ~325-370: `displayContent`, `lines` (bloques), `paginating`, `measuredPages`, `rowStarts`, `pagerState` |
-| Carga (efecto 1) | `LaunchedEffect(workId)`: metadatos completos + overlay de capítulos descargados + fallback offline |
-| Carga (efecto 2) | `LaunchedEffect(currentIndex)`: contenido del capítulo (descarga local primero, red después), prefetch del siguiente |
-| `goToChapter` / `saveProgressNow` | navegación entre capítulos (guarda el capítulo saliente) y guardado de progreso (síncrono al salir) |
-| Restore de posición | `pendingScroll` + `pendingScrollChapter` (etiquetado por capítulo), `rowStarts` |
-| HTML/JS del modo scroll | `contentKey`/`html`/`css`/`prefsJson`, `onPageFinished`, `restoreScroll`, `jsFindInPage`/`jsGoToMatch`/`jsClearFind` (al final del archivo) |
-| Cuerpo | `Box` raíz: fondo del tema + cutout; rama WebView (scroll) vs rama `BoxWithConstraints` (paginado) |
-| Pack paginado | `LaunchedEffect` dentro de `BoxWithConstraints`: pack en `Dispatchers.Default`, restauración por fila exacta |
-| `PagedReaderBody` | `HorizontalPager` + zonas de toque 25/50/25 + pie "· N de M ·" |
-| `packPagesToViewport` / `blockToRows` / `linesToAnnotated` | el pipeline de paginación (ver §3) |
-| Chrome | barra superior (título/búsqueda/menú), barra inferior (capítulo/página/progreso), overlays de carga/error/traducción, hint |
-| Hoja de ajustes | borradores (fuente/tema/márgenes/serif/TTS) con Aplicar/Cancelar; chips de Modo de lectura aplican AL INSTANTE |
-| Hoja de traducción | selector de proveedor (Google/IA) + idioma; aviso si falta config de IA |
-| `ReaderWebViewHost` | el WebView del modo scroll (JS bridge por `@JavascriptInterface` + console) |
-| Helpers finales | `ReaderProgressBar/Label`, `readerPalette/readerColors` (paleta precalculada), funciones `js*` de búsqueda |
+| `ui/screens/ReaderScreen.kt` | El composable principal: TODO el estado del lector, efectos de carga (metadatos + capítulo), `goToChapter`/`saveProgressNow`, ramas scroll/paginado, chrome (barras, overlays de carga/error/traducción, hint), hoja de ajustes y hoja de traducción, enum `TranslationLang` |
+| `ui/reader/ReaderTheme.kt` | Paleta de los 4 temas (`readerPalette`, `readerColors` precalculada), `readerCss`, `readerPrefsJson`, `ReaderPreview` (vista previa de la hoja de ajustes) |
+| `ui/reader/ChapterHtml.kt` | `buildChapterHtml`: HTML del capítulo para el modo scroll |
+| `ui/reader/ReaderWebViewHost.kt` | El WebView del modo scroll: carga, `applyReaderPrefs` en vivo, ratio por JS, búsqueda nativa, links al navegador |
+| `ui/reader/ReaderPagination.kt` | Pipeline de paginación: `blockToRows`, `packPagesToViewport`, `linesToAnnotated`, `pushSegmentStyle` |
+| `ui/reader/PagedReaderBody.kt` | `HorizontalPager` + zonas de toque 25/50/25 + `ReaderProgressBar`/`ReaderProgressLabel` (usados también por la barra inferior) |
+| `ui/reader/ReaderFind.kt` | Búsqueda en capítulo: `jsFindInPage/jsGoToMatch/jsClearFind/jsHighlightTtsWord`, `parseJsRatio`, `restoreScroll`, navegación de coincidencias del modo paginado |
+
+Dentro del composable principal (por orden aproximado): estado (~158-230),
+progreso y chrome inmersivo, datos paginados (`displayContent`, `lines`,
+`measuredPages`, `rowStarts`, `pagerState`), efecto de metadatos, efecto de
+capítulo, `goToChapter`/`saveProgressNow`, HTML/JS del modo scroll, cuerpo
+(ramas scroll/paginado), overlays, hoja de ajustes, hoja de traducción.
 
 ## 2. Flujo de datos
 
