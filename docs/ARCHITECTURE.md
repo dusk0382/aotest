@@ -180,8 +180,8 @@ mezcla resultados. La traducción es por capítulo+idioma y vive para siempre
 - Pantallas en `ui/screens/`: `HomeScreen` (buscador, chips de orden,
   fandoms, continuar leyendo), `SearchScreen` (resultados + filtros avanzados
   + orden), `WorkDetailScreen` (metadatos, kudos, comentarios, descargas,
-  export), `ReaderScreen` (ver [READER_SCREEN.md](READER_SCREEN.md) — es el
-  archivo más grande con diferencia), `LibraryScreen` (Favoritos/Historial/
+  export), `ReaderScreen` + el paquete `ui/reader/` (ver
+  [READER_SCREEN.md](READER_SCREEN.md)), `LibraryScreen` (Favoritos/Historial/
   Descargas + export obra), `SettingsScreen` (apariencia, lector,
   comentarios, traducción, backup, acerca de), `AuthorScreen`.
 - i18n parcial: `res/values/strings.xml` (es) + `values-en`. Muchos strings

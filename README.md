@@ -38,7 +38,7 @@ Instalación en dispositivo: `adb install -r app/build/outputs/apk/debug/app-deb
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Reglas duras del proyecto, comandos, convenciones (entrada para agentes) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arquitectura completa: red/Cloudflare, parsing, persistencia, colas, traducción, UI |
-| [docs/READER_SCREEN.md](docs/READER_SCREEN.md) | Guía dedicada de `ReaderScreen.kt` (el archivo crítico) |
+| [docs/READER_SCREEN.md](docs/READER_SCREEN.md) | Guía dedicada del lector (`ReaderScreen.kt` + `ui/reader/`) |
 | [docs/MODIFYING.md](docs/MODIFYING.md) | Recetas: cómo añadir/cambiar cada tipo de cosa sin romper nada |
 | [docs/TESTING.md](docs/TESTING.md) | Suite JVM, pruebas en dispositivo, depuración, síntomas clásicos |
 | [docs/RELEASING.md](docs/RELEASING.md) | Versionado, CI, firma, instalación sin perder datos |
