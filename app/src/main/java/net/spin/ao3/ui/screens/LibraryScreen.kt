@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -93,20 +94,24 @@ fun LibraryScreen(
     // Keeps each tab's scroll position alive when switching tabs (plain `when`
     // disposes the old tab, so rememberSaveable alone would lose it).
     val tabStates = rememberSaveableStateHolder()
-    val queueState by DownloadQueueService.state.collectAsState()
     var lastQueueCompletion by remember { mutableLongStateOf(0L) }
 
-    // Live-refresh the Downloads tab while the queue writes chapters, and once
-    // when a queued download finishes.
-    LaunchedEffect(queueState.completedAt) {
-        if (queueState.completedAt > 0 && queueState.completedAt != lastQueueCompletion) {
-            lastQueueCompletion = queueState.completedAt
+    // Queue ticks used to recompose this whole Scaffold (with all 3 tabs) once
+    // per downloaded chapter: the two queue-driven effects now live in a small
+    // composable that collects the state in its own scope and just signals.
+    QueueEventsEffect(
+        lastConsumed = lastQueueCompletion,
+        onCompleted = { completedAt, total ->
+            lastQueueCompletion = completedAt
             refreshTick++
-            if (DownloadQueueService.consumeCompletion(queueState.completedAt)) {
-                snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+            if (DownloadQueueService.consumeCompletion(completedAt)) {
+                scope.launch {
+                    snackbar.showSnackbar("Descarga completada: $total ${if (total == 1) "capítulo" else "capítulos"}")
+                }
             }
-        }
-    }
+        },
+        onQueueSettled = { refreshTick++ },
+    )
 
     val favorites = remember(refreshTick) { store.savedWorks() }
     val history = remember(refreshTick) { store.history() }
@@ -114,10 +119,11 @@ fun LibraryScreen(
     // composición y re-claveadas a TODO queueState re-parseaba el fichero entero
     // en el hilo principal POR CADA capítulo descargado. Ahora se leen fuera de
     // main y solo en cambios relevantes (refresco manual, fin o pausa/resumen de
-    // la cola); el progreso vivo lo pinta la tarjeta de la cola con queueState.
+    // la cola, señalados por QueueEventsEffect); el progreso vivo lo pinta la
+    // tarjeta de la cola en su propio scope.
     var downloads by remember { mutableStateOf<List<net.spin.ao3.data.Store.Download>>(emptyList()) }
     var downloadsLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(refreshTick, queueState.completedAt, queueState.paused) {
+    LaunchedEffect(refreshTick) {
         downloads = withContext(Dispatchers.IO) { store.downloads() }
         downloadsLoading = false
     }
@@ -131,6 +137,16 @@ fun LibraryScreen(
         scope.launch {
             if (msg.startsWith("OK:")) {
                 snackbar.showSnackbar("Guardado: ${msg.removePrefix("OK:")}")
+            } else {
+                snackbar.showSnackbar(msg.removePrefix("ERR:"))
+            }
+        }
+    }
+    // Export de una obra ya descargada a un solo .txt — sin red, usa lo local.
+    val workExporter = ChapterExporter.rememberWorkExporter { msg ->
+        scope.launch {
+            if (msg.startsWith("OK:")) {
+                snackbar.showSnackbar("Obra exportada: ${msg.removePrefix("OK:")}")
             } else {
                 snackbar.showSnackbar(msg.removePrefix("ERR:"))
             }
@@ -191,6 +207,7 @@ fun LibraryScreen(
                             scope.launch { snackbar.showSnackbar(downloadRemovedMsg) }
                         },
                         exporter = exporter,
+                        workExporter = workExporter,
                         onExplore = onExplore,
                     )
                 }
@@ -362,7 +379,7 @@ private fun FavoritesTab(
             LibraryRowCard(
                 icon = Icons.Default.Star,
                 iconTint = semantic.favorite,
-                iconContainer = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                iconContainer = MaterialTheme.colorScheme.primaryContainer,
                 title = sw.title,
                 subtitle = "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
                 onClick = { onOpen(sw.id) },
@@ -418,7 +435,7 @@ private fun HistoryTab(
             LibraryRowCard(
                 icon = Icons.Default.History,
                 iconTint = MaterialTheme.colorScheme.secondary,
-                iconContainer = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                iconContainer = MaterialTheme.colorScheme.secondaryContainer,
                 title = entry.title,
                 subtitle = buildString {
                     append("${entry.author} · Cap. ${entry.chapterIndex + 1}")
@@ -463,6 +480,7 @@ private fun DownloadsTab(
     onDeleteChapter: (Long, Int) -> Unit,
     onDeleteDownload: (Long) -> Unit,
     exporter: (String, Int, String, String?) -> Unit,
+    workExporter: (String, String, List<String>, String, List<ChapterInfo>, (Int, Int) -> Unit) -> Unit,
     onExplore: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
@@ -504,7 +522,7 @@ private fun DownloadsTab(
             item {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(Modifier.padding(14.dp)) {
@@ -561,7 +579,7 @@ private fun DownloadsTab(
                     LibraryRowCard(
                         icon = Icons.Default.Download,
                         iconTint = semantic.success,
-                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
                         title = dl.title,
                         subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · sin conexión",
                         onClick = { onOpenDetail(dl.id) },
@@ -586,6 +604,28 @@ private fun DownloadsTab(
                     )
                     AnimatedVisibility(visible = dl.id in expanded) {
                         Column {
+                            // Export de la obra completa con lo ya descargado:
+                            // no toca la red, funciona sin conexión.
+                            TextButton(
+                                onClick = {
+                                    workExporter(
+                                        dl.title,
+                                        "",
+                                        emptyList(),
+                                        "https://archiveofourown.org/works/${dl.id}",
+                                        dl.chapters.sortedBy { it.index },
+                                    ) { _, _ -> }
+                                },
+                                modifier = Modifier.padding(start = 8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Description,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Exportar obra completa (.txt)")
+                            }
                             dl.chapters.sortedBy { it.index }.forEach { ch ->
                                 ChapterDownloadRow(
                                     chapter = ch,
@@ -654,6 +694,28 @@ private fun ChapterDownloadRow(
         }
         IconButton(onClick = onDelete) {
             Icon(Icons.Default.DeleteOutline, contentDescription = stringResource(R.string.library_remove_chapter), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/**
+ * Queue events for the library (completion + pause/resume), collected in a
+ * tiny scope: queue ticks no longer recompose the whole library Scaffold.
+ * [onCompleted] fires once per finished download; [onQueueSettled] fires when
+ * the queue pauses or resumes (the downloads list may have changed).
+ */
+@Composable
+private fun QueueEventsEffect(
+    lastConsumed: Long,
+    onCompleted: (completedAt: Long, total: Int) -> Unit,
+    onQueueSettled: () -> Unit,
+) {
+    val state by DownloadQueueService.state.collectAsState()
+    LaunchedEffect(state.completedAt, state.paused) {
+        if (state.completedAt > 0 && state.completedAt != lastConsumed) {
+            onCompleted(state.completedAt, state.total)
+        } else if (state.paused) {
+            onQueueSettled()
         }
     }
 }

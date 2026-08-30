@@ -84,7 +84,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
+import android.util.Log
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.MutableState
@@ -195,8 +195,10 @@ fun ReaderScreen(
     // Overflow menu (Translate / DarkMode) so the top bar isn't a wall of icons.
     var showMoreMenu by remember { mutableStateOf(false) }
 
-    // Chapter translation (unofficial gtx endpoint, per-chapter on demand).
+    // Chapter translation (Google web endpoint or an OpenAI-compatible API,
+    // selectable in the picker below and configurable in Ajustes → Traducción).
     var translationLang by remember { mutableStateOf(store.prefs.translationLang) }
+    var translationProvider by remember { mutableStateOf(store.prefs.translationProvider) }
     var translatedHtml by remember { mutableStateOf<String?>(null) }
     var translationOn by remember { mutableStateOf(false) }
     var translating by remember { mutableStateOf(false) }
@@ -319,6 +321,11 @@ fun ReaderScreen(
                 ?.scrollRatio ?: 0f,
         )
     }
+    // Chapter the pending ratio belongs to. Without the label, a slow chapter
+    // change let an intermediate render consume the restore target of the
+    // chapter the user was LEAVING (documented v0.7.23: the position landed on
+    // page 0 after slow network jumps).
+    var pendingScrollChapter by remember(workId) { mutableIntStateOf(currentIndex) }
     // Chapters whose NEXT chapter has already been prefetched (per reader session).
     var prefetched by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
@@ -465,7 +472,7 @@ fun ReaderScreen(
         if (!paged || measuredPages.isEmpty()) return@LaunchedEffect
         val newSize = measuredPages.size
         when {
-            pendingScroll > 0f && newSize > 1 -> {
+            pendingScroll > 0f && pendingScrollChapter == currentIndex && newSize > 1 -> {
                 pagerState.scrollToPage((pendingScroll * (newSize - 1)).roundToInt().coerceIn(0, newSize - 1))
                 pendingScroll = 0f
             }
@@ -529,6 +536,7 @@ fun ReaderScreen(
         // must not reset the user to the top of the next chapter).
         val saved = currentHistory()?.chapterProgress?.get(index) ?: 0f
         pendingScroll = saved
+        pendingScrollChapter = index
         currentRatio = 0f
         currentIndex = index
     }
@@ -581,7 +589,12 @@ fun ReaderScreen(
     // keyed ONLY on the actual content (chapter/translation), NOT on theme/size:
     // style changes go through applyReaderPrefs() via JS without reloading.
     val css = remember(theme, fontSize, serif, lineHeight, margins) { readerCss(theme, fontSize, serif, lineHeight, margins) }
-    val contentKey = "${displayContent ?: ""}|$workTitle|$currentIndex|$chapterTitle"
+    // Identity of the loaded content WITHOUT building a chapter-sized string
+    // on every recomposition (scroll updates used to re-compose this scope per
+    // frame, string-building the whole chapter each time). The hash only
+    // recomputes when the content itself changes (chapter/translation).
+    val contentId = remember(displayContent) { displayContent?.hashCode() ?: 0 }
+    val contentKey = "$workId|$currentIndex|$chapterTitle|$translationOn|$contentId"
     val html = remember(contentKey, css) {
         buildChapterHtml(workTitle, currentIndex, chapterTitle, displayContent ?: "", css)
     }
@@ -594,7 +607,7 @@ fun ReaderScreen(
         // Only restore once the REAL chapter html rendered: the WebView is
         // first loaded with placeholder html (content == null) and its
         // onPageFinished would otherwise consume pendingScroll on an empty page.
-        if (pendingScroll > 0f && content != null) {
+        if (pendingScroll > 0f && pendingScrollChapter == currentIndex && content != null) {
             val ratio = pendingScroll
             pendingScroll = 0f
             // Layout may still be settling right after onPageFinished; a short
@@ -609,6 +622,7 @@ fun ReaderScreen(
     fun applyPrefs(block: () -> Unit) {
         if (paged) {
             pendingScroll = if (measuredPages.size > 1) pagerState.currentPage / (measuredPages.size - 1).toFloat() else 0f
+            pendingScrollChapter = currentIndex
             block()
         } else {
             val wv = webView.value
@@ -621,6 +635,7 @@ fun ReaderScreen(
                     "(function(){var h=document.documentElement.scrollHeight||document.body.scrollHeight;var vh=window.innerHeight;var y=window.scrollY||0;return String((h>vh)?y/(h-vh):0);})()",
                 ) { r ->
                     pendingScroll = parseJsRatio(r)
+                    pendingScrollChapter = currentIndex
                 }
             }
             block()
@@ -725,10 +740,34 @@ fun ReaderScreen(
                 val measurer = rememberTextMeasurer()
                 val density = LocalDensity.current
                 val pageLines = lines!!
-                val viewportPages = remember(pageLines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
-                    packPagesToViewport(pageLines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
-                }
-                SideEffect {
+                // Packing runs OFF the main thread: the binary search measures
+                // with TextMeasurer and on a long chapter used to freeze the UI
+                // for seconds-to-minutes, so activating paged mode looked like
+                // "nothing happens". While packing, the loading overlay covers
+                // the reader. First background, fallback to main thread if the
+                // measurer refuses to run off it (correct result either way).
+                LaunchedEffect(pageLines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
+                    paginating = true
+                    val t0 = System.currentTimeMillis()
+                    var packed = try {
+                        withContext(Dispatchers.Default) {
+                            packPagesToViewport(pageLines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("ReaderPaged", "pack en background falló, reintenta en main", e)
+                        null
+                    }
+                    if (packed == null) {
+                        packed = try {
+                            packPagesToViewport(pageLines, measurer, density, maxWidth, maxHeight, fontSize, lineHeight, serif, margins)
+                        } catch (e: Exception) {
+                            Log.w("ReaderPaged", "pack falló", e)
+                            emptyList()
+                        }
+                    }
+                    Log.d("ReaderPaged", "pack: ${packed.size} páginas en ${System.currentTimeMillis() - t0} ms")
                     // Capture the position BEFORE the pager sees the new page
                     // count (it clamps currentPage, losing the true ratio when
                     // the viewport shrinks). Only when nothing else changed.
@@ -738,10 +777,11 @@ fun ReaderScreen(
                     ) {
                         preservedRatio = pagerState.currentPage / (lastPageSize - 1).toFloat()
                     }
-                    measuredPages = viewportPages
+                    measuredPages = packed
+                    paginating = false
                 }
                 PagedReaderBody(
-                    pages = viewportPages,
+                    pages = measuredPages,
                     pagerState = pagerState,
                     highlights = highlights,
                     ttsWord = ttsWord,
@@ -1057,7 +1097,7 @@ fun ReaderScreen(
                                 colors = FilterChipDefaults.filterChipColors(
                                     containerColor = Color.Transparent,
                                     labelColor = readerFgColor(theme),
-                                    selectedContainerColor = readerAccentColor(theme).copy(alpha = 0.25f),
+                                    selectedContainerColor = androidx.compose.ui.graphics.lerp(readerBgColor(theme), readerAccentColor(theme), 0.32f),
                                     selectedLabelColor = readerFgColor(theme),
                                 ),
                             )
@@ -1068,7 +1108,7 @@ fun ReaderScreen(
                                 colors = FilterChipDefaults.filterChipColors(
                                     containerColor = Color.Transparent,
                                     labelColor = readerFgColor(theme),
-                                    selectedContainerColor = readerAccentColor(theme).copy(alpha = 0.25f),
+                                    selectedContainerColor = androidx.compose.ui.graphics.lerp(readerBgColor(theme), readerAccentColor(theme), 0.32f),
                                     selectedLabelColor = readerFgColor(theme),
                                 ),
                             )
@@ -1231,16 +1271,16 @@ fun ReaderScreen(
                             )
                         }
                     }
-                    val visibleProgress = if (paged && measuredPages.size > 1) {
-                        pagerState.currentPage / (measuredPages.size - 1).toFloat()
-                    } else {
-                        currentRatio
-                    }
-                    LinearProgressIndicator(
-                        progress = { visibleProgress.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().height(2.dp),
-                        color = readerAccentColor(theme).copy(alpha = 0.8f),
-                        trackColor = readerFgColor(theme).copy(alpha = 0.12f),
+                    // Both composables read the ratio/page INSIDE their own
+                    // scope: a scroll-driven update (one JS event per frame)
+                    // recomposes only the bar + label, not the whole reader.
+                    ReaderProgressBar(
+                        ratio = { currentRatio },
+                        paged = paged,
+                        pageCount = measuredPages.size,
+                        currentPage = pagerState.currentPage,
+                        color = readerAccentColor(theme),
+                        trackColor = readerFgColor(theme),
                     )
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1253,16 +1293,18 @@ fun ReaderScreen(
                                 tint = if (currentIndex > 0) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
                             )
                         }
-                        Text(
-                            "Cap. ${currentIndex + 1}/${chapters.size.coerceAtLeast(1)} · ${(visibleProgress * 100).roundToInt()} %" +
-                                if (paged && measuredPages.size > 1) " · Pág. ${pagerState.currentPage + 1}/${measuredPages.size}" else "",
+                        ReaderProgressLabel(
+                            chapter = currentIndex + 1,
+                            chapters = chapters.size.coerceAtLeast(1),
+                            ratio = { currentRatio },
+                            paged = paged,
+                            pageCount = measuredPages.size,
+                            currentPage = pagerState.currentPage,
                             color = readerFgColor(theme),
-                            style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { showChapters = true }
                                 .padding(vertical = 8.dp),
-                            textAlign = TextAlign.Center,
                         )
                         IconButton(
                             onClick = { goToChapter(currentIndex + 1) },
@@ -1482,7 +1524,7 @@ fun ReaderScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                itemsIndexed(chapters) { index, chapter ->
+                itemsIndexed(chapters, key = { _, ch -> ch.index }) { index, chapter ->
                     val prog = chapterProgress[index]
                     Row(
                         modifier = Modifier
@@ -1571,6 +1613,42 @@ fun ReaderScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
+                // Provider: Google (web endpoint) or any OpenAI-compatible API.
+                Text("Proveedor", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = translationProvider != "ai",
+                        onClick = {
+                            translationProvider = "google"
+                            store.prefs.translationProvider = "google"
+                            store.savePrefs()
+                        },
+                        label = { Text("Google") },
+                    )
+                    FilterChip(
+                        selected = translationProvider == "ai",
+                        onClick = {
+                            translationProvider = "ai"
+                            store.prefs.translationProvider = "ai"
+                            store.savePrefs()
+                        },
+                        label = { Text("IA (OpenAI)") },
+                    )
+                }
+                if (translationProvider == "ai" &&
+                    (store.prefs.aiBaseUrl.isBlank() || store.prefs.aiApiKey.isBlank() || store.prefs.aiModel.isBlank())
+                ) {
+                    Text(
+                        "Falta configurar la API: Base URL, API key y modelo en Ajustes → Traducción.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Idioma", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
                 TranslationLang.entries.forEach { option ->
                     val selected = translationLang == option.code
                     Row(
@@ -1629,8 +1707,49 @@ private enum class TranslationLang(val code: String, val label: String) {
     HI("hi", "हिन्दी"),
 }
 
-// ---- Find-in-chapter helpers (file-level so LaunchedEffects can call them) --
+// ---- Reader bottom-bar progress (isolated so scroll updates don't recompose the screen)
 
+@Composable
+private fun ReaderProgressBar(
+    ratio: () -> Float,
+    paged: Boolean,
+    pageCount: Int,
+    currentPage: Int,
+    color: Color,
+    trackColor: Color,
+) {
+    val visible = if (paged && pageCount > 1) currentPage / (pageCount - 1).toFloat() else ratio()
+    LinearProgressIndicator(
+        progress = { visible.coerceIn(0f, 1f) },
+        modifier = Modifier.fillMaxWidth().height(2.dp),
+        color = color.copy(alpha = 0.8f),
+        trackColor = trackColor.copy(alpha = 0.12f),
+    )
+}
+
+@Composable
+private fun ReaderProgressLabel(
+    chapter: Int,
+    chapters: Int,
+    ratio: () -> Float,
+    paged: Boolean,
+    pageCount: Int,
+    currentPage: Int,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val visible = if (paged && pageCount > 1) currentPage / (pageCount - 1).toFloat() else ratio()
+    Text(
+        "Cap. $chapter/$chapters · ${(visible * 100).roundToInt()} %" +
+            if (paged && pageCount > 1) " · Pág. ${currentPage + 1}/$pageCount" else "",
+        color = color,
+        style = MaterialTheme.typography.titleSmall,
+        modifier = modifier,
+        textAlign = TextAlign.Center,
+    )
+}
+
+// ---- Find-in-chapter helpers (file-level so LaunchedEffects can call them) --
 private fun goToSearchMatch(
     paged: Boolean,
     matches: List<SearchMatch>,
@@ -1682,6 +1801,13 @@ private fun PagedReaderBody(
     val bg = Color(android.graphics.Color.parseColor(bgHex))
     val fg = Color(android.graphics.Color.parseColor(fgHex))
     val accent = Color(android.graphics.Color.parseColor(accentHex))
+    // Degenerate pack (empty chapter, zero-height viewport): the pager would
+    // coerce its count to 1 and index pages[0] on an empty list (crash). Render
+    // nothing instead; the reader chrome stays usable.
+    if (pages.isEmpty()) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
     val family = if (serif) FontFamily.Serif else FontFamily.SansSerif
     val horizontalPad = when (margins) {
         0 -> 16.dp
@@ -1805,11 +1931,19 @@ private fun packPagesToViewport(
                 constraints = Constraints(maxWidth = widthPx),
             ).size.height <= heightPx
         }
+        // Hard ceiling on lines per page: the paragraph style fixes the line
+        // height, so every line occupies at least one row of lineHeightPx and
+        // no page can hold more than heightPx/lineHeightPx of them (the ×2
+        // slack covers oversized heading rows). Capping the binary search keeps
+        // every fits() call at ~one page of text — searching the full remaining
+        // chapter measured half of it per call and made packing crawl on long
+        // chapters. Results are identical: the true fit is always under the cap.
+        val capLines = 2 * (heightPx / ((fontSize * lineHeight).sp.toPx())).toInt() + 8
         val pages = mutableListOf<List<Line>>()
         var i = 0
         while (i < lines.size) {
             var lo = i
-            var hi = lines.size
+            var hi = minOf(lines.size, i + capLines)
             while (lo < hi) {
                 val mid = (lo + hi + 1) / 2
                 if (fits(i, mid)) lo = mid else hi = mid - 1
@@ -2331,11 +2465,25 @@ private fun readerPalette(theme: Store.ReaderTheme): Triple<String, String, Stri
     Store.ReaderTheme.BLACK -> Triple("#000000", "#d4d4d4", "#8FCF9E")
 }
 
-private fun readerBgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).first))
+// Precomputed once: parsing the hex per call ran dozens of times per
+// recomposed frame of the reader chrome (bar, menus, overlays). The hex
+// Strings stay for the WebView CSS, which is rebuilt only on theme change.
+// Pure-JVM parse (no android.graphics): this file's top-level state must stay
+// initializable in JVM unit tests (ReaderRatioTest).
+private fun parseReaderColor(hex: String): Color =
+    Color(0xFF000000L or hex.removePrefix("#").toLong(16))
 
-private fun readerFgColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).second))
+private val readerColors: Map<Store.ReaderTheme, Triple<Color, Color, Color>> =
+    Store.ReaderTheme.entries.associateWith { t ->
+        val (bg, fg, accent) = readerPalette(t)
+        Triple(parseReaderColor(bg), parseReaderColor(fg), parseReaderColor(accent))
+    }
 
-private fun readerAccentColor(theme: Store.ReaderTheme): Color = Color(android.graphics.Color.parseColor(readerPalette(theme).third))
+private fun readerBgColor(theme: Store.ReaderTheme): Color = readerColors.getValue(theme).first
+
+private fun readerFgColor(theme: Store.ReaderTheme): Color = readerColors.getValue(theme).second
+
+private fun readerAccentColor(theme: Store.ReaderTheme): Color = readerColors.getValue(theme).third
 
 // ---- Live typography preview (settings sheet) --------------------------------
 

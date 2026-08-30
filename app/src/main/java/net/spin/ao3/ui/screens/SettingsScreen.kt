@@ -20,11 +20,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +55,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -328,6 +334,9 @@ fun SettingsScreen(
                 }
             }
 
+            // ---- Traducción ----
+            TranslationSection(container = container, snackbar = snackbar)
+
             // ---- Copia de seguridad ----
             BackupSection(store = store, snackbar = snackbar)
 
@@ -340,6 +349,147 @@ fun SettingsScreen(
                 )
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostState) {
+    val store = container.store
+    val scope = rememberCoroutineScope()
+    var provider by remember { mutableStateOf(if (store.prefs.translationProvider == "ai") "ai" else "google") }
+    var baseUrl by remember { mutableStateOf(store.prefs.aiBaseUrl) }
+    var apiKey by remember { mutableStateOf(store.prefs.aiApiKey) }
+    var model by remember { mutableStateOf(store.prefs.aiModel) }
+    var showKey by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+
+    // Save + test share one path: the translator reads prefs at call time, so
+    // the test would otherwise exercise the OLD config.
+    fun saveNow(): String {
+        val url = baseUrl.trim()
+        val key = apiKey.trim()
+        val mdl = model.trim()
+        if (provider == "ai" && (url.isBlank() || key.isBlank() || mdl.isBlank())) {
+            return "Faltan Base URL, API key o modelo"
+        }
+        store.prefs.translationProvider = provider
+        store.prefs.aiBaseUrl = url
+        store.prefs.aiApiKey = key
+        store.prefs.aiModel = mdl
+        store.savePrefs()
+        return ""
+    }
+
+    SettingsSection("Traducción") {
+        Text(
+            "Proveedor del botón “Traducir capítulo” del lector. Google no necesita " +
+                "configuración; la IA usa cualquier API compatible con OpenAI.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = provider != "ai",
+                onClick = { provider = "google" },
+                label = { Text("Google") },
+            )
+            FilterChip(
+                selected = provider == "ai",
+                onClick = { provider = "ai" },
+                label = { Text("IA (OpenAI)") },
+            )
+        }
+        if (provider == "ai") {
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Base URL") },
+                placeholder = { Text("https://api.openai.com/v1") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("API key") },
+                singleLine = true,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showKey = !showKey }) {
+                        Icon(
+                            if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showKey) "Ocultar API key" else "Mostrar API key",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = model,
+                onValueChange = { model = it },
+                label = { Text("Modelo") },
+                placeholder = { Text("gpt-4o-mini") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "La API key se guarda solo en este dispositivo. Compatible con OpenAI, " +
+                    "OpenRouter, Groq, Ollama u otro servidor con /chat/completions.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    val invalid = saveNow()
+                    if (invalid.isNotBlank()) {
+                        scope.launch { snackbar.showSnackbar(invalid) }
+                        return@OutlinedButton
+                    }
+                    if (testing) return@OutlinedButton
+                    testing = true
+                    scope.launch {
+                        val msg = try {
+                            val out = container.translator.translateChapterHtml(
+                                "settings_test_${System.currentTimeMillis()}",
+                                "<p>Hello, this is a small translation test.</p>",
+                                store.prefs.translationLang.ifBlank { "es" },
+                            )
+                            "Conexión OK · traducción: “${out.take(60)}”"
+                        } catch (e: Exception) {
+                            "Falló la prueba: ${e.message}"
+                        }
+                        snackbar.showSnackbar(msg)
+                        testing = false
+                    }
+                },
+                enabled = !testing,
+            ) {
+                if (testing) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Probar conexión")
+                }
+            }
+            Button(
+                onClick = {
+                    val invalid = saveNow()
+                    scope.launch {
+                        snackbar.showSnackbar(if (invalid.isNotBlank()) invalid else "Ajustes de traducción guardados")
+                    }
+                },
+                enabled = provider != "ai" || (baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()),
+            ) {
+                Text("Guardar ajustes")
+            }
         }
     }
 }
@@ -459,7 +609,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

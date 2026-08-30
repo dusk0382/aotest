@@ -107,9 +107,10 @@ import net.spin.ao3.ui.components.CharacterColor
 import net.spin.ao3.ui.components.FandomColor
 import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.TagChip
+import net.spin.ao3.ui.components.TagChipSolid
 import net.spin.ao3.ui.components.TagChipVariant
-import net.spin.ao3.ui.components.WarningColor
-import net.spin.ao3.ui.components.ratingColor
+import net.spin.ao3.ui.components.ratingSolidColors
+import net.spin.ao3.ui.components.warningSolidColors
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.AvatarImages
 import net.spin.ao3.util.ChapterExporter
@@ -162,10 +163,9 @@ fun WorkDetailScreen(
     var kudoed by rememberSaveable { mutableStateOf(store.isKudoed(workId)) }
     var kudosSending by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val queueState by DownloadQueueService.state.collectAsState()
     var lastQueueCompletion by remember { mutableLongStateOf(0L) }
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { /* proceed either way */ }
-    val history = remember(workId) { store.history().firstOrNull { it.id == workId } }
+    val history = remember(workId) { store.historyEntry(workId) }
     val chapterProgress = remember(workId) { history?.chapterProgress.orEmpty() }
 
     // ---- Comments state ----
@@ -185,6 +185,19 @@ fun WorkDetailScreen(
         scope.launch {
             if (msg.startsWith("OK:")) {
                 snackbar.showSnackbar("Guardado en Descargas: ${msg.removePrefix("OK:")}")
+            } else {
+                snackbar.showSnackbar(msg.removePrefix("ERR:"))
+            }
+        }
+    }
+    // Export de la obra completa a un solo .txt (con progreso y fallo explícito).
+    var exportingWork by remember { mutableStateOf(false) }
+    var exportProgress by remember { mutableStateOf(0 to 0) }
+    val workExporter = ChapterExporter.rememberWorkExporter { msg ->
+        exportingWork = false
+        scope.launch {
+            if (msg.startsWith("OK:")) {
+                snackbar.showSnackbar("Obra exportada a Descargas: ${msg.removePrefix("OK:")}")
             } else {
                 snackbar.showSnackbar(msg.removePrefix("ERR:"))
             }
@@ -254,15 +267,22 @@ fun WorkDetailScreen(
         downloadRefreshTick++
     }
 
-    LaunchedEffect(queueState.completedAt) {
-        if (queueState.completedAt > 0 && queueState.workId == workId && queueState.completedAt != lastQueueCompletion) {
-            lastQueueCompletion = queueState.completedAt
+    // Queue ticks (one per downloaded chapter) used to recompose this whole
+    // 1250-line screen: the completion effect and the action row now collect
+    // the queue state in their own small scopes (below).
+    QueueCompletionEffect(
+        workId = workId,
+        lastConsumed = lastQueueCompletion,
+        onCompleted = { completedAt, total ->
+            lastQueueCompletion = completedAt
             refreshDownloads()
-            if (DownloadQueueService.consumeCompletion(queueState.completedAt)) {
-                snackbar.showSnackbar("Descarga completada: ${queueState.total} ${if (queueState.total == 1) "capítulo" else "capítulos"}")
+            if (DownloadQueueService.consumeCompletion(completedAt)) {
+                scope.launch {
+                    snackbar.showSnackbar("Descarga completada: $total ${if (total == 1) "capítulo" else "capítulos"}")
+                }
             }
-        }
-    }
+        },
+    )
 
     fun toggleSaved() {
         val d = detail ?: return
@@ -310,9 +330,46 @@ fun WorkDetailScreen(
         }
     }
 
+    /** Exporta TODA la obra a un solo .txt: baja a memoria los capítulos que
+     *  falten (con progreso) y escribe el archivo; un fallo de red aborta con
+     *  el capítulo que falló, nunca produce un .txt a medias en silencio. */
+    fun exportWholeWork() {
+        val d = detail ?: return
+        if (exportingWork) return
+        exportingWork = true
+        exportProgress = 0 to d.chapters.size
+        scope.launch {
+            try {
+                val total = d.chapters.size
+                val fetched = mutableListOf<ChapterInfo>()
+                d.chapters.sortedBy { it.index }.forEachIndexed { i, ch ->
+                    val ready = if (ch.content != null) ch else container.client.getChapter(d.summary.id, ch)
+                    fetched += ready
+                    exportProgress = i + 1 to total
+                }
+                workExporter(
+                    d.summary.title,
+                    d.summary.author,
+                    d.summary.fandoms,
+                    d.summary.url,
+                    fetched,
+                ) { done, t -> exportProgress = done to t }
+            } catch (e: CancellationException) {
+                exportingWork = false
+                throw e
+            } catch (e: Exception) {
+                exportingWork = false
+                snackbar.showSnackbar(
+                    "No se pudo exportar la obra (capítulo ${exportProgress.first + 1}): ${e.message ?: "error de red"}",
+                )
+            }
+        }
+    }
+
     fun enqueueAll() {
         val d = detail ?: return
-        if (queueState.active && queueState.workId == d.summary.id) return
+        val qs = DownloadQueueService.state.value
+        if (qs.active && qs.workId == d.summary.id) return
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -504,7 +561,7 @@ fun WorkDetailScreen(
                     if (offlineDetail || !online) {
                         item {
                             Surface(
-                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             ) {
@@ -549,15 +606,21 @@ fun WorkDetailScreen(
                             )
                             Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                d.summary.rating?.let { TagChip(it, ratingColor(d.summary.ratingKey), variant = TagChipVariant.TINTED) }
+                                d.summary.rating?.let {
+                                    val (bg, fg) = ratingSolidColors(d.summary.ratingKey)
+                                    TagChipSolid(it, bg, fg)
+                                }
                                 if (d.summary.isCompleted) TagChip("Completada", semantic.success, variant = TagChipVariant.TINTED)
-                                d.summary.warnings.take(2).forEach { TagChip(it, WarningColor, variant = TagChipVariant.TINTED) }
+                                d.summary.warnings.take(2).forEach {
+                                    val (bg, fg) = warningSolidColors()
+                                    TagChipSolid(it, bg, fg)
+                                }
                                 d.summary.categories.forEach { TagChip(it, CategoryColor, variant = TagChipVariant.OUTLINED) }
                             }
                             Spacer(Modifier.height(14.dp))
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Row(
@@ -638,60 +701,16 @@ fun WorkDetailScreen(
                                     else "Leer desde el principio",
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                                    val queuedHere = queueState.workId == d.summary.id && (queueState.active || queueState.paused)
-                                if (queuedHere) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (queueState.paused) DownloadQueueService.resume(context)
-                                            else DownloadQueueService.cancel(context, d.summary.id)
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Icon(
-                                            if (queueState.paused) Icons.Default.Download else Icons.Default.Stop,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            if (queueState.paused) "Reanudar (${queueState.done}/${queueState.total})"
-                                            else "Detener (${queueState.done}/${queueState.total})",
-                                        )
-                                    }
-                                } else if (downloadedIds.size >= d.chapters.size && d.chapters.isNotEmpty()) {
-                                    OutlinedButton(onClick = { deleteDownload() }, modifier = Modifier.weight(1f)) {
-                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Descargado (${downloadedIds.size})")
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { enqueueAll() },
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            if (downloadedIds.isEmpty()) "Guardar sin conexión"
-                                            else "Guardar restantes (${d.chapters.size - downloadedIds.size})",
-                                        )
-                                    }
-                                }
-                            }
-                            if (queueState.workId == d.summary.id && (queueState.active || queueState.paused)) {
-                                LinearProgressIndicator(
-                                    progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                if (queueState.paused) {
-                                    Text(
-                                        queueState.errorMessage ?: "Descarga pausada",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                            }
+                            DownloadActionsRow(
+                                workId = d.summary.id,
+                                totalChapters = d.chapters.size,
+                                downloadedCount = downloadedIds.size,
+                                exportingWork = exportingWork,
+                                exportProgress = exportProgress,
+                                onEnqueueAll = { enqueueAll() },
+                                onDeleteDownload = { deleteDownload() },
+                                onExportWholeWork = { exportWholeWork() },
+                            )
                         }
                     }
 
@@ -1075,13 +1094,22 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuth
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    text = htmlToAnnotated(
+                // Parse each comment's HTML exactly once (Jsoup per recomposition
+                // of a 900-comment list froze scrolling on slow devices). The
+                // two colors it bakes in change only with the theme, so they are
+                // part of the remember key.
+                val baseColor = MaterialTheme.colorScheme.onSurface
+                val linkColor = MaterialTheme.colorScheme.primary
+                val body = remember(comment.html, baseColor, linkColor) {
+                    htmlToAnnotated(
                         html = comment.html,
-                        baseColor = MaterialTheme.colorScheme.onSurface,
-                        linkColor = MaterialTheme.colorScheme.primary,
+                        baseColor = baseColor,
+                        linkColor = linkColor,
                         plainText = comment.text,
-                    ),
+                    )
+                }
+                Text(
+                    text = body,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -1248,6 +1276,145 @@ private fun ChapterRow(
                     if (downloaded) onRemoveDownload() else onDownload()
                 },
             )
+        }
+    }
+}
+
+// ---- Download queue (isolated so queue ticks don't recompose the screen) ----
+
+/**
+ * Watches the download queue for THIS work's completion and reports it once.
+ * Collects [DownloadQueueService.state] in its own tiny scope: the one-tick-
+ * per-chapter updates never recompose the parent screen.
+ */
+@Composable
+private fun QueueCompletionEffect(
+    workId: Long,
+    lastConsumed: Long,
+    onCompleted: (completedAt: Long, total: Int) -> Unit,
+) {
+    val state by DownloadQueueService.state.collectAsState()
+    LaunchedEffect(state.completedAt) {
+        if (state.completedAt > 0 && state.workId == workId && state.completedAt != lastConsumed) {
+            onCompleted(state.completedAt, state.total)
+        }
+    }
+}
+
+/**
+ * The save/delete/resume row + export menu + queue progress. Reads the queue
+ * state here so progress ticks only recompose this row.
+ */
+@Composable
+private fun DownloadActionsRow(
+    workId: Long,
+    totalChapters: Int,
+    downloadedCount: Int,
+    exportingWork: Boolean,
+    exportProgress: Pair<Int, Int>,
+    onEnqueueAll: () -> Unit,
+    onDeleteDownload: () -> Unit,
+    onExportWholeWork: () -> Unit,
+) {
+    val context = LocalContext.current
+    val queueState by DownloadQueueService.state.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            val queuedHere = queueState.workId == workId && (queueState.active || queueState.paused)
+            if (queuedHere) {
+                OutlinedButton(
+                    onClick = {
+                        if (queueState.paused) DownloadQueueService.resume(context)
+                        else DownloadQueueService.cancel(context, workId)
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        if (queueState.paused) Icons.Default.Download else Icons.Default.Stop,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (queueState.paused) "Reanudar (${queueState.done}/${queueState.total})"
+                        else "Detener (${queueState.done}/${queueState.total})",
+                    )
+                }
+            } else if (downloadedCount >= totalChapters && totalChapters > 0) {
+                OutlinedButton(onClick = onDeleteDownload, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Descargado ($downloadedCount)")
+                }
+            } else {
+                OutlinedButton(onClick = onEnqueueAll, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (downloadedCount == 0) "Guardar sin conexión"
+                        else "Guardar restantes (${totalChapters - downloadedCount})",
+                    )
+                }
+            }
+            // Menú de export: obra completa a un solo .txt.
+            Box {
+                var exportMenu by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { exportMenu = true },
+                    enabled = !exportingWork,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.width(52.dp),
+                ) {
+                    if (exportingWork) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Más opciones de descarga", modifier = Modifier.size(18.dp))
+                    }
+                }
+                DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (exportingWork) "Exportando (${exportProgress.first}/${exportProgress.second})…"
+                                else "Exportar obra completa (.txt)",
+                            )
+                        },
+                        onClick = {
+                            exportMenu = false
+                            onExportWholeWork()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Exporta TODA la obra a un solo archivo en Descargas") },
+                        onClick = {},
+                        enabled = false,
+                    )
+                }
+            }
+            if (exportingWork) {
+                LinearProgressIndicator(
+                    progress = {
+                        if (exportProgress.second > 0) exportProgress.first / exportProgress.second.toFloat() else 0f
+                    },
+                    modifier = Modifier.width(52.dp),
+                )
+            }
+        }
+        if (queueState.workId == workId && (queueState.active || queueState.paused)) {
+            LinearProgressIndicator(
+                progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (queueState.paused) {
+                Text(
+                    queueState.errorMessage ?: "Descarga pausada",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }

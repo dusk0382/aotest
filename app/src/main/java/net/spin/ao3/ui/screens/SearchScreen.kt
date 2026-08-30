@@ -459,7 +459,7 @@ fun SearchScreen(
             if (!online) {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Row(
@@ -533,7 +533,7 @@ fun SearchScreen(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.errorContainer,
                         ) {
                             Text(
                                 "Los filtros no se aplicaron: la búsqueda no coincide con un fandom/tag de AO3. " +

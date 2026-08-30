@@ -1,3 +1,45 @@
+ACTUALIZACIÓN v0.7.26 — "Terracota & Serif" (supersede parcial de esta spec)
+============================================================================
+Esta sección es la versión vigente donde difiera del texto de abajo.
+
+1. PRIMARY = TERRACOTA (identidad de marca, no azul)
+   | Token             | Modo Claro   | Modo Oscuro  |
+   |-------------------|--------------|--------------|
+   | primary           | #B03A2E      | #FFB4A5      |
+   | onPrimary         | #FFFFFF      | #690002      |
+   | primaryContainer  | #FFDAD5      | #930B06      |
+   | onPrimaryContainer| #410002      | #FFDAD5      |
+   El azul #1A60A5/#A2C9FF queda como token semántico `info`, no como acento
+   de marca. Cacao (#7C5825/#E8C08C) y Salvia (#1B6C3B/#82D7A0) no cambian.
+
+2. SUPERFICIES SÓLIDAS — prohibido `container.copy(alpha=…)`
+   Los fondos/chips/banners usan tokens sólidos (surfaceContainer*,
+   *Container puros, o blends opacos lerp(surface, accent, k)). La opacidad
+   queda reservada a TEXTO y líneas divisorias.
+
+3. ESCALA SÓLIDA DE RATINGS Y WARNINGS (contenedor + texto fijos, AA/AAA)
+   | Clave              | Claro (fondo/texto) | Oscuro (fondo/texto) |
+   |--------------------|---------------------|----------------------|
+   | Explicit           | #FFD9D4 / #7D2119   | #4A1215 / #FFB4AB    |
+   | Mature             | #F5E1AC / #564200   | #412D00 / #FFDF9E    |
+   | Teen               | #C4EFC0 / #1E4A1C   | #1F331E / #B8F0B2    |
+   | General            | #B8ECF4 / #00414A   | #00363A / #97F0FF    |
+   | Not Rated          | #DEDEDE / #333333   | #2D2D2D / #E2E2E2    |
+   | Warnings / default | #F8D7EC / #6E1B54   | #3B0029 / #FFB0E1    |
+   Implementación: ratingSolidColors()/warningSolidColors()/TagChipSolid()
+   en ui/components/TagChip.kt. La variante TINTED de TagChip ahora es un
+   blend SÓLIDO (lerp surface→accent 18%), sin transparencia.
+
+4. TIPOGRAFÍA EDITORIAL
+   display/headline/titleLarge/titleMedium usan FontFamily.Serif del sistema
+   (peso cero en el APK): los títulos de obras y cabeceras de pantalla leen
+   como portada de libro. Body/labels siguen sans.
+
+5. SPLASH + LAUNCHER: fondo #1A1B18 (surface oscuro de la paleta), el icono
+   del libro ámbar se mantiene.
+
+---
+
 Arquitectura de UI/UX y Sistema de Diseño Cromático para Aplicaciones de Lectura de Fanfiction
 Fundamentos Teóricos y Filosofía de Diseño Cromático en Entornos de Lectura Prolongada
 El diseño de interfaces para aplicaciones de lectura digital masiva representa un desafío técnico de alta complejidad dentro de la interacción persona-computadora. Los usuarios de plataformas de fanfiction, particularmente en repositorios densos en información como Archive of Our Own (AO3), interactúan con la interfaz durante sesiones extendidas que superan habitualmente las dos o tres horas continuas. En estos contextos, el color trasciende su dimensión puramente estética para consolidarse como un instrumento funcional crítico, orientado a la mitigación de la fatiga foveal, la maximización de la legibilidad tipográfica y la aceleración del procesamiento de metadatos acoplados.

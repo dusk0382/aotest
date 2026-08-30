@@ -117,7 +117,7 @@ fun HomeScreen(
                 item {
                     Surface(
                         shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
@@ -352,7 +352,7 @@ private fun relativeTime(at: Long): String {
 private fun QuickChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         onClick = onClick,
     ) {

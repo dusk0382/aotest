@@ -288,7 +288,7 @@ fun AuthorScreen(
                         if (p.bio.isNotBlank()) {
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(

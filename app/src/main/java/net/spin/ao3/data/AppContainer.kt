@@ -30,12 +30,26 @@ class AppContainer(context: Context) {
     val connectivity = ConnectivityMonitor(context)
 
     /** Per-chapter translations, cached forever on disk (each chapter is
-     *  translated at most once per language). */
+     *  translated at most once per language + provider). The config is read
+     *  from prefs at every call, so changing provider/model in Ajustes takes
+     *  effect without rebuilding the container. */
     val translator = Translator(
-        DiskCache(
+        cache = DiskCache(
             dir = File(context.filesDir, "ao3_translations"),
             ttlMs = Long.MAX_VALUE,
             maxFiles = 400,
         ),
+        configProvider = {
+            Translator.Config(
+                provider = if (store.prefs.translationProvider == "ai") {
+                    Translator.Config.Provider.AI
+                } else {
+                    Translator.Config.Provider.GOOGLE
+                },
+                aiBaseUrl = store.prefs.aiBaseUrl,
+                aiApiKey = store.prefs.aiApiKey,
+                aiModel = store.prefs.aiModel,
+            )
+        },
     )
 }

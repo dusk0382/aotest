@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import net.spin.ao3.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,6 +66,12 @@ class Store(rootFile: File) {
         var commentEmail: String = ""
         /** BCP-47 target language for the reader translator ("" = off). */
         var translationLang: String = "es"
+        /** Traductor: "google" (endpoint web) o "ai" (API OpenAI-compatible). */
+        var translationProvider: String = "google"
+        /** API OpenAI-compatible para el traductor IA (Ajustes → Traducción). */
+        var aiBaseUrl: String = ""
+        var aiApiKey: String = ""
+        var aiModel: String = ""
         /** Reader text-to-speech speech rate (0.5..2.0). */
         var ttsRate: Float = 1.0f
     }
@@ -124,9 +131,14 @@ class Store(rootFile: File) {
     // propósito: migrateDownloads() programa escrituras durante la construcción,
     // y depender de que el compilador elimine los inicializadores «= null»
     // posteriores (lo hace hoy, verificado en bytecode) sería frágil.
-    private var latestSnapshot: String? = null
+    // Dirty flags instead of pre-serialized snapshots: persist() only marks
+    // "pending" (cheap, caller thread) and the WRITER serializes the freshest
+    // root under [lock] at write time. Serializing the whole library on the
+    // caller used to put a multi-ms JSONObject.toString() on the main thread
+    // every 3.5 s while reading (progress saves) and on every settings toggle.
+    private var libraryDirty = false
     private var writeJob: Job? = null
-    private var latestDownloadsSnapshot: String? = null
+    private var downloadsDirty = false
     private var downloadsWriteJob: Job? = null
 
     init {
@@ -501,6 +513,10 @@ class Store(rootFile: File) {
         prefs.commentName = p?.optString("commentName", "") ?: ""
         prefs.commentEmail = p?.optString("commentEmail", "") ?: ""
         prefs.translationLang = p?.optString("translationLang", "es") ?: "es"
+        prefs.translationProvider = p?.optString("translationProvider", "google") ?: "google"
+        prefs.aiBaseUrl = p?.optString("aiBaseUrl", "") ?: ""
+        prefs.aiApiKey = p?.optString("aiApiKey", "") ?: ""
+        prefs.aiModel = p?.optString("aiModel", "") ?: ""
         prefs.ttsRate = p?.optDouble("ttsRate", 1.0)?.toFloat() ?: 1.0f
     }
 
@@ -520,14 +536,14 @@ class Store(rootFile: File) {
      * the window (settings apply, so a force-kill right after still keeps the
      * choice).
      *
-     * The snapshot is captured synchronously on the caller thread (inside
-     * [lock]), so the written bytes are always a coherent view of [root] — never
-     * a torn read from a background thread. The single-writer loop guarantees
-     * the LAST requested snapshot is the one that ends up on disk, so two rapid
-     * persists can never land out of order.
+     * The caller only rebuilds the tiny prefs object and marks the file dirty
+     * (under [lock]); the WRITER serializes the freshest [root] at write time
+     * (also under [lock], so the bytes are always a coherent view — never a
+     * torn read). This keeps the whole-JSON toString() off the caller's thread,
+     * which for the reader was the main thread every 3.5 s. The single-writer
+     * loop guarantees the LAST requested state is the one that ends up on disk.
      */
     private fun persist(immediate: Boolean = false) {
-        val snapshot: String
         synchronized(lock) {
             root.put("prefs", JSONObject().apply {
                 put("fontSize", prefs.fontSizeSp)
@@ -541,10 +557,13 @@ class Store(rootFile: File) {
                 put("commentName", prefs.commentName)
                 put("commentEmail", prefs.commentEmail)
                 put("translationLang", prefs.translationLang)
+                put("translationProvider", prefs.translationProvider)
+                put("aiBaseUrl", prefs.aiBaseUrl)
+                put("aiApiKey", prefs.aiApiKey)
+                put("aiModel", prefs.aiModel)
                 put("ttsRate", prefs.ttsRate.toDouble())
             })
-            latestSnapshot = root.toString()
-            snapshot = latestSnapshot!!
+            libraryDirty = true
         }
         writeJob?.cancel()
         writeJob = io.launch {
@@ -555,10 +574,8 @@ class Store(rootFile: File) {
 
     /** Same debounced single-writer pattern, but for the large downloads file. */
     private fun persistDownloads(immediate: Boolean = false) {
-        val snapshot: String
         synchronized(lock) {
-            latestDownloadsSnapshot = downloadsRoot.toString()
-            snapshot = latestDownloadsSnapshot!!
+            downloadsDirty = true
         }
         downloadsWriteJob?.cancel()
         downloadsWriteJob = io.launch {
@@ -569,8 +586,7 @@ class Store(rootFile: File) {
 
     /** Must be called with [lock] held (migration path). */
     private fun persistDownloadsLocked() {
-        val snapshot = downloadsRoot.toString()
-        latestDownloadsSnapshot = snapshot
+        downloadsDirty = true
         downloadsWriteJob?.cancel()
         downloadsWriteJob = io.launch {
             delay(300)
@@ -579,35 +595,45 @@ class Store(rootFile: File) {
     }
 
     /**
-     * Writes the newest [latestSnapshot] atomically: temp file + rename, so a
-     * crash or a cancelled write mid-flight never corrupts the library file
-     * (a partial temp file is simply replaced next time). Writes are serialized
-     * by [writeMutex]; each call reads the snapshot AT WRITE TIME (it never
-     * "consumes" it) and only clears it when it is still the newest — so a
-     * job cancelled by a newer persist can never leave the snapshot empty and
-     * the most recent persist always wins.
+     * Writes the newest state atomically: temp file + rename, so a crash or a
+     * cancelled write mid-flight never corrupts the library file (a partial
+     * temp file is simply replaced next time). Writes are serialized by
+     * [writeMutex].
+     *
+     * The write mutex is taken BEFORE snapshotting: each writer serializes the
+     * freshest [root] at its turn, so a writer woken late can never write a
+     * stale version over a newer one (last-wins by arrival order at the mutex).
+     * The whole section is NonCancellable: a writer cancelled by a newer
+     * persist used to die between taking the dirty token and the physical
+     * write, losing that write entirely (the new writer found the flag clear
+     * and skipped — observed as a flaky missing library file in StoreTest).
+     * A dirty state always has the persist's own writer alive to write it.
      */
     private suspend fun writeLatest() {
-        val snapshot = synchronized(lock) { latestSnapshot } ?: return
-        writeMutex.withLock {
-            withContext(Dispatchers.IO) {
+        withContext(NonCancellable) {
+            writeMutex.withLock {
+                val snapshot: String
+                synchronized(lock) {
+                    if (!libraryDirty) return@withContext
+                    snapshot = root.toString()
+                    libraryDirty = false
+                }
                 atomicWrite(file, snapshot)
             }
-        }
-        synchronized(lock) {
-            if (latestSnapshot == snapshot) latestSnapshot = null
         }
     }
 
     private suspend fun writeDownloadsLatest() {
-        val snapshot = synchronized(lock) { latestDownloadsSnapshot } ?: return
-        writeMutex.withLock {
-            withContext(Dispatchers.IO) {
+        withContext(NonCancellable) {
+            writeMutex.withLock {
+                val snapshot: String
+                synchronized(lock) {
+                    if (!downloadsDirty) return@withContext
+                    snapshot = downloadsRoot.toString()
+                    downloadsDirty = false
+                }
                 atomicWrite(downloadsFile, snapshot)
             }
-        }
-        synchronized(lock) {
-            if (latestDownloadsSnapshot == snapshot) latestDownloadsSnapshot = null
         }
     }
 

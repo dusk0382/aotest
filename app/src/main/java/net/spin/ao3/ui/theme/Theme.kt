@@ -16,6 +16,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,17 +39,18 @@ enum class AppThemeMode(val label: String) {
 /**
  * AO3 Lector palette — "Cacao & Salvia" (M3 HCT tokens).
  *
- * A calm blue acts as the primary accent for actions/selection; warm cocoa
- * brown is the secondary accent (fandom tags, author names); sage green is
- * the tertiary accent (character tags, reading progress). Surfaces are warm
- * paper neutrals (H40/C04) that never reach pure white/black in normal mode
- * — long reading sessions stay comfortable and free of halation/blooming.
+ * A warm terracotta (#B03A2E) is the brand accent for actions/selection — the
+ * editorial, non-generic identity of the app; warm cocoa brown stays as the
+ * secondary accent (fandom tags, author names); sage green is the tertiary
+ * accent (character tags, reading progress). Surfaces are warm paper neutrals
+ * (H40/C04) that never reach pure white/black in normal mode — long reading
+ * sessions stay comfortable and free of halation/blooming.
  */
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF1A60A5),
+    primary = Color(0xFFB03A2E),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD5E3FF),
-    onPrimaryContainer = Color(0xFF001C3B),
+    primaryContainer = Color(0xFFFFDAD5),
+    onPrimaryContainer = Color(0xFF410002),
     secondary = Color(0xFF7C5825),
     onSecondary = Color(0xFFFFFFFF),
     secondaryContainer = Color(0xFFFFDCC1),
@@ -77,10 +79,10 @@ private val LightColors = lightColorScheme(
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFA2C9FF),
-    onPrimary = Color(0xFF00315D),
-    primaryContainer = Color(0xFF004783),
-    onPrimaryContainer = Color(0xFFD5E3FF),
+    primary = Color(0xFFFFB4A5),
+    onPrimary = Color(0xFF690002),
+    primaryContainer = Color(0xFF930B06),
+    onPrimaryContainer = Color(0xFFFFDAD5),
     secondary = Color(0xFFE8C08C),
     onSecondary = Color(0xFF3E2B00),
     secondaryContainer = Color(0xFF5F4110),
@@ -142,13 +144,20 @@ val LocalSemanticColors = staticCompositionLocalOf { LightSemantic }
  * MD3 type scale for AO3 Lector. Sizes follow the spec (display 36, headline
  * 24-28, title 14-22, body 12-16, label 11-14) so screens never need raw
  * `fontSize` literals.
+ *
+ * Editorial identity: display/headline/titleLarge/titleMedium use the system
+ * SERIF — the biggest identity lever with zero APK weight (the serif ships on
+ * every Android since API 21). Body/labels stay sans for density and
+ * legibility: work titles read like a book cover; metadata stays a UI.
  */
+private val TitleSerif = FontFamily.Serif
+
 val Ao3Typography = Typography(
-    displaySmall = TextStyle(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold),
-    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold),
-    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
-    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
+    displaySmall = TextStyle(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
+    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, fontFamily = TitleSerif),
+    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, fontFamily = TitleSerif),
+    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
     titleSmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
     bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),

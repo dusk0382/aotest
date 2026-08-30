@@ -140,7 +140,8 @@ fun WorkCard(
                 }
                 Spacer(Modifier.width(10.dp))
                 work.rating?.let {
-                    TagChip(it, ratingColor(work.ratingKey), variant = TagChipVariant.TINTED)
+                    val (bg, fg) = ratingSolidColors(work.ratingKey)
+                    TagChipSolid(it, bg, fg)
                 }
             }
             Spacer(Modifier.height(12.dp))

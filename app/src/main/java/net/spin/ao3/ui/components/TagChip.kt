@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -68,7 +69,14 @@ fun TagChip(
             MaterialTheme.colorScheme.onTertiaryContainer,
             null,
         )
-        TagChipVariant.TINTED -> Triple(color.copy(alpha = 0.16f), color, null)
+        TagChipVariant.TINTED -> Triple(
+            // SOLID blend (no translucency): an opaque surface/accent mix gives
+            // the same soft accent without the washed-out "translucent tint"
+            // look (and stays predictable over any background).
+            lerp(MaterialTheme.colorScheme.surface, color, 0.18f),
+            color,
+            null,
+        )
         TagChipVariant.OUTLINED -> Triple(
             MaterialTheme.colorScheme.surfaceContainerLow,
             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -155,6 +163,73 @@ fun ratingColor(key: String?): Color {
         "explicit" -> Color(0xFFC62828)
         "not-rated" -> if (light) Color(0xFF616161) else Color(0xFF9E9E9E)
         else -> RatingColor
+    }
+}
+
+/**
+ * SOLID rating scale (UI.txt): a fixed container + text pair per AO3 rating,
+ * WCAG AA/AAA in BOTH themes. Ratings are cognitive safety anchors — they get
+ * an opaque, instantly recognizable color instead of a translucent tint:
+ * E burgundy, M earthy amber, T olive, G deep teal, NR ash gray.
+ */
+@Composable
+fun ratingSolidColors(key: String?): Pair<Color, Color> {
+    val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    return when (key) {
+        "general-audiences" ->
+            if (light) Color(0xFFB8ECF4) to Color(0xFF00414A) else Color(0xFF00363A) to Color(0xFF97F0FF)
+        "teen-and-up-audiences" ->
+            if (light) Color(0xFFC4EFC0) to Color(0xFF1E4A1C) else Color(0xFF1F331E) to Color(0xFFB8F0B2)
+        "mature" ->
+            if (light) Color(0xFFF5E1AC) to Color(0xFF564200) else Color(0xFF412D00) to Color(0xFFFFDF9E)
+        "explicit" ->
+            if (light) Color(0xFFFFD9D4) to Color(0xFF7D2119) else Color(0xFF4A1215) to Color(0xFFFFB4AB)
+        "not-rated" ->
+            if (light) Color(0xFFDEDEDE) to Color(0xFF333333) else Color(0xFF2D2D2D) to Color(0xFFE2E2E2)
+        // Unknown rating keys share the archive-warning magenta family.
+        else ->
+            if (light) Color(0xFFF8D7EC) to Color(0xFF6E1B54) else Color(0xFF3B0029) to Color(0xFFFFB0E1)
+    }
+}
+
+/** Solid container/text pair for archive warnings (shared with Explicit per spec). */
+@Composable
+fun warningSolidColors(): Pair<Color, Color> {
+    val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    return if (light) Color(0xFFFFD9D4) to Color(0xFF7D2119) else Color(0xFF4A1215) to Color(0xFFFFB4AB)
+}
+
+/**
+ * A chip with an explicit SOLID container/text pair — for the metadata that
+ * must stay recognizable at a glance (ratings, warnings, completion state).
+ */
+@Composable
+fun TagChipSolid(
+    text: String,
+    container: Color,
+    content: Color,
+    modifier: Modifier = Modifier,
+) {
+    val shape = MaterialTheme.shapes.small
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = container,
+        contentColor = content,
+    ) {
+        Row(
+            modifier = Modifier
+                .height(32.dp)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 package net.spin.ao3.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 
@@ -53,5 +54,66 @@ class TranslatorTest {
     @Test
     fun `escapeHtml escapa especiales`() {
         assertEquals("&lt;3 &amp; &quot;hola&quot;", Translator.escapeHtml("<3 & \"hola\""))
+    }
+
+    // ---- Backend OpenAI-compatible ----
+
+    @Test
+    fun `parseOpenAi extrae el contenido de choices`() {
+        val json = """{"id":"x","choices":[{"index":0,"message":{"role":"assistant","content":"Hola mundo."}}]}"""
+        assertEquals("Hola mundo.", translator().parseOpenAi(json))
+    }
+
+    @Test
+    fun `parseOpenAi recorta espacios del contenido`() {
+        val json = """{"choices":[{"message":{"content":"  Traducción con salto\n  "}}]}"""
+        assertEquals("Traducción con salto", translator().parseOpenAi(json))
+    }
+
+    @Test
+    fun `parseOpenAi rechaza respuesta sin choices`() {
+        try {
+            translator().parseOpenAi("""{"object":"chat.completion"}""")
+            fail("debió lanzar por respuesta sin choices")
+        } catch (e: java.io.IOException) {
+            // esperado: mensaje accionable, no un JSONException crudo
+        }
+    }
+
+    @Test
+    fun `aiErrorFromBody extrae el mensaje del error OpenAI`() {
+        val body = """{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"""
+        assertEquals("Incorrect API key provided", translator().aiErrorFromBody(body))
+    }
+
+    @Test
+    fun `aiErrorFromBody devuelve null con cuerpo no JSON`() {
+        assertEquals(null, translator().aiErrorFromBody("<html>502 Bad Gateway</html>"))
+    }
+
+    @Test
+    fun `config IA sin configurar se detecta`() {
+        val empty = Translator.Config(provider = Translator.Config.Provider.AI)
+        assertEquals(false, empty.aiConfigured)
+        val full = Translator.Config(
+            provider = Translator.Config.Provider.AI,
+            aiBaseUrl = "https://api.openai.com/v1",
+            aiApiKey = "sk-test",
+            aiModel = "gpt-4o-mini",
+        )
+        assertEquals(true, full.aiConfigured)
+    }
+
+    @Test
+    fun `translateChapterHtml sin IA configurada lanza error accionable`() = kotlinx.coroutines.runBlocking {
+        val t = Translator(
+            DiskCache(File("/tmp/ao3_tr_test"), 0),
+        ) { Translator.Config(provider = Translator.Config.Provider.AI) }
+        try {
+            t.translateChapterHtml("k", "<p>Hola.</p>", "en")
+            fail("debió lanzar por IA sin configurar")
+        } catch (e: java.io.IOException) {
+            assert(e.message!!.contains("Ajustes → Traducción")) { "mensaje sin pista: $e" }
+        }
     }
 }

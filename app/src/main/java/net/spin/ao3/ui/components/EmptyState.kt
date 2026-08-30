@@ -50,7 +50,7 @@ fun EmptyState(
         Surface(
             modifier = modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            color = colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            color = colorScheme.surfaceContainerLow,
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
@@ -111,7 +111,7 @@ private fun IconCircle(icon: ImageVector, large: Boolean = false) {
     Box(
         modifier = Modifier
             .size(circle)
-            .background(colorScheme.primaryContainer.copy(alpha = 0.5f), CircleShape),
+            .background(colorScheme.primaryContainer, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
