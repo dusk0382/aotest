@@ -72,4 +72,51 @@ class ReaderPagingTest {
     fun `packPages con entrada vacía devuelve lista vacía`() {
         assertEquals(emptyList<List<Line>>(), packPages(emptyList(), 1000))
     }
+
+// ---- Filas visuales: partir párrafos entre páginas (páginas llenas) ----
+
+
+@Test
+fun `sliceSegments corta conservando estilos`() {
+    val segs = listOf(
+        Segment("Hola ", bold = true),
+        Segment("mundo"),
+        Segment(" cruel", italic = true),
+    )
+    // "Hola mundo cruel": [0,5) mantiene negrita; [3,14) cruza segmentos.
+    assertEquals(listOf(Segment("Hola", bold = true)), sliceSegments(segs, 0, 4))
+    val medio = sliceSegments(segs, 3, 14)
+    assertEquals(listOf(Segment("a ", bold = true), Segment("mundo", bold = false), Segment(" cru", italic = true)), medio)
+    // Rango completo devuelve los segmentos intactos (misma instancia).
+    assertTrue(sliceSegments(segs, 0, 16) === segs)
+}
+
+@Test
+fun `un bloque partido conserva el texto completo al re-ensamblar`() {
+    val lines = htmlToLines("<p>AAAA BBBB CCCC DDDD</p>")
+    val block = lines.single()
+    val parts = listOf(
+        Line(sliceSegments(block.segments, 0, 4), paragraphStart = true, paragraphEnd = false),
+        Line(sliceSegments(block.segments, 5, 14), paragraphStart = false, paragraphEnd = false),
+        Line(sliceSegments(block.segments, 15, 19), paragraphStart = false, paragraphEnd = true),
+    )
+    // La fila de continuación se une con "\n" (no "\n\n"): texto continuo.
+    assertEquals("AAAA\nBBBB CCCC\nDDDD", pagePlainText(parts))
+    assertEquals("AAAA BBBB CCCC DDDD", pagePlainText(parts).replace("\n", " ").replace("  ", " "))
+}
+
+@Test
+fun `los flags de bloque controlan comillas y viñetas por fila`() {
+    val cita = listOf(
+        Line(listOf(Segment("inicio de")), LineKind.QUOTE, paragraphStart = true, paragraphEnd = false),
+        Line(listOf(Segment("continuación")), LineKind.QUOTE, paragraphStart = false, paragraphEnd = true),
+    )
+    assertEquals("“inicio de\ncontinuación”", pagePlainText(cita))
+
+    val lista = listOf(
+        Line(listOf(Segment("primero")), LineKind.LIST, paragraphStart = true, paragraphEnd = false),
+        Line(listOf(Segment("segundo")), LineKind.LIST, paragraphStart = false, paragraphEnd = true),
+    )
+    assertEquals("•  primero\nsegundo", pagePlainText(lista))
+}
 }

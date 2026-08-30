@@ -151,6 +151,7 @@ import net.spin.ao3.util.Segment
 import net.spin.ao3.util.escapeHtml
 import net.spin.ao3.util.findInPages
 import net.spin.ao3.util.htmlToLines
+import net.spin.ao3.util.sliceSegments
 
 private const val BASE_URL = "https://archiveofourown.org"
 
@@ -1363,14 +1364,34 @@ fun ReaderScreen(
                 Text("Modo de lectura", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // MODE SWITCHES APPLY IMMEDIATELY: this sheet is long and
+                    // "Aplicar" sits below the fold, so a draft-only toggle made
+                    // tapping "Paginado" look completely dead (the #1 reported
+                    // bug — the engine was fine all along). The rest of the
+                    // drafts (font/theme…) still wait for Aplicar/Cancelar; a
+                    // later Cancelar does not undo a mode already switched.
                     FilterChip(
                         selected = !draftPaged,
-                        onClick = { draftPaged = false },
+                        onClick = {
+                            draftPaged = false
+                            if (paged) {
+                                applyPrefs { paged = false }
+                                store.prefs.paged = false
+                                store.savePrefs()
+                            }
+                        },
                         label = { Text("Scroll continuo") },
                     )
                     FilterChip(
                         selected = draftPaged,
-                        onClick = { draftPaged = true },
+                        onClick = {
+                            draftPaged = true
+                            if (!paged) {
+                                applyPrefs { paged = true }
+                                store.prefs.paged = true
+                                store.savePrefs()
+                            }
+                        },
                         label = { Text("Paginado") },
                     )
                 }
@@ -1828,20 +1849,24 @@ private fun PagedReaderBody(
                 // third = next page, middle = toggle the chrome bars.
                 .pointerInput(pagerState) {
                     detectTapGestures { offset ->
+                        // Tap zones 25/50/25: ONLY the side quarters turn the
+                        // page; the wide middle band toggles the chrome bars.
+                        // (Thirds made "middle" taps land on a page flip.)
                         val w = size.width
-                        val third = w / 3f
-                        when {
-                            offset.x < third -> if (pagerState.currentPage > 0) {
+                        if (offset.x < w / 4f) {
+                            if (pagerState.currentPage > 0) {
                                 scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
                             } else {
                                 toggleChrome()
                             }
-                            offset.x > third * 2 -> if (pagerState.currentPage < pages.size - 1) {
+                        } else if (offset.x > w * 3f / 4f) {
+                            if (pagerState.currentPage < pages.size - 1) {
                                 scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
                             } else {
                                 toggleChrome()
                             }
-                            else -> toggleChrome()
+                        } else {
+                            toggleChrome()
                         }
                     }
                 },
@@ -1881,14 +1906,47 @@ private fun PagedReaderBody(
 }
 
 /**
- * Packs [lines] into pages that fit the measured viewport (px) without ever
- * splitting a paragraph. For every page we BINARY-SEARCH the largest number of
- * lines that fits, measuring the exact annotated string the page will render
- * (same style, same width) — so pages fill the viewport edge-to-edge instead
- * of leaving a few lines of unused space (which inflated the page count and
- * showed a visible gap at the bottom of most pages).
+ * Splits a block into its VISUAL ROWS measured at the page width, so pages
+ * can end mid-paragraph and fill the viewport edge-to-edge (the old whole-
+ * paragraph units left half a page blank whenever the next long paragraph
+ * didn't fit). Row boundaries come from the real text layout, and the sliced
+ * segments keep their bold/italic/link styles. First row keeps paragraphStart
+ * (decorations/join), last keeps paragraphEnd.
+ */
+private fun blockToRows(line: Line, measurer: TextMeasurer, style: TextStyle, widthPx: Int): List<Line> {
+    if (line.kind == LineKind.SEPARATOR) return listOf(line)
+    val text = line.segments.joinToString("") { it.text }
+    if (text.isBlank()) return listOf(line)
+    val layout = measurer.measure(
+        AnnotatedString(text),
+        style = style,
+        constraints = Constraints(maxWidth = widthPx),
+    )
+    if (layout.lineCount <= 1) return listOf(line)
+    val rows = mutableListOf<Line>()
+    for (r in 0 until layout.lineCount) {
+        val s = layout.getLineStart(r)
+        val e = layout.getLineEnd(r, visibleEnd = true)
+        if (e <= s) continue
+        rows += Line(
+            segments = sliceSegments(line.segments, s, e),
+            kind = line.kind,
+            paragraphStart = r == 0,
+            paragraphEnd = r == layout.lineCount - 1,
+        )
+    }
+    return rows.ifEmpty { listOf(line) }
+}
+
+/**
+ * Packs [lines] into pages that fill the measured viewport (px) exactly.
+ * Blocks are first sliced into VISUAL ROWS (see [blockToRows]), then for every
+ * page a BINARY-SEARCH finds the largest number of rows that fits, measuring
+ * the exact annotated string the page will render (same style, same width) —
+ * a page ends at the last line that fits and the paragraph continues on the
+ * next page, so no page is left half-empty at a paragraph boundary.
  *
- * An oversized single line (huge <pre>/heading) still gets its own page; the
+ * An oversized single row (huge <pre>/heading) still gets its own page; the
  * per-page scroll fallback in [PagedReaderBody] keeps it reachable.
  */
 private fun packPagesToViewport(
@@ -1922,17 +1980,22 @@ private fun packPagesToViewport(
             lineHeight = (fontSize * lineHeight).sp,
             fontFamily = family,
         )
+        // Slice every block into its visual rows FIRST: a page may now end
+        // mid-paragraph, so pages fill the viewport to the last line instead
+        // of leaving half a page blank when the next long paragraph didn't fit.
+        val rows = lines.flatMap { blockToRows(it, measurer, style, widthPx) }
+        if (rows.isEmpty()) return emptyList()
         fun fits(from: Int, to: Int): Boolean {
             // to exclusive; measures EXACTLY the string the page will render.
-            val ann = linesToAnnotated(lines.subList(from, to), fontSize, Color.Black, Color.Black)
+            val ann = linesToAnnotated(rows.subList(from, to), fontSize, Color.Black, Color.Black)
             return measurer.measure(
                 ann,
                 style = style,
                 constraints = Constraints(maxWidth = widthPx),
             ).size.height <= heightPx
         }
-        // Hard ceiling on lines per page: the paragraph style fixes the line
-        // height, so every line occupies at least one row of lineHeightPx and
+        // Hard ceiling on rows per page: the paragraph style fixes the line
+        // height, so every row occupies at least one row of lineHeightPx and
         // no page can hold more than heightPx/lineHeightPx of them (the ×2
         // slack covers oversized heading rows). Capping the binary search keeps
         // every fits() call at ~one page of text — searching the full remaining
@@ -1941,15 +2004,15 @@ private fun packPagesToViewport(
         val capLines = 2 * (heightPx / ((fontSize * lineHeight).sp.toPx())).toInt() + 8
         val pages = mutableListOf<List<Line>>()
         var i = 0
-        while (i < lines.size) {
+        while (i < rows.size) {
             var lo = i
-            var hi = minOf(lines.size, i + capLines)
+            var hi = minOf(rows.size, i + capLines)
             while (lo < hi) {
                 val mid = (lo + hi + 1) / 2
                 if (fits(i, mid)) lo = mid else hi = mid - 1
             }
             val end = lo.coerceAtLeast(i + 1)
-            pages += lines.subList(i, end)
+            pages += rows.subList(i, end)
             i = end
         }
         return pages
@@ -1967,7 +2030,10 @@ private fun linesToAnnotated(
 ): AnnotatedString {
     val builder = AnnotatedString.Builder()
     lines.forEachIndexed { i, line ->
-        if (i > 0) builder.append("\n\n")
+        // A row that starts its block joins with a blank line (paragraph
+        // break); a CONTINUATION row (the same paragraph sliced across pages)
+        // joins with a single newline so the text reads continuously.
+        if (i > 0) builder.append(if (line.paragraphStart) "\n\n" else "\n")
         when (line.kind) {
             LineKind.SEPARATOR -> builder.append("  ✦   ✦   ✦  ")
             LineKind.HEADING -> {
@@ -1977,17 +2043,17 @@ private fun linesToAnnotated(
             }
             LineKind.QUOTE -> {
                 builder.pushStyle(SpanStyle(color = fg.copy(alpha = 0.85f)))
-                builder.append("“")
+                if (line.paragraphStart) builder.append("“")
                 line.segments.forEach { seg ->
                     val pushed = pushSegmentStyle(builder, seg, accent)
                     builder.append(seg.text)
                     repeat(pushed) { builder.pop() }
                 }
-                builder.append("”")
+                if (line.paragraphEnd) builder.append("”")
                 builder.pop()
             }
             LineKind.LIST -> {
-                builder.append("•  ")
+                if (line.paragraphStart) builder.append("•  ")
                 line.segments.forEach { seg ->
                     val pushed = pushSegmentStyle(builder, seg, accent)
                     builder.append(seg.text)

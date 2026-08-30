@@ -22,10 +22,21 @@ data class Segment(
 
 enum class LineKind { PARAGRAPH, HEADING, QUOTE, LIST, CODE, SEPARATOR }
 
-/** A block-level unit (paragraph, heading, quote, …). Pages never split a line. */
+/**
+ * A block-level unit. Pages NEVER existed above block level historically; now
+ * blocks are additionally SLICED into visual rows at pack time (see
+ * [net.spin.ao3.ui.screens] packPagesToViewport) so a page can end mid-paragraph:
+ *
+ *  - [paragraphStart] = this row begins its block (drives the "\n\n" join and
+ *    the decorations: opening quote mark, list bullet).
+ *  - [paragraphEnd]   = this row ends its block (closing quote mark).
+ * Both true = the whole block lives in this row (the common case).
+ */
 data class Line(
     val segments: List<Segment>,
     val kind: LineKind = LineKind.PARAGRAPH,
+    val paragraphStart: Boolean = true,
+    val paragraphEnd: Boolean = true,
 )
 
 /**
@@ -102,20 +113,23 @@ data class SearchMatch(
 /**
  * Renders a page's [Line]s exactly like the reader does (same separators,
  * bullets, quote marks and spacing) so offsets line up with the rendered text.
+ * Join rules match [net.spin.ao3.util] rendering: a row that starts a block
+ * joins with a blank line ("\n\n"), a row that CONTINUES a block joins with a
+ * single "\n" — so sliced paragraphs read as continuous text.
  */
 fun pagePlainText(lines: List<Line>): String = buildString {
     lines.forEachIndexed { i, line ->
-        if (i > 0) append("\n\n")
+        if (i > 0) append(if (line.paragraphStart) "\n\n" else "\n")
         when (line.kind) {
             LineKind.SEPARATOR -> append("  ✦   ✦   ✦  ")
             LineKind.HEADING -> line.segments.forEach { append(it.text) }
             LineKind.QUOTE -> {
-                append("“")
+                if (line.paragraphStart) append("“")
                 line.segments.forEach { append(it.text) }
-                append("”")
+                if (line.paragraphEnd) append("”")
             }
             LineKind.LIST -> {
-                append("•  ")
+                if (line.paragraphStart) append("•  ")
                 line.segments.forEach { append(it.text) }
             }
             LineKind.CODE -> append(line.segments.firstOrNull()?.text ?: "")
@@ -144,6 +158,27 @@ fun findInPages(pages: List<List<Line>>, query: String): List<SearchMatch> {
 
 private fun inlineChildren(el: Element): List<Segment> =
     el.childNodes().flatMap { inlineSegments(it) }
+
+/**
+ * Slices a block's styled segments to the char range [start, end) of its
+ * concatenated text, keeping the bold/italic/link styles of each piece. Used
+ * to split a paragraph across pages exactly at measured visual-line offsets
+ * without losing inline styles.
+ */
+internal fun sliceSegments(segments: List<Segment>, start: Int, end: Int): List<Segment> {
+    if (start <= 0 && end >= segments.sumOf { it.text.length }) return segments
+    val out = mutableListOf<Segment>()
+    var pos = 0
+    for (seg in segments) {
+        val segEnd = pos + seg.text.length
+        val s = maxOf(start, pos)
+        val e = minOf(end, segEnd)
+        if (e > s) out += seg.copy(text = seg.text.substring(s - pos, e - pos))
+        pos = segEnd
+        if (pos >= end) break
+    }
+    return out
+}
 
 private fun inlineSegments(node: Node): List<Segment> = when (node) {
     is TextNode -> {
