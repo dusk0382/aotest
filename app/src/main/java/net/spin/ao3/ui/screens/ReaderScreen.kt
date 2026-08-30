@@ -15,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -103,7 +108,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -267,13 +271,10 @@ fun ReaderScreen(
     // Tap on the text toggles the bars + full screen; scrolls and links are left alone.
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var showHint by remember { mutableStateOf(false) }
-    // Chrome is layered over the reader for immersion, but the reading surface
-    // must reserve its real height so text/pages are never hidden underneath it.
-    var topChromeHeightPx by remember { mutableIntStateOf(0) }
-    var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
+    // Chrome is a pure OVERLAY: showing/hiding the bars never resizes or
+    // re-packs the reading area (no reload feel, no page drift). They may
+    // cover the first/last lines while visible — hiding them is one tap away.
     val density = LocalDensity.current
-    val topChromeInset = if (chromeVisible) with(density) { topChromeHeightPx.toDp() } else 0.dp
-    val bottomChromeInset = if (chromeVisible) with(density) { bottomChromeHeightPx.toDp() } else 0.dp
     val toggleChrome: () -> Unit = { chromeVisible = !chromeVisible }
 
     // The reader is immersive: the system bars stay hidden (a swipe reveals
@@ -456,37 +457,15 @@ fun ReaderScreen(
         }
     }
 
-    // 2b) Paged mode: restore / reset / preserve the reading position.
-    //  - pendingScroll (chapter change, settings apply) wins;
-    //  - a PURE repack (only the page count changed, e.g. rotation) keeps the
-    //    relative position instead of snapping back to page 0;
-    //  - a chapter/content change resets to the top.
-    var lastPageSize by remember { mutableIntStateOf(0) }
+    // 2b) Paged mode: position across re-packs, EXACTLY.
+    // The chapter is a flat list of VISUAL ROWS; each page starts at a global
+    // row index ([rowStarts]). Toggling the controls (or any viewport change
+    // that keeps the WIDTH) slices identical rows — only the page GROUPING
+    // changes — so restoring by global row index is pixel-exact: no ±1 page
+    // drift like the old ratio rounding (6/28 → 5/23 → 6/28 on every toggle).
     var lastChapterKey by remember { mutableIntStateOf(-1) }
     var lastContentKey by remember { mutableStateOf<String?>(null) }
-    // True reading ratio captured in the pack SideEffect BEFORE the pager
-    // clamps currentPage to a (smaller) new page count — reading it later in
-    // the effect below would yield a clamped value (shrink case) and land on
-    // the wrong page.
-    var preservedRatio by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(paged, displayContent, currentIndex, measuredPages.size) {
-        if (!paged || measuredPages.isEmpty()) return@LaunchedEffect
-        val newSize = measuredPages.size
-        when {
-            pendingScroll > 0f && pendingScrollChapter == currentIndex && newSize > 1 -> {
-                pagerState.scrollToPage((pendingScroll * (newSize - 1)).roundToInt().coerceIn(0, newSize - 1))
-                pendingScroll = 0f
-            }
-            // Same chapter and content: only the page count changed (viewport).
-            lastChapterKey == currentIndex && lastContentKey == displayContent && lastPageSize > 1 -> {
-                pagerState.scrollToPage((preservedRatio * (newSize - 1)).roundToInt().coerceIn(0, (newSize - 1).coerceAtLeast(0)))
-            }
-            else -> pagerState.scrollToPage(0)
-        }
-        lastPageSize = newSize
-        lastChapterKey = currentIndex
-        lastContentKey = displayContent
-    }
+    var rowStarts by remember { mutableStateOf<List<Int>>(emptyList()) }
 
     fun saveProgressNow() {
         val t = workTitle
@@ -705,7 +684,13 @@ fun ReaderScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(top = topChromeInset, bottom = bottomChromeInset),
+                // Todo el lienzo (incluidas las franjas del notch) del color
+                // del tema del lector: sin costuras grises.
+                .background(readerBgColor(theme))
+                // El notch/punch-hole (display cutout) nunca pisa palabras: en
+                // inmersivo el lienzo se extiende por detrás de él.
+                .windowInsetsPadding(WindowInsets.displayCutout)
+
         ) {
         if (!paged) {
             ReaderWebViewHost(
@@ -748,7 +733,15 @@ fun ReaderScreen(
                 // the reader. First background, fallback to main thread if the
                 // measurer refuses to run off it (correct result either way).
                 LaunchedEffect(pageLines, maxWidth, maxHeight, fontSize, lineHeight, serif, margins, measurer) {
-                    paginating = true
+                    // Re-pack SOLO de viewport (misma obra+contenido): mantiene
+                    // las páginas actuales visibles y sin overlay; el swap es
+                    // silencioso al terminar.
+                    val viewportOnly = lastChapterKey == currentIndex &&
+                        lastContentKey == displayContent && measuredPages.isNotEmpty()
+                    // Global index of the CURRENT page's first row. Same width
+                    // ⇒ identical rows ⇒ this index survives any re-pack exactly.
+                    val savedRow = if (viewportOnly) rowStarts.getOrNull(pagerState.currentPage) ?: 0 else 0
+                    if (!viewportOnly) paginating = true
                     val t0 = System.currentTimeMillis()
                     var packed = try {
                         withContext(Dispatchers.Default) {
@@ -769,16 +762,32 @@ fun ReaderScreen(
                         }
                     }
                     Log.d("ReaderPaged", "pack: ${packed.size} páginas en ${System.currentTimeMillis() - t0} ms")
-                    // Capture the position BEFORE the pager sees the new page
-                    // count (it clamps currentPage, losing the true ratio when
-                    // the viewport shrinks). Only when nothing else changed.
-                    if (lastPageSize > 1 &&
-                        lastChapterKey == currentIndex &&
-                        lastContentKey == displayContent
-                    ) {
-                        preservedRatio = pagerState.currentPage / (lastPageSize - 1).toFloat()
+                    val starts = buildList {
+                        var n = 0
+                        for (pg in packed) {
+                            add(n)
+                            n += pg.size
+                        }
                     }
                     measuredPages = packed
+                    rowStarts = starts
+                    lastChapterKey = currentIndex
+                    lastContentKey = displayContent
+                    if (viewportOnly) {
+                        // EXACT: the page that now contains the same global row.
+                        val target = starts.indexOfLast { it <= savedRow }.coerceAtLeast(0)
+                        pagerState.scrollToPage(target)
+                        // La restauración por fila sustituye a la basada en
+                        // ratio que applyPrefs dejó pendiente.
+                        pendingScroll = 0f
+                    } else if (pendingScroll > 0f && pendingScrollChapter == currentIndex && packed.size > 1) {
+                        pagerState.scrollToPage(
+                            (pendingScroll * (packed.size - 1)).roundToInt().coerceIn(0, packed.size - 1),
+                        )
+                        pendingScroll = 0f
+                    } else {
+                        pagerState.scrollToPage(0)
+                    }
                     paginating = false
                 }
                 PagedReaderBody(
@@ -923,8 +932,7 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .onSizeChanged { topChromeHeightPx = it.height },
+                    .windowInsetsPadding(WindowInsets.statusBars),
             ) {
                 Column {
                     Row(
@@ -1218,7 +1226,6 @@ fun ReaderScreen(
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .onSizeChanged { bottomChromeHeightPx = it.height },
             ) {
                 Column {
                     if (tts.speaking || tts.paused) {
