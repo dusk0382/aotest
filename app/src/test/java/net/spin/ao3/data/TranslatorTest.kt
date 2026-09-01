@@ -59,6 +59,20 @@ class TranslatorTest {
     // ---- Backend OpenAI-compatible ----
 
     @Test
+    fun `el prompt de IA fija el contrato de estructura, comillas y salida`() {
+        val prompt = translator().aiSystemPrompt("es")
+        for (clave in listOf(
+            "EXACTLY the same number of blocks",
+            "PRESERVE all quotation marks",
+            "never remove, replace or normalize the quotes",
+            "no preamble",
+            "character and place names unchanged",
+        )) {
+            assert(prompt.contains(clave)) { "prompt sin la clave '$clave'" }
+        }
+    }
+
+    @Test
     fun `parseOpenAi extrae el contenido de choices`() {
         val json = """{"id":"x","choices":[{"index":0,"message":{"role":"assistant","content":"Hola mundo."}}]}"""
         assertEquals("Hola mundo.", translator().parseOpenAi(json))

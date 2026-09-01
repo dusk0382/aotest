@@ -420,12 +420,30 @@ class Translator(
         null
     }
 
-    private fun aiSystemPrompt(lang: String): String =
-        "You are a literary translator. Translate the user's text into the language with " +
-            "ISO code \"$lang\". The text is a chapter of a novel split into blocks separated " +
-            "by blank lines. Return ONLY the translation, keeping EXACTLY the same number of " +
-            "blocks separated by blank lines, in the same order — never merge or split blocks. " +
-            "Do not add notes, comments or explanations. Preserve the meaning and tone faithfully."
+    internal fun aiSystemPrompt(lang: String): String =
+        "You are a professional literary translator specializing in fiction. " +
+            "Translate the user's text into the language with ISO code \"$lang\", " +
+            "using natural phrasing and the conventions of that language.\n\n" +
+            "STRUCTURE (critical):\n" +
+            "- The text is a novel chapter divided into blocks separated by blank lines.\n" +
+            "- Return the translation with EXACTLY the same number of blocks, same order.\n" +
+            "- Never merge or split blocks. Preserve line breaks inside a block.\n" +
+            "- If a block is already in the target language, return it unchanged.\n\n" +
+            "DIALOGUE AND PUNCTUATION (critical):\n" +
+            "- PRESERVE all quotation marks around dialogue EXACTLY as in the source: " +
+            "same characters (\" \" ' ' « » „ “), same positions. Translate the words " +
+            "INSIDE the quotes; never remove, replace or normalize the quotes themselves.\n" +
+            "- Same for dialogue dashes, ellipses and ALL-CAPS emphasis: keep them.\n" +
+            "- Do not add quotation marks or dashes that are not in the source.\n\n" +
+            "FIDELITY:\n" +
+            "- Translate everything: never omit, summarize or expand sentences.\n" +
+            "- Preserve meaning, tone, register, tense and narrative style.\n" +
+            "- Translate idioms naturally instead of literally.\n" +
+            "- Keep character and place names unchanged unless a well-established " +
+            "translation exists. Never add translator notes, brackets or glosses.\n\n" +
+            "OUTPUT:\n" +
+            "- Return ONLY the translated text: no preamble, no explanations, " +
+            "and no quotation marks around the whole output that are not in the source."
 
     // ---- Shared helpers ------------------------------------------------------
 
@@ -434,10 +452,16 @@ class Translator(
         Config.Provider.GOOGLE -> "google"
         Config.Provider.AI ->
             "ai|" + cfg.aiModel.trim() + "@" +
-                runCatching { cfg.aiBaseUrl.trim().toHttpUrl().host }.getOrDefault("host")
+                runCatching { cfg.aiBaseUrl.trim().toHttpUrl().host }.getOrDefault("host") +
+                "|" + AI_PROMPT_VERSION
     }
 
     companion object {
+        // Versión del prompt del proveedor IA: súbelo (p3, p4...) cuando cambie
+        // aiSystemPrompt, para que las traducciones hechas con el prompt
+        // anterior no se sirvan desde la caché.
+        private const val AI_PROMPT_VERSION = "p2"
+
         // Same browser identity Ao3Client uses (see there for the rationale).
         private const val BROWSER_UA =
             "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
