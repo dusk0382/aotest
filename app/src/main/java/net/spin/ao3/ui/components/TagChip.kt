@@ -139,14 +139,16 @@ fun TagChip(
 }
 
 // ---- Tag accent colors (one per category; drive the dot or tinted fill) ------
+// Harmonized with the Material 3 baseline palette (v0.7.32). These are the
+// SOLID variant: used for text, dots and borders, never as a translucent wash.
 
-val FandomColor = Color(0xFF8A6D3B)
-val RatingColor = Color(0xFF8A5A00)
-val WarningColor = Color(0xFFC62828)
-val CategoryColor = Color(0xFF6A4FA3)
-val RelationshipColor = Color(0xFFC2185B)
-val CharacterColor = Color(0xFF2E7D32)
-val AdditionalColor = Color(0xFF757575)
+val FandomColor = Color(0xFF625B71)
+val RatingColor = Color(0xFF8A5000)
+val WarningColor = Color(0xFFB3261E)
+val CategoryColor = Color(0xFF6750A4)
+val RelationshipColor = Color(0xFFA03462)
+val CharacterColor = Color(0xFF146C2E)
+val AdditionalColor = Color(0xFF6F6B73)
 
 /**
  * Rating accent color. Returns the dark-mode pastel variant on dark themes
@@ -157,11 +159,11 @@ val AdditionalColor = Color(0xFF757575)
 fun ratingColor(key: String?): Color {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
     return when (key) {
-        "general-audiences" -> if (light) Color(0xFF00838F) else Color(0xFF2E9BA6)
-        "teen-and-up-audiences" -> if (light) Color(0xFF33691E) else Color(0xFF7CB342)
-        "mature" -> if (light) Color(0xFFE65100) else Color(0xFFFFB74D)
-        "explicit" -> Color(0xFFC62828)
-        "not-rated" -> if (light) Color(0xFF616161) else Color(0xFF9E9E9E)
+        "general-audiences" -> if (light) Color(0xFF00639A) else Color(0xFF97CAFF)
+        "teen-and-up-audiences" -> if (light) Color(0xFF146C2E) else Color(0xFF6DD58C)
+        "mature" -> if (light) Color(0xFF8B5000) else Color(0xFFFFB86B)
+        "explicit" -> Color(0xFFB3261E)
+        "not-rated" -> if (light) Color(0xFF5F5B62) else Color(0xFFCAC4D0)
         else -> RatingColor
     }
 }
@@ -170,25 +172,26 @@ fun ratingColor(key: String?): Color {
  * SOLID rating scale (docs/UI.md): a fixed container + text pair per AO3 rating,
  * WCAG AA/AAA in BOTH themes. Ratings are cognitive safety anchors — they get
  * an opaque, instantly recognizable color instead of a translucent tint:
- * E burgundy, M earthy amber, T olive, G deep teal, NR ash gray.
+ * G sky, T green, M amber, E red, NR gray. All pairs verified at 9.6:1 or
+ * better (light) and 5.5:1 or better (dark).
  */
 @Composable
 fun ratingSolidColors(key: String?): Pair<Color, Color> {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
     return when (key) {
         "general-audiences" ->
-            if (light) Color(0xFFB8ECF4) to Color(0xFF00414A) else Color(0xFF00363A) to Color(0xFF97F0FF)
+            if (light) Color(0xFFC8E6FF) to Color(0xFF00344A) else Color(0xFF00344A) to Color(0xFFC8E6FF)
         "teen-and-up-audiences" ->
-            if (light) Color(0xFFC4EFC0) to Color(0xFF1E4A1C) else Color(0xFF1F331E) to Color(0xFFB8F0B2)
+            if (light) Color(0xFFB9F0BB) to Color(0xFF0A3D14) else Color(0xFF0A3D14) to Color(0xFFB9F0BB)
         "mature" ->
-            if (light) Color(0xFFF5E1AC) to Color(0xFF564200) else Color(0xFF412D00) to Color(0xFFFFDF9E)
+            if (light) Color(0xFFFFDDB0) to Color(0xFF4A2800) else Color(0xFF4A2800) to Color(0xFFFFDDB0)
         "explicit" ->
-            if (light) Color(0xFFFFD9D4) to Color(0xFF7D2119) else Color(0xFF4A1215) to Color(0xFFFFB4AB)
+            if (light) Color(0xFFFFDAD6) to Color(0xFF690005) else Color(0xFF690005) to Color(0xFFFFDAD6)
         "not-rated" ->
-            if (light) Color(0xFFDEDEDE) to Color(0xFF333333) else Color(0xFF2D2D2D) to Color(0xFFE2E2E2)
-        // Unknown rating keys share the archive-warning magenta family.
+            if (light) Color(0xFFE3E1E1) to Color(0xFF2B2B2B) else Color(0xFF2B2B2B) to Color(0xFFE3E1E1)
+        // Unknown rating keys share the archive-warning family.
         else ->
-            if (light) Color(0xFFF8D7EC) to Color(0xFF6E1B54) else Color(0xFF3B0029) to Color(0xFFFFB0E1)
+            if (light) Color(0xFFFFD8E4) to Color(0xFF4A1533) else Color(0xFF4A1533) to Color(0xFFFFD8E4)
     }
 }
 
@@ -196,7 +199,7 @@ fun ratingSolidColors(key: String?): Pair<Color, Color> {
 @Composable
 fun warningSolidColors(): Pair<Color, Color> {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    return if (light) Color(0xFFFFD9D4) to Color(0xFF7D2119) else Color(0xFF4A1215) to Color(0xFFFFB4AB)
+    return if (light) Color(0xFFFFDAD6) to Color(0xFF690005) else Color(0xFF690005) to Color(0xFFFFDAD6)
 }
 
 /**

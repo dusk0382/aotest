@@ -37,82 +37,92 @@ enum class AppThemeMode(val label: String) {
 }
 
 /**
- * AO3 Lector palette — "Cacao & Salvia" (M3 HCT tokens).
+ * AO3 Lector palette — Material 3 baseline (los valores canónicos de la
+ * especificación de Material, no una paleta inventada).
  *
- * A warm terracotta (#B03A2E) is the brand accent for actions/selection — the
- * editorial, non-generic identity of the app; warm cocoa brown stays as the
- * secondary accent (fandom tags, author names); sage green is the tertiary
- * accent (character tags, reading progress). Surfaces are warm paper neutrals
- * (H40/C04) that never reach pure white/black in normal mode — long reading
- * sessions stay comfortable and free of halation/blooming.
+ * Motivo del cambio (v0.7.32): la paleta anterior ("Terracota & Serif") llevaba
+ * un primary terracota #B03A2E y un secondary cacao #7C5825 con ratio de
+ * contraste 1.06 entre sí — indistinguibles, marrón sobre marrón. Los colores
+ * actuales son la familia estándar de Google: primary violeta #6750A4 para
+ * acciones y selección, surfaces neutros que nunca llegan a negro puro, y
+ * superficies SÓLIDAS (sin `copy(alpha=…)`) para que las sesiones largas de
+ * lectura no produzcan halación.
+ *
+ * Todos los pares on-* / *-container superan WCAG AA (el mínimo es 5.48:1 en
+ * dark onSurfaceVariant); la escala sólida de ratings/warnings va de 9.6:1 a
+ * 11.2:1. Verificado con el linter de `@google/design.md`.
+ *
+ * El serif del sistema en display/headline/title se conserva: es la identidad
+ * editorial y no cuesta peso en el APK.
  */
 private val LightColors = lightColorScheme(
-    primary = Color(0xFFB03A2E),
+    primary = Color(0xFF6750A4),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDAD5),
-    onPrimaryContainer = Color(0xFF410002),
-    secondary = Color(0xFF7C5825),
+    primaryContainer = Color(0xFFEADDFF),
+    onPrimaryContainer = Color(0xFF21005D),
+    secondary = Color(0xFF625B71),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFFDCC1),
-    onSecondaryContainer = Color(0xFF2B1700),
-    tertiary = Color(0xFF1B6C3B),
+    secondaryContainer = Color(0xFFE8DEF8),
+    onSecondaryContainer = Color(0xFF1D192B),
+    tertiary = Color(0xFF7D5260),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFA7F4BC),
-    onTertiaryContainer = Color(0xFF00210B),
-    background = Color(0xFFFDFCF7),
-    onBackground = Color(0xFF1A1B18),
-    surface = Color(0xFFFDFCF7),
-    onSurface = Color(0xFF1A1B18),
-    surfaceVariant = Color(0xFFE5E2DA),
-    onSurfaceVariant = Color(0xFF48473E),
+    tertiaryContainer = Color(0xFFFFD8E4),
+    onTertiaryContainer = Color(0xFF31111D),
+    background = Color(0xFFFFFBFE),
+    onBackground = Color(0xFF1C1B1F),
+    surface = Color(0xFFFFFBFE),
+    onSurface = Color(0xFF1C1B1F),
+    surfaceVariant = Color(0xFFE7E0EC),
+    onSurfaceVariant = Color(0xFF49454F),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF7F4EC),
-    surfaceContainer = Color(0xFFF1EEE6),
-    surfaceContainerHigh = Color(0xFFEBE8E0),
-    surfaceContainerHighest = Color(0xFFE5E2DA),
-    outline = Color(0xFF79776E),
-    outlineVariant = Color(0xFFC8C6BC),
-    error = Color(0xFFBA1A1A),
+    surfaceContainerLow = Color(0xFFF7F2FA),
+    surfaceContainer = Color(0xFFF3EDF7),
+    surfaceContainerHigh = Color(0xFFECE6F0),
+    surfaceContainerHighest = Color(0xFFE6E0E9),
+    outline = Color(0xFF79747E),
+    outlineVariant = Color(0xFFCAC4D0),
+    error = Color(0xFFB3261E),
     onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
+    errorContainer = Color(0xFFF9DEDC),
+    onErrorContainer = Color(0xFF410E0B),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFFFB4A5),
-    onPrimary = Color(0xFF690002),
-    primaryContainer = Color(0xFF930B06),
-    onPrimaryContainer = Color(0xFFFFDAD5),
-    secondary = Color(0xFFE8C08C),
-    onSecondary = Color(0xFF3E2B00),
-    secondaryContainer = Color(0xFF5F4110),
-    onSecondaryContainer = Color(0xFFFFDCC1),
-    tertiary = Color(0xFF82D7A0),
-    onTertiary = Color(0xFF003919),
-    tertiaryContainer = Color(0xFF005227),
-    onTertiaryContainer = Color(0xFFA7F4BC),
-    background = Color(0xFF1A1B18),
-    onBackground = Color(0xFFE6E2DA),
-    surface = Color(0xFF1A1B18),
-    onSurface = Color(0xFFE6E2DA),
-    surfaceVariant = Color(0xFF41403B),
-    onSurfaceVariant = Color(0xFFC8C6BC),
-    surfaceContainerLowest = Color(0xFF121310),
-    surfaceContainerLow = Color(0xFF20201C),
-    surfaceContainer = Color(0xFF2B2A26),
-    surfaceContainerHigh = Color(0xFF363530),
-    surfaceContainerHighest = Color(0xFF41403B),
-    outline = Color(0xFF929085),
-    outlineVariant = Color(0xFF48473E),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF93000A),
-    onErrorContainer = Color(0xFFFFDAD6),
+    primary = Color(0xFFD0BCFF),
+    onPrimary = Color(0xFF381E72),
+    primaryContainer = Color(0xFF4F378B),
+    onPrimaryContainer = Color(0xFFEADDFF),
+    secondary = Color(0xFFCCC2DC),
+    onSecondary = Color(0xFF332D41),
+    secondaryContainer = Color(0xFF4A4458),
+    onSecondaryContainer = Color(0xFFE8DEF8),
+    tertiary = Color(0xFFEFB8C8),
+    onTertiary = Color(0xFF492532),
+    tertiaryContainer = Color(0xFF633B48),
+    onTertiaryContainer = Color(0xFFFFD8E4),
+    background = Color(0xFF1C1B1F),
+    onBackground = Color(0xFFE6E1E5),
+    surface = Color(0xFF1C1B1F),
+    onSurface = Color(0xFFE6E1E5),
+    surfaceVariant = Color(0xFF49454F),
+    onSurfaceVariant = Color(0xFFCAC4D0),
+    surfaceContainerLowest = Color(0xFF131318),
+    surfaceContainerLow = Color(0xFF1D1B20),
+    surfaceContainer = Color(0xFF211F26),
+    surfaceContainerHigh = Color(0xFF2B2930),
+    surfaceContainerHighest = Color(0xFF36343B),
+    outline = Color(0xFF938F99),
+    outlineVariant = Color(0xFF49454F),
+    error = Color(0xFFF2B8B5),
+    onError = Color(0xFF601410),
+    errorContainer = Color(0xFF8C1D18),
+    onErrorContainer = Color(0xFFF9DEDC),
 )
 
 /**
  * Semantic colors used across the app (success = downloaded/read, favorite,
- * etc.) so screens stop hardcoding one-off hex values.
+ * etc.) so screens stop hardcoding one-off hex values. `info` is a token, not
+ * the brand accent — the brand accent is `primary` (see LightColors).
  */
 data class SemanticColors(
     val success: Color,
@@ -123,19 +133,19 @@ data class SemanticColors(
 )
 
 private val LightSemantic = SemanticColors(
-    success = Color(0xFF2E7D32),
+    success = Color(0xFF146C2E),
     onSuccess = Color(0xFFFFFFFF),
     favorite = Color(0xFFB3261E),
-    warning = Color(0xFFE65100),
-    info = Color(0xFF1A60A5),
+    warning = Color(0xFF8B5000),
+    info = Color(0xFF1565C0),
 )
 
 private val DarkSemantic = SemanticColors(
-    success = Color(0xFF81C784),
+    success = Color(0xFF6DD58C),
     onSuccess = Color(0xFF00391B),
-    favorite = Color(0xFFEF9A9A),
-    warning = Color(0xFFFFB74D),
-    info = Color(0xFFA2C9FF),
+    favorite = Color(0xFFFFB4AB),
+    warning = Color(0xFFFFB86B),
+    info = Color(0xFFA8C7FA),
 )
 
 val LocalSemanticColors = staticCompositionLocalOf { LightSemantic }
@@ -168,9 +178,9 @@ val Ao3Typography = Typography(
 )
 
 /**
- * MD3 shape tokens (Cacao & Salvia): chips = small (8dp), cards/surfaces =
- * medium (12dp), large sheets = large (16dp), dialogs/bottom sheets =
- * extraLarge (28dp). Components reference these instead of magic radii.
+ * MD3 shape tokens: chips = small (8dp), cards/surfaces = medium (12dp), large
+ * sheets = large (16dp), dialogs/bottom sheets = extraLarge (28dp). Components
+ * reference these instead of magic radii.
  */
 val Ao3Shapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp),

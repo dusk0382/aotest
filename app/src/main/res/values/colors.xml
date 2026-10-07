@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Tono cálido del sistema (surface oscuro H40/C04/T10): coherente con la
-         paleta "Cacao & Salvia"; antes era un púrpura #1F1A24 fuera de escala. -->
-    <color name="splash_background">#1A1B18</color>
-    <color name="ic_launcher_background">#1A1B18</color>
+    <!-- Surface oscuro de la paleta Material 3 baseline (#1C1B1F): el fondo del
+         splash y del icono. Antes #1A1B18 (surface del tema "Terracota & Salvia"). -->
+    <color name="splash_background">#1C1B1F</color>
+    <color name="ic_launcher_background">#1C1B1F</color>
 </resources>
