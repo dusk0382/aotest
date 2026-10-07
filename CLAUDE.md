@@ -71,6 +71,12 @@ paginado Compose con filas visuales medidas. Detalles en `docs/`.
 13. En la UI, superficies SÓLIDAS (sin `copy(alpha=…)` para fondos) y tokens
     (`LocalSemanticColors`) — spec en `docs/UI.md`. Ojo: si el usuario tiene
     colores dinámicos (Material You) activados, la paleta fija no se ve.
+14. UNA SOLA COPIA del proyecto: `/home/spin/Documentos/AO3` es el repo canónico
+    y el único sitio donde se trabaja y commitea. Existieron una copia y un repo
+    viejo en `AO3_extracted/` que obligaban a portear cambios a mano; se
+    eliminaron el 2026-10-06. No recrear clones ni directorios paralelos: para
+    volver a una versión anterior, `git stash` / rama / tag (flujo en
+    `docs/MODIFYING.md`).
 
 ## Tests
 

@@ -105,16 +105,22 @@ Cada bloque de trabajo vive en su propio commit (ver `git log`):
 
 ## Actualizar el repo de GitHub (dusk0382/aotest)
 
+Este repo **es** el proyecto: una sola copia, un solo historial, remote
+`dusk0382/aotest`. Ya no hay copia de trabajo paralela que portear — las que
+existieron se eliminaron el 2026-10-06 (ver la nota de cabecera de
+[HISTORY.md](HISTORY.md)).
+
 El flujo canónico de esta máquina:
 
-1. Trabajar en `/home/spin/Documentos/AO3_extracted/test/AO3` (copia canónica
-   con su propio git local y commits por bloque).
-2. Portear los archivos cambiados al repo activo
-   `/home/spin/Documentos/AO3` (remote `dusk0382/aotest`), revisando que no
-   haya cambios propios del repo que la copia no tenga (`diff -rq app/src`).
-3. Bump de `versionCode`/`versionName` en el REPO (ver [RELEASING.md](RELEASING.md)).
-4. `./gradlew :app:testDebugUnitTest :app:assembleDebug` en el repo.
-5. Commit (`vX.Y.Z: ...`) + push a `main` → la CI compila y publica los
+1. Trabajar directamente en `/home/spin/Documentos/AO3` (aquí).
+2. Bump de `versionCode`/`versionName` (ver [RELEASING.md](RELEASING.md)).
+3. `./gradlew :app:testDebugUnitTest :app:assembleDebug` — la puerta verde.
+4. Commit (`vX.Y.Z: ...`) + push a `main` → la CI compila y publica los
    artefactos `ao3-reader-debug` / `ao3-reader-release` / `ao3-reader-mapping`.
-6. Tag `vX.Y.Z` SOLO si se quiere Release público (el CI exige
+5. Tag `vX.Y.Z` SOLO si se quiere Release público (el CI exige
    tag == versionName).
+
+Nunca vuelvas a crear una segunda copia para trabajar: con dos historiales
+divergen las versiones (`versionCode` se quedó atrás en la copia) y aparece
+trabajo que nunca se porta. Si necesitas una versión vieja del código, usa
+`git stash`, una rama o un tag — no un directorio clonado.

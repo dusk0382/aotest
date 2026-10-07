@@ -6,9 +6,10 @@
 > [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md) y
 > [READER_SCREEN.md](READER_SCREEN.md).
 >
-> Las rondas v0.7.25-v0.7.28 se desarrollaron en la copia de trabajo
-> `AO3_extracted/test/AO3` (repo git local, commits por bloque) y se
-> portearon al repo GitHub `dusk0382/aotest`.
+> Las rondas v0.7.25-v0.7.28 se desarrollaron en una copia de trabajo
+> paralela (`AO3_extracted/test/AO3`, repo git propio) y se portearon a este
+> repo. Ambas copias se eliminaron el 2026-10-06: desde la v0.7.29 se trabaja y
+> commitea directamente aquí.
 
 ---
 
@@ -1333,8 +1334,9 @@ los que la revisión detectó como incompletos y arregla el pipeline de releases
 
 ## Ronda v0.7.26 — paginado arreglado, traducción Google+IA, export .txt completo, rendimiento y UI "Terracota & Serif"
 
-Trabajo hecho en `/home/spin/Documentos/AO3_extracted/test/AO3` (ahora ES repo git
-propio, baseline `v0.7.25-baseline`): un commit por bloque, revert selectivo.
+Trabajo hecho en `/home/spin/Documentos/AO3_extracted/test/AO3` (repo git
+propio, baseline `v0.7.25-baseline`; copia ya eliminada): un commit por bloque,
+revert selectivo.
 
 ### 1. Modo paginado (el bug de "activarlo no hace nada")
 - **Causa raíz**: `packPagesToViewport` corría EN COMPOSICIÓN (main thread) con una
@@ -1409,7 +1411,8 @@ propio, baseline `v0.7.25-baseline`): un commit por bloque, revert selectivo.
   Detalle/Biblioteca, y mirar la nueva UI (terracota + serif).
 - El repo git activo para releases (`/home/spin/Documentos/AO3`, remote
   dusk0382/aotest) va POR DELANTE (v0.7.26 con otros fixes): portear estos cambios
-  antes del próximo tag o resuelve diferencias a mano.
+  antes del próximo tag o resuelve diferencias a mano. *(Resuelto: los dos
+  repos se fusionaron en uno solo el 2026-10-06.)*
 
 ## Ronda v0.7.28 — paginado: la verdadera causa del "no hace nada" + páginas llenas
 

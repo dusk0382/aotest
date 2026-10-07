@@ -1396,7 +1396,7 @@ los que la revisión detectó como incompletos y arregla el pipeline de releases
 
 Ronda nacida de una segunda auditoría (24/08/2026) + `/code-review max`
 (15 hallazgos verificados). Trabajada sobre la copia de prueba
-`AO3_extracted/test/AO3` y portada a este repo en la rama
+`AO3_extracted/test/AO3` (copia ya eliminada) y portada a este repo en la rama
 `fix/ronda-post-auditoria`.
 
 ### 1. SearchScreen: crash por claves duplicadas al paginar
