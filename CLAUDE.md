@@ -95,3 +95,12 @@ depuración en dispositivo: `docs/TESTING.md`.
 - Documentación: `README.md` (entrada) + `docs/` (arquitectura, lector,
   recetas, testing, releases, UI, historial). Al cerrar una ronda, añadir la
   crónica a `docs/HISTORY.md`.
+- Skills de `.agents/skills/`: `material-3` es **referencia de catálogo de
+  componentes únicamente** (parámetros y API reales de M3); la identidad
+  visual la fija `docs/UI.md`, no la skill. Ignorar su recomendación de
+  `dynamicColor` por defecto: aquí es opt-in y el default es `false` (regla
+  13). Las `compose-*` de chrisbanes (performance, component-design,
+  animations) sí aplican: son Compose-nativas y no proponen arquitectura.
+  No añadir skills web (landing pages, Tailwind, React) ni generadoras de
+  arquitectura (Hilt/Room/ViewModel/Nav3/multi-módulo): contradicen el
+  cableado manual vía `AppContainer` y la navegación propia.

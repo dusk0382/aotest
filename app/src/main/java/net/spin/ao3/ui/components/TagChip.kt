@@ -167,7 +167,7 @@ fun ratingColor(key: String?): Color {
 }
 
 /**
- * SOLID rating scale (UI.txt): a fixed container + text pair per AO3 rating,
+ * SOLID rating scale (docs/UI.md): a fixed container + text pair per AO3 rating,
  * WCAG AA/AAA in BOTH themes. Ratings are cognitive safety anchors — they get
  * an opaque, instantly recognizable color instead of a translucent tint:
  * E burgundy, M earthy amber, T olive, G deep teal, NR ash gray.

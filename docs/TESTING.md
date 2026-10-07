@@ -46,6 +46,32 @@ adb shell input tap X Y ; adb shell input text 'query'; adb shell input keyevent
 adb shell input keyevent KEYCODE_WAKEUP ; adb shell input keyevent 82  # despertar/desbloquear
 ```
 
+Con varios dispositivos conectados, anteponer `-s <serial>` (sacarlo de
+`adb devices`) a todos los comandos, incluidas las capturas.
+
+### Matriz de captura (no capturar solo el estado por defecto)
+
+```bash
+adb shell cmd uimode night yes            # modo oscuro ; restaurar: ... night no
+adb shell settings put system font_scale 1.3   # texto grande ; RESTAURAR a 1.0
+```
+
+El `font_scale` alto es el que destapa etiquetas recortadas, botones con el
+texto desbordado y chips que no caben, cosas que un layout fijo esconde.
+**Restaurar siempre a `1.0`** al terminar o las siguientes capturas salen mal.
+
+El emulador da amplitud de estados; los gestos, el refresh rate y el
+rendimiento necesitan hardware real. Hay que decir cuál de los dos produjo cada
+evidencia: una captura de emulador no respalda una afirmación de rendimiento.
+
+### Checklist mínimo de accesibilidad al revisar una pantalla
+
+- Todo control interactivo con etiqueta para TalkBack (no solo icono).
+- Orden de lectura/foco lógico y no perdido al navegar.
+- Targets táctiles ≥ 48×48 dp con ≥ 8 dp de separación entre ellos.
+- Contraste AA en modo claro **y** oscuro.
+- Sin tamaños fijos en px: todo en sp, para que siga el ajuste del sistema.
+
 Trucos aprendidos: el screen apagado/lockscreen se confunde con "la app está
 en blanco"; MIUI bloqueaba uiautomator (usar screencap+OCR); el teclado de
 MIUI tapaba la barra inferior (BACK antes de tocar); los taps ciegos por
@@ -75,6 +101,7 @@ grep -E "ReaderPaged|TranslatorGoogle|WebViewFetcher|Ao3Client|FATAL" /tmp/log.t
 | Páginas medio vacías | alguien tocó `fits()`/`linesToAnnotated`/`pagePlainText` desincronizados |
 | "El paginado no hace nada" | el chip no aplica (verificar el fix de aplicación inmediata) o el pack no corre (log `ReaderPaged`) |
 | Texto bajo el notch | falta el `windowInsetsPadding(WindowInsets.displayCutout)` del contenedor raíz del lector |
+| Etiqueta recortada / texto desbordado | reproducir con `font_scale 1.3` antes de tocar el layout (ver §2) |
 | UI "se ve azul/vieja" | **Material You activado** (Ajustes → colores dinámicos), no un build viejo |
 | ANR al abrir ajustes con biblioteca grande | algo volvió a leer/serializar en main (Store ya carga perezoso; no regresar) |
 

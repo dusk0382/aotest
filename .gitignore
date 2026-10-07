@@ -14,3 +14,7 @@ captures/
 keystore-backup/
 keystore/
 *.jks
+
+# Respaldo de 'npx skills add': el clon de trabajo va a agent/, y las
+# symlinks por agente (.claude/, etc.) se regeneran con el instalador.
+agent/

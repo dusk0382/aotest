@@ -19,35 +19,29 @@
       "skillPath": "android-proguard-helper/SKILL.md",
       "computedHash": "759c58584a5de1af4d5b97e2b1da84b116f1cf9cf934e2a496fb16ae3b057176"
     },
-    "claude-android-ninja": {
-      "source": "drjacky/claude-android-ninja",
+    "compose-animations": {
+      "source": "chrisbanes/skills",
       "sourceType": "github",
-      "skillPath": "SKILL.md",
-      "computedHash": "dda5ce7236d6246b69aadf278c64b377115b9dd205d4b41e9cb2d82af388f42e"
+      "skillPath": "skills/compose-animations/SKILL.md",
+      "computedHash": "03397a33040128057c65813037d31dbf37cf5e2e1ce5961ff7e1c12eaac51449"
     },
-    "design-taste-frontend": {
-      "source": "leonxlnx/taste-skill",
+    "compose-component-design": {
+      "source": "chrisbanes/skills",
       "sourceType": "github",
-      "skillPath": "skills/taste-skill/SKILL.md",
-      "computedHash": "6d838b246d0e35d0b53f4f23f98ba7a1dd561937e64f7d0c7553b0928e376c3e"
+      "skillPath": "skills/compose-component-design/SKILL.md",
+      "computedHash": "63184988d45f81348c928505454a28b02fafda99550e8de66d9ff770d25cfd09"
     },
-    "impeccable": {
-      "source": "pbakaus/impeccable",
+    "compose-performance": {
+      "source": "chrisbanes/skills",
       "sourceType": "github",
-      "skillPath": ".agents/skills/impeccable/SKILL.md",
-      "computedHash": "430e209406db522adf066aec2080926f3edfc61859cf3d9cd213374e331759e3"
+      "skillPath": "skills/compose-performance/SKILL.md",
+      "computedHash": "6be34619d8d8717dd01453592944003b0af79dc4ac639831a90ee6bbf76f471e"
     },
     "material-3": {
       "source": "hamen/material-3-skill",
       "sourceType": "github",
       "skillPath": "skills/material-3/SKILL.md",
       "computedHash": "72d56347fae33c9b1763e16d0bffb781da382aa3be316b9252dcd35fd050c6bc"
-    },
-    "mobile-android-design": {
-      "source": "wshobson/agents",
-      "sourceType": "github",
-      "skillPath": "plugins/ui-design/skills/mobile-android-design/SKILL.md",
-      "computedHash": "bcb274bcc4e0ad076b5947f90e5a247f370ed4da1274b2b7347dc293ee396309"
     },
     "okhttp3-5.x": {
       "source": "full-stack-skills/java-skills",
