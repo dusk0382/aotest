@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -64,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -216,7 +221,7 @@ fun LibraryScreen(
     }
 }
 
-/** Segmented pill selector (mismo lenguaje que la barra inferior de la app). */
+/** Selector de pestañas: píldoras de texto medidas por su contenido. */
 @Composable
 private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
     Surface(
@@ -226,22 +231,25 @@ private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Box(Modifier.weight(1f)) {
-                LibraryTabPill(stringResource(R.string.library_favorites), Icons.Filled.Star, selected == 0) { onSelect(0) }
-            }
-            Box(Modifier.weight(1f)) {
-                LibraryTabPill(stringResource(R.string.library_history), Icons.Filled.History, selected == 1) { onSelect(1) }
-            }
-            Box(Modifier.weight(1f)) {
-                LibraryTabPill(stringResource(R.string.library_downloads), Icons.Filled.Download, selected == 2) { onSelect(2) }
-            }
+        // Sin iconos ni pesos fijos: cada píldora mide lo que mide su etiqueta y la
+        // fila se desplaza si no cabe. Con icono + texto en 1/3 del ancho,
+        // «Descargas» se pintaba como «Descar…».
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .selectableGroup()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            LibraryTabPill(stringResource(R.string.library_favorites), selected == 0) { onSelect(0) }
+            LibraryTabPill(stringResource(R.string.library_history), selected == 1) { onSelect(1) }
+            LibraryTabPill(stringResource(R.string.library_downloads), selected == 2) { onSelect(2) }
         }
     }
 }
 
 @Composable
-private fun LibraryTabPill(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+private fun LibraryTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
         label = "tabBg",
@@ -255,27 +263,18 @@ private fun LibraryTabPill(label: String, icon: ImageVector, selected: Boolean, 
         label = "tabFg",
     )
     Surface(
-        onClick = onClick,
         shape = CircleShape,
         color = bg,
         contentColor = fg,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.selectable(selected = selected, onClick = onClick, role = Role.Tab),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+        )
     }
 }
 
@@ -378,7 +377,7 @@ private fun FavoritesTab(
         items(favorites, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
-                iconTint = semantic.favorite,
+                iconTint = MaterialTheme.colorScheme.primary,
                 iconContainer = MaterialTheme.colorScheme.primaryContainer,
                 title = sw.title,
                 subtitle = "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
@@ -578,7 +577,7 @@ private fun DownloadsTab(
                 Column {
                     LibraryRowCard(
                         icon = Icons.Default.Download,
-                        iconTint = semantic.success,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
                         iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
                         title = dl.title,
                         subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · sin conexión",
@@ -633,7 +632,7 @@ private fun DownloadsTab(
                                     onExport = { exporter(dl.title, ch.index, ch.title, ch.content) },
                                     onDelete = { onDeleteChapter(dl.id, ch.index) },
                                 )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
                     }

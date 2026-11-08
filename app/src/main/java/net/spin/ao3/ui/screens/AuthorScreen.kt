@@ -272,7 +272,7 @@ fun AuthorScreen(
                             Text(
                                 "Pseuds: ${pseuds.joinToString(", ")}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Spacer(Modifier.height(14.dp))

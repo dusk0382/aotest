@@ -479,7 +479,13 @@ fun WorkDetailScreen(
                     IconButton(onClick = { toggleSaved() }) {
                         Icon(
                             if (saved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorito",
+                            // El estado va en la descripción: con «Favorito» fijo,
+                            // TalkBack no distingue marcado de sin marcar.
+                            contentDescription = if (saved) {
+                                "Quitar de favoritos"
+                            } else {
+                                "Añadir a favoritos"
+                            },
                             tint = if (saved) semantic.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

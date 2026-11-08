@@ -1439,3 +1439,48 @@ revert selectivo.
   `files/ao3_library.json` → desinstalar → instalar v0.7.28 → restaurar).
 - La UI azul en el teléfono era Material You (`dynamicColor` activado por el
   usuario), no un build viejo.
+
+## Ronda v0.7.32 — revisión de diseño con la skill `android-design` (Material 3 Expressive)
+
+Revisión visual real en dispositivo (`M2006C3LG`, Android 10 / MIUI 12, 720×1600
+@320 dpi), temas claro y oscuro, fuente al 200 % y horizontal. Los hallazgos se
+corrigieron en el código y se volvieron a medir con captura de pantalla + lectura
+de luminancia por píxel (el modelo visual se equivoca con textos de 11-12 sp).
+
+- **Tema en caliente (P0)**: cambiar de tema en Ajustes dejaba textos con los
+  colores del esquema anterior — los estados vacíos quedaban blancos sobre
+  blanco hasta reiniciar el proceso. Causa: los `CompositionLocal` de
+  `MaterialTheme` son `static`, así que los composables que Compose **salta**
+  conservan lecturas viejas. `key(themeMode, dynamicColor)` no bastó: ahora
+  `MainActivity` **recrea la actividad** al cambiar de tema o de colores
+  dinámicos (`reloadTheme()`), que es lo único fiable.
+- **Barra inferior**: icono + etiqueta en una sola línea truncaban «Biblioteca».
+  Se probó icono encima de la etiqueta, pero en este ROM las etiquetas pintadas
+  **fuera** del `Surface` de la píldora se rasterizaban casi transparentes tras
+  cambiar de pestaña (bug de render, se arreglaba rotando la pantalla). Se quedó
+  la estructura original —`Box(weight)` → `Surface` (píldora) → `Row`— con
+  paddings más ajustados (10 dp / 4 dp) y `labelMedium`, y la barra pasó a
+  `heightIn(min = 72.dp)` con etiqueta a 2 líneas para no truncar al 200 %.
+  Añadido `selectable` + `Role.Tab` + `selectableGroup` (TalkBack anunciaba los
+  tres destinos igual, sin estado).
+- **Selector de Biblioteca**: de icono+texto en 1/3 del ancho (dejaba
+  «Descar…») a píldoras de solo texto dimensionadas por su contenido, con
+  `horizontalScroll` y semántica de tab.
+- **Estado vacío compacto**: la acción pasa **debajo** del texto (antes el botón
+  se quedaba con 1.5× el ancho de la descripción y al 200 % el texto se partía
+  letra por letra).
+- **Ajustes → Traducción**: «Probar» y «Guardar» comparten `weight(1f)` y
+  etiquetas cortas; antes eran 280×96 y 161×80 en la misma fila.
+- **Home**: «Continuar leyendo» sube por delante de los accesos rápidos (era lo
+  último, con cuatro píldoras `primaryContainer` idénticas compitiendo arriba);
+  los atajos pasan a `surfaceContainerHigh` (superficie neutra) para que el
+  acento quede para lo seleccionado.
+- **Contraste**: fuera `copy(alpha = 0.7f/0.8f)` sobre `onSurfaceVariant` en
+  pies y textos secundarios (Home, Autor, Búsqueda, `WorkCard`): a 11-12 sp no
+  llegaba a 4.5:1. El separador de descargas usa `outlineVariant` sólido.
+- **Semántica**: el corazón de favoritos anunciaba «Favorito» con estado o sin
+  él; ahora «Añadir a favoritos» / «Quitar de favoritos». El contador de
+  filtros de Búsqueda dejó de usar 9 sp.
+- **Sin verificar visualmente**: detalle de obra, lector y pantalla de autor
+  (AO3 llevaba una semana caído; revisión solo de código). Pendiente medirlas
+  cuando el sitio vuelva.

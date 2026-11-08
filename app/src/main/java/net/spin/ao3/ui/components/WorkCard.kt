@@ -228,7 +228,7 @@ fun WorkCard(
                 Text(
                     text = stringResource(R.string.wc_updated, it),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    color = colorScheme.onSurfaceVariant,
                 )
             }
         }

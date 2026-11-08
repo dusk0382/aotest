@@ -1,5 +1,6 @@
 package net.spin.ao3
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -22,11 +23,13 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.annotation.StringRes
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import net.spin.ao3.R
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,6 +81,15 @@ private fun AppRoot() {
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
+    // Recrear la actividad es el único remedio fiable al cambiar de tema:
+    // los CompositionLocal de MaterialTheme son `static`, así que los
+    // composables que Compose salta conservan lecturas del esquema anterior
+    // (la etiqueta de la barra inferior quedaba gris claro sobre fondo claro
+    // aunque el resto de la pantalla ya estuviera en el tema nuevo).
+    val activity = LocalContext.current as? Activity
+    fun reloadTheme() {
+        activity?.recreate()
+    }
 
     // Stack for Search / Detail / Reader (full-screen, hidden bottom bar).
     val nav = rememberNavController()
@@ -95,11 +107,18 @@ private fun AppRoot() {
         if (nav.canGoBack) nav.pop() else tab = AppTab.HOME
     }
 
+    // `key` fuerza a recrear TODO el árbol temático cuando cambia el tema: sin
+    // esto, cambiar de tema en caliente dejaba textos con los colores del
+    // esquema anterior (los estados vacíos quedaban blancos sobre blanco) hasta
+    // reiniciar el proceso. La pila de navegación y la pestaña viven fuera, así
+    // que se conservan.
+    key(themeMode, dynamicColor) {
     Ao3Theme(mode = themeMode, dynamicColor = dynamicColor) {
         Scaffold(
             // Every screen draws its own status-bar insets (TopAppBar etc.);
             // consuming them here too would double the top padding.
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            contentColor = MaterialTheme.colorScheme.onBackground,
             bottomBar = {
                 if (showTabs) {
                     CapsuleBottomBar(
@@ -164,8 +183,14 @@ private fun AppRoot() {
                             )
                             AppTab.SETTINGS -> SettingsScreen(
                                 container = container,
-                                onThemeModeChanged = { mode -> themeMode = mode },
-                                onDynamicColorChanged = { dc -> dynamicColor = dc },
+                                onThemeModeChanged = { mode ->
+                                    themeMode = mode
+                                    reloadTheme()
+                                },
+                                onDynamicColorChanged = { dc ->
+                                    dynamicColor = dc
+                                    reloadTheme()
+                                },
                             )
                         }
                         is NavTarget.Screen -> when (val route = target.route) {
@@ -211,6 +236,7 @@ private fun AppRoot() {
             }
         }
     }
+    } // key(themeMode, dynamicColor)
 }
 
 private sealed interface NavTarget {

@@ -52,24 +52,35 @@ fun EmptyState(
             shape = MaterialTheme.shapes.large,
             color = colorScheme.surfaceContainerLow,
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconCircle(icon)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colorScheme.onSurfaceVariant,
-                    )
+            // La acción va debajo del texto, no al lado: en una tarjeta estrecha
+            // el botón se quedaba con 1.5x el ancho de la descripción (y al 200%
+            // de escala el texto se partía letra por letra).
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    IconCircle(icon)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (actionLabel != null && onAction != null) {
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onAction) { Text(actionLabel) }
+                    TextButton(
+                        onClick = onAction,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text(actionLabel)
+                    }
                 }
             }
         }
@@ -85,6 +96,7 @@ fun EmptyState(
                     title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(6.dp))

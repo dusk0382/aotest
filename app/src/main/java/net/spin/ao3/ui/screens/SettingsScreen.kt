@@ -472,11 +472,12 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
                     }
                 },
                 enabled = !testing,
+                modifier = Modifier.weight(1f),
             ) {
                 if (testing) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("Probar conexión")
+                    Text("Probar", maxLines = 1)
                 }
             }
             Button(
@@ -487,8 +488,9 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
                     }
                 },
                 enabled = provider != "ai" || (baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()),
+                modifier = Modifier.weight(1f),
             ) {
-                Text("Guardar ajustes")
+                Text("Guardar", maxLines = 1)
             }
         }
     }

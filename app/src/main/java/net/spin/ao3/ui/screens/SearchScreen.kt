@@ -403,7 +403,8 @@ fun SearchScreen(
                                 Text(
                                     activeFilterCount.coerceAtMost(9).toString(),
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
+                                    // 9sp sin antialiasing legible: mínimo 11sp.
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             }
@@ -522,7 +523,7 @@ fun SearchScreen(
                         Text(
                             "Página $page",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.height(6.dp))

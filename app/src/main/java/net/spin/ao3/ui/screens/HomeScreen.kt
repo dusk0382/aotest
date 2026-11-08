@@ -150,43 +150,8 @@ fun HomeScreen(
                     ),
                 )
             }
-            item {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
-                    QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
-                    QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
-                    QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
-                }
-            }
-            item {
-                Column {
-                    Spacer(Modifier.height(14.dp))
-                    SectionTitle(stringResource(R.string.home_explore_fandoms))
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "Naruto", "Harry Potter", "Marvel", "DCU",
-                        "My Hero Academia", "One Piece", "Sherlock (TV)",
-                    ).forEach { fandom ->
-                        TagChip(
-                            fandom,
-                            MaterialTheme.colorScheme.secondary,
-                            variant = TagChipVariant.FILLED_SECONDARY,
-                            onClick = { onBrowseTag(fandom) },
-                        )
-                    }
-                }
-            }
+            // Continuar leyendo va primero: es la tarea principal de la pantalla
+            // (el campo de búsqueda queda arriba por ser la otra entrada).
             item {
                 Column {
                     Spacer(Modifier.height(14.dp))
@@ -230,13 +195,52 @@ fun HomeScreen(
                     )
                 }
             }
+            // Descubrimiento: atajos secundarios, sin relleno de acento que
+            // compita con la tarea principal.
+            item {
+                Column {
+                    Spacer(Modifier.height(14.dp))
+                    SectionTitle(stringResource(R.string.home_explore_fandoms))
+                }
+            }
+            item {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
+                    QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
+                    QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
+                    QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(
+                        "Naruto", "Harry Potter", "Marvel", "DCU",
+                        "My Hero Academia", "One Piece", "Sherlock (TV)",
+                    ).forEach { fandom ->
+                        TagChip(
+                            fandom,
+                            MaterialTheme.colorScheme.secondary,
+                            variant = TagChipVariant.FILLED_SECONDARY,
+                            onClick = { onBrowseTag(fandom) },
+                        )
+                    }
+                }
+            }
             item {
                 Column {
                     Spacer(Modifier.height(16.dp))
                     Text(
                         stringResource(R.string.home_footer),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(16.dp))
                 }
@@ -330,7 +334,7 @@ private fun ContinueReadingRow(
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -348,12 +352,13 @@ private fun relativeTime(at: Long): String {
     }
 }
 
+/** Atajo de descubrimiento: superficie neutra, no un acento más. */
 @Composable
 private fun QuickChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         onClick = onClick,
     ) {
         Row(

@@ -18,3 +18,6 @@ keystore/
 # Respaldo de 'npx skills add': el clon de trabajo va a agent/, y las
 # symlinks por agente (.claude/, etc.) se regeneran con el instalador.
 agent/
+
+# Capturas de revisión de diseño (locales, no se versionan)
+.design-review/
