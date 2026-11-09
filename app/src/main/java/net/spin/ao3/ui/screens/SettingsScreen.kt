@@ -1,24 +1,29 @@
 package net.spin.ao3.ui.screens
 
 import android.os.Build
-import net.spin.ao3.BuildConfig
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Visibility
@@ -50,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,12 +68,27 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.spin.ao3.BuildConfig
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.ui.theme.AppThemeMode
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/** Las categorías del índice de Ajustes. Cada una abre su propia pantalla. */
+private enum class SettingsPage(@get:StringRes val titleRes: Int) {
+    APPEARANCE(R.string.settings_appearance),
+    READER(R.string.settings_reader_defaults),
+    COMMENTS(R.string.settings_comments),
+    TRANSLATION(R.string.settings_translation),
+    BACKUP(R.string.settings_backup),
+}
+
+/**
+ * Ajustes como índice de categorías: cada fila resume el estado actual y abre
+ * la pantalla con esos controles. Antes había 17 controles apilados en una sola
+ * lista, donde nada destacaba y había que recorrer media pantalla para cambiar
+ * el tamaño del lector.
+ */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
@@ -76,268 +97,409 @@ fun SettingsScreen(
 ) {
     val store = container.store
     val prefs = store.prefs
-    var mode by remember { mutableStateOf(AppThemeMode.from(prefs.appThemeMode)) }
-    var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
-    var fontSize by remember { mutableIntStateOf(prefs.fontSizeSp) }
-    var theme by remember { mutableStateOf(prefs.theme) }
-    var serif by remember { mutableStateOf(prefs.serif) }
-    var lineHeight by remember { mutableFloatStateOf(prefs.lineHeight) }
-    var margins by remember { mutableIntStateOf(prefs.margins) }
-    var paged by remember { mutableStateOf(prefs.paged) }
-    var commentName by remember { mutableStateOf(prefs.commentName) }
-    var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
+    // Atrás vuelve al índice, no al Inicio (el BackHandler de MainActivity
+    // quedaría por debajo de este mientras haya una categoría abierta).
+    BackHandler(enabled = page != null) { page = null }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { _ ->
+        when (page) {
+            null -> SettingsHub(
+                prefs = prefs,
+                onOpen = { page = it },
+            )
+            SettingsPage.APPEARANCE -> AppearancePage(
+                store = store,
+                onBack = { page = null },
+                onThemeModeChanged = onThemeModeChanged,
+                onDynamicColorChanged = onDynamicColorChanged,
+            )
+            SettingsPage.READER -> ReaderPage(store = store, onBack = { page = null })
+            SettingsPage.COMMENTS -> CommentsPage(store = store, snackbar = snackbar, onBack = { page = null })
+            SettingsPage.TRANSLATION -> TranslationPage(container = container, snackbar = snackbar, onBack = { page = null })
+            SettingsPage.BACKUP -> BackupPage(store = store, snackbar = snackbar, onBack = { page = null })
+        }
+    }
+}
+
+@Composable
+private fun SettingsHub(
+    prefs: Store.Prefs,
+    onOpen: (SettingsPage) -> Unit,
+) {
+    val themeLabel = AppThemeMode.from(prefs.appThemeMode).label
+    // En Android sin Material You el resumen se queda en el tema: repetir aquí
+    // el requisito de la versión alargaba la fila a dos líneas.
+    val appearanceSummary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val dynamicLabel = stringResource(if (prefs.dynamicColor) R.string.settings_on else R.string.settings_off)
+        "$themeLabel · ${stringResource(R.string.settings_dynamic_colors)}: $dynamicLabel"
+    } else {
+        themeLabel
+    }
+    val readerThemeLabel = stringResource(prefs.theme.labelRes)
+    val modeLabel = stringResource(if (prefs.paged) R.string.settings_paged else R.string.settings_scroll)
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HubRow(
+            title = stringResource(R.string.settings_appearance),
+            summary = appearanceSummary,
+            onClick = { onOpen(SettingsPage.APPEARANCE) },
+        )
+        HubRow(
+            title = stringResource(R.string.settings_reader_defaults),
+            summary = "$modeLabel · ${prefs.fontSizeSp} sp · $readerThemeLabel",
+            onClick = { onOpen(SettingsPage.READER) },
+        )
+        HubRow(
+            title = stringResource(R.string.settings_comments),
+            summary = prefs.commentName.ifBlank { stringResource(R.string.settings_not_set) },
+            onClick = { onOpen(SettingsPage.COMMENTS) },
+        )
+        HubRow(
+            title = stringResource(R.string.settings_translation),
+            summary = if (prefs.translationProvider == "ai") "IA (OpenAI)" else "Google",
+            onClick = { onOpen(SettingsPage.TRANSLATION) },
+        )
+        HubRow(
+            title = stringResource(R.string.settings_backup),
+            summary = null,
+            onClick = { onOpen(SettingsPage.BACKUP) },
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            stringResource(R.string.settings_about_body, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Fila del índice: título, valor actual y toda la superficie como toque. */
+@Composable
+private fun HubRow(title: String, summary: String?, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        onClick = onClick,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (summary != null) {
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Marco común de una categoría: barra con «volver» y contenido desplazable. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsPageScaffold(
+    @StringRes titleRes: Int,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(titleRes), fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-        ) {
-            // ---- Apariencia ----
-            SettingsSection(stringResource(R.string.settings_appearance)) {
-                Text(stringResource(R.string.settings_app_theme), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppThemeMode.entries.forEach { option ->
-                        FilterChip(
-                            selected = mode == option,
-                            onClick = {
-                                mode = option
-                                prefs.appThemeMode = option.name
-                                store.savePrefs()
-                                onThemeModeChanged(option)
-                            },
-                            label = { Text(option.label) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.settings_dynamic_colors), style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                stringResource(if (dynamicColor) R.string.settings_on else R.string.settings_off)
-                            } else {
-                                stringResource(R.string.settings_dynamic_colors_off)
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = dynamicColor,
-                        enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-                        onCheckedChange = {
-                            dynamicColor = it
-                            prefs.dynamicColor = it
-                            store.savePrefs()
-                            onDynamicColorChanged(it)
-                        },
-                    )
-                }
-            }
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            content = content,
+        )
+    }
+}
 
-            // ---- Lector (valores por defecto) ----
-            SettingsSection(stringResource(R.string.settings_reader_defaults)) {
-                Text(stringResource(R.string.settings_reading_mode), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !paged,
-                        onClick = {
-                            paged = false
-                            prefs.paged = false
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(R.string.settings_scroll)) },
-                    )
-                    FilterChip(
-                        selected = paged,
-                        onClick = {
-                            paged = true
-                            prefs.paged = true
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(R.string.settings_paged)) },
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Text(stringResource(R.string.settings_reading_theme), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Store.ReaderTheme.entries.forEach { option ->
-                        FilterChip(
-                            selected = theme == option,
-                            onClick = {
-                                theme = option
-                                prefs.theme = option
-                                store.savePrefs()
-                            },
-                            label = { Text(stringResource(option.labelRes)) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-
-                Text(stringResource(R.string.settings_font_size), style = MaterialTheme.typography.bodyMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(
-                        value = fontSize.toFloat(),
-                        onValueChange = { fontSize = it.toInt() },
-                        onValueChangeFinished = {
-                            prefs.fontSizeSp = fontSize
-                            store.savePrefs()
-                        },
-                        valueRange = 13f..28f,
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    )
-                    Text("A", style = MaterialTheme.typography.titleLarge)
-                }
-                Text(
-                    "${fontSize} sp",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-                Spacer(Modifier.height(14.dp))
-
-                Text(stringResource(R.string.settings_line_height), style = MaterialTheme.typography.bodyMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("1.2", style = MaterialTheme.typography.labelSmall)
-                    Slider(
-                        value = lineHeight,
-                        onValueChange = { lineHeight = it },
-                        onValueChangeFinished = {
-                            prefs.lineHeight = lineHeight
-                            store.savePrefs()
-                        },
-                        valueRange = 1.2f..2.4f,
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    )
-                    Text("2.4", style = MaterialTheme.typography.labelSmall)
-                }
-                Text(
-                    "%.2f".format(lineHeight),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-                Spacer(Modifier.height(14.dp))
-
-                Text(stringResource(R.string.settings_margins), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        0 to R.string.settings_margins_narrow,
-                        1 to R.string.settings_margins_normal,
-                        2 to R.string.settings_margins_wide,
-                    ).forEach { (value, labelRes) ->
-                        FilterChip(
-                            selected = margins == value,
-                            onClick = {
-                                margins = value
-                                prefs.margins = value
-                                store.savePrefs()
-                            },
-                            label = { Text(stringResource(labelRes)) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-
-                Text(stringResource(R.string.settings_typography), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = serif,
-                        onClick = {
-                            serif = true
-                            prefs.serif = true
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(R.string.settings_serif)) },
-                    )
-                    FilterChip(
-                        selected = !serif,
-                        onClick = {
-                            serif = false
-                            prefs.serif = false
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(R.string.settings_sans)) },
-                    )
-                }
-            }
-
-            // ---- Comentarios ----
-            SettingsSection(stringResource(R.string.settings_comments)) {
-                OutlinedTextField(
-                    value = commentName,
-                    onValueChange = { commentName = it },
-                    label = { Text(stringResource(R.string.settings_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = commentEmail,
-                    onValueChange = { commentEmail = it },
-                    label = { Text(stringResource(R.string.settings_email)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+@Composable
+private fun SettingsSection(title: String? = null, content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            if (title != null) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = {
-                        prefs.commentName = commentName.trim()
-                        prefs.commentEmail = commentEmail.trim()
-                        store.savePrefs()
-                        scope.launch { snackbar.showSnackbar("Datos guardados") }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Guardar")
+            }
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppearancePage(
+    store: Store,
+    onBack: () -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
+) {
+    val prefs = store.prefs
+    var mode by remember { mutableStateOf(AppThemeMode.from(prefs.appThemeMode)) }
+    var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
+
+    SettingsPageScaffold(R.string.settings_appearance, onBack) {
+        SettingsSection(stringResource(R.string.settings_app_theme)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppThemeMode.entries.forEach { option ->
+                    FilterChip(
+                        selected = mode == option,
+                        onClick = {
+                            mode = option
+                            prefs.appThemeMode = option.name
+                            store.savePrefs()
+                            onThemeModeChanged(option)
+                        },
+                        label = { Text(option.label) },
+                    )
                 }
             }
-
-            // ---- Traducción ----
-            TranslationSection(container = container, snackbar = snackbar)
-
-            // ---- Copia de seguridad ----
-            BackupSection(store = store, snackbar = snackbar)
-
-            // ---- Acerca de ----
-            SettingsSection(stringResource(R.string.settings_about)) {
+        }
+        SettingsSection(stringResource(R.string.settings_dynamic_colors)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    stringResource(R.string.settings_about_body, BuildConfig.VERSION_NAME),
-                    style = MaterialTheme.typography.bodySmall,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        stringResource(if (dynamicColor) R.string.settings_on else R.string.settings_off)
+                    } else {
+                        stringResource(R.string.settings_dynamic_colors_off)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = dynamicColor,
+                    enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+                    onCheckedChange = {
+                        dynamicColor = it
+                        prefs.dynamicColor = it
+                        store.savePrefs()
+                        onDynamicColorChanged(it)
+                    },
                 )
             }
-            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReaderPage(store: Store, onBack: () -> Unit) {
+    val prefs = store.prefs
+    var fontSize by remember { mutableIntStateOf(prefs.fontSizeSp) }
+    var theme by remember { mutableStateOf(prefs.theme) }
+    var serif by remember { mutableStateOf(prefs.serif) }
+    var lineHeight by remember { mutableFloatStateOf(prefs.lineHeight) }
+    var margins by remember { mutableIntStateOf(prefs.margins) }
+    var paged by remember { mutableStateOf(prefs.paged) }
+
+    SettingsPageScaffold(R.string.settings_reader_defaults, onBack) {
+        SettingsSection(stringResource(R.string.settings_reading_mode)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !paged,
+                    onClick = {
+                        paged = false
+                        prefs.paged = false
+                        store.savePrefs()
+                    },
+                    label = { Text(stringResource(R.string.settings_scroll)) },
+                )
+                FilterChip(
+                    selected = paged,
+                    onClick = {
+                        paged = true
+                        prefs.paged = true
+                        store.savePrefs()
+                    },
+                    label = { Text(stringResource(R.string.settings_paged)) },
+                )
+            }
+        }
+
+        SettingsSection(stringResource(R.string.settings_reading_theme)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Store.ReaderTheme.entries.forEach { option ->
+                    FilterChip(
+                        selected = theme == option,
+                        onClick = {
+                            theme = option
+                            prefs.theme = option
+                            store.savePrefs()
+                        },
+                        label = { Text(stringResource(option.labelRes)) },
+                    )
+                }
+            }
+        }
+
+        SettingsSection(stringResource(R.string.settings_font_size)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(
+                    value = fontSize.toFloat(),
+                    onValueChange = { fontSize = it.toInt() },
+                    onValueChangeFinished = {
+                        prefs.fontSizeSp = fontSize
+                        store.savePrefs()
+                    },
+                    valueRange = 13f..28f,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Text("A", style = MaterialTheme.typography.titleLarge)
+            }
+            Text(
+                "$fontSize sp",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
+
+        SettingsSection(stringResource(R.string.settings_line_height)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("1.2", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = lineHeight,
+                    onValueChange = { lineHeight = it },
+                    onValueChangeFinished = {
+                        prefs.lineHeight = lineHeight
+                        store.savePrefs()
+                    },
+                    valueRange = 1.2f..2.4f,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Text("2.4", style = MaterialTheme.typography.labelSmall)
+            }
+            Text(
+                "%.2f".format(lineHeight),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
+
+        SettingsSection(stringResource(R.string.settings_margins)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    0 to R.string.settings_margins_narrow,
+                    1 to R.string.settings_margins_normal,
+                    2 to R.string.settings_margins_wide,
+                ).forEach { (value, labelRes) ->
+                    FilterChip(
+                        selected = margins == value,
+                        onClick = {
+                            margins = value
+                            prefs.margins = value
+                            store.savePrefs()
+                        },
+                        label = { Text(stringResource(labelRes)) },
+                    )
+                }
+            }
+        }
+
+        SettingsSection(stringResource(R.string.settings_typography)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = serif,
+                    onClick = {
+                        serif = true
+                        prefs.serif = true
+                        store.savePrefs()
+                    },
+                    label = { Text(stringResource(R.string.settings_serif)) },
+                )
+                FilterChip(
+                    selected = !serif,
+                    onClick = {
+                        serif = false
+                        prefs.serif = false
+                        store.savePrefs()
+                    },
+                    label = { Text(stringResource(R.string.settings_sans)) },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostState) {
+private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit) {
+    val prefs = store.prefs
+    val scope = rememberCoroutineScope()
+    var commentName by remember { mutableStateOf(prefs.commentName) }
+    var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
+
+    SettingsPageScaffold(R.string.settings_comments, onBack) {
+        OutlinedTextField(
+            value = commentName,
+            onValueChange = { commentName = it },
+            label = { Text(stringResource(R.string.settings_name)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = commentEmail,
+            onValueChange = { commentEmail = it },
+            label = { Text(stringResource(R.string.settings_email)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = {
+                prefs.commentName = commentName.trim()
+                prefs.commentEmail = commentEmail.trim()
+                store.savePrefs()
+                scope.launch { snackbar.showSnackbar("Datos guardados") }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.settings_save))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState, onBack: () -> Unit) {
     val store = container.store
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(if (store.prefs.translationProvider == "ai") "ai" else "google") }
@@ -347,8 +509,8 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
     var showKey by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
 
-    // Save + test share one path: the translator reads prefs at call time, so
-    // the test would otherwise exercise the OLD config.
+    // Guardar y probar comparten camino: el traductor lee las prefs al llamar,
+    // así que probar sin guardar antes ejercitaba la configuración vieja.
     fun saveNow(): String {
         val url = baseUrl.trim()
         val key = apiKey.trim()
@@ -364,7 +526,7 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
         return ""
     }
 
-    SettingsSection("Traducción") {
+    SettingsPageScaffold(R.string.settings_translation, onBack) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = provider != "ai",
@@ -378,7 +540,7 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
             )
         }
         if (provider == "ai") {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = baseUrl,
                 onValueChange = { baseUrl = it },
@@ -414,7 +576,7 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = {
@@ -446,33 +608,32 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
                 if (testing) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("Probar", maxLines = 1)
+                    Text(stringResource(R.string.settings_test), maxLines = 1)
                 }
             }
             Button(
                 onClick = {
                     val invalid = saveNow()
                     scope.launch {
-                        snackbar.showSnackbar(if (invalid.isNotBlank()) invalid else "Ajustes de traducción guardados")
+                        snackbar.showSnackbar(if (invalid.isNotBlank()) invalid else "Ajustes guardados")
                     }
                 },
                 enabled = provider != "ai" || (baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()),
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Guardar", maxLines = 1)
+                Text(stringResource(R.string.settings_save), maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
+private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmImport by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
-    // Resolved in composable context (stringResource is not callable inside
-    // coroutines / click callbacks), then reused by the launchers + dialog.
+    // Resueltos aquí: stringResource no es invocable dentro de callbacks.
     val savedMsg = stringResource(R.string.settings_backup_saved)
     val failedMsg = stringResource(R.string.settings_backup_failed)
     val unreadableMsg = stringResource(R.string.settings_backup_unreadable)
@@ -488,8 +649,8 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                // Serializar la biblioteca completa (incluye las descargas, MB)
-                // es trabajo de IO: en main provocaba jank/ANR con biblioteca grande.
+                // Serializar la biblioteca completa (incluye descargas, MB) es
+                // trabajo de IO: en main provocaba jank/ANR con biblioteca grande.
                 val ok = runCatching {
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri)?.use {
@@ -522,7 +683,7 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
         }
     }
 
-    SettingsSection(stringResource(R.string.settings_backup)) {
+    SettingsPageScaffold(R.string.settings_backup, onBack) {
         OutlinedButton(
             onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
             modifier = Modifier.fillMaxWidth(),
@@ -553,8 +714,7 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
                     val json = pendingImportJson
                     pendingImportJson = null
                     scope.launch {
-                        // Parsear el JSON del backup y reescribir ambos ficheros
-                        // también es trabajo de IO (mismas razones que el export).
+                        // Parsear el JSON y reescribir ambos ficheros también es IO.
                         val ok = json != null && withContext(Dispatchers.IO) { store.importBackup(json) }
                         snackbar.showSnackbar(if (ok) restoredMsg else invalidMsg)
                     }
@@ -566,20 +726,5 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(10.dp))
-            content()
-        }
     }
 }

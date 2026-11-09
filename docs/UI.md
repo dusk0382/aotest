@@ -140,25 +140,30 @@ del chip, nunca un lavado translúcido.
 
 Escala M3 estándar en `Ao3Typography`, sin tamaños literales en las pantallas.
 
-| Rol | Tamaño / interlineado | Familia |
+| Rol | Tamaño / interlineado | Peso |
 |---|---|---|
-| `displaySmall` | 36 / 44 SemiBold | **serif** |
-| `headlineMedium` | 28 / 36 Bold | **serif** |
-| `headlineSmall` | 24 / 32 Bold | **serif** |
-| `titleLarge` | 22 / 28 SemiBold | **serif** |
-| `titleMedium` | 16 / 24 SemiBold | **serif** |
-| `titleSmall` | 14 / 20 SemiBold | sans |
-| `bodyLarge` | 16 / 24 | sans |
-| `bodyMedium` | 14 / 20 | sans |
-| `bodySmall` | 12 / 16 | sans |
-| `labelLarge` | 14 / 20 Medium | sans |
-| `labelMedium` | 12 / 16 Medium | sans |
-| `labelSmall` | 11 / 16 Medium | sans |
+| `displaySmall` | 36 / 44 | SemiBold |
+| `headlineMedium` | 28 / 36 | Bold |
+| `headlineSmall` | 24 / 32 | Bold |
+| `titleLarge` | 22 / 28 | SemiBold |
+| `titleMedium` | 16 / 24 | SemiBold |
+| `titleSmall` | 14 / 20 | SemiBold |
+| `bodyLarge` | 16 / 24 | Normal |
+| `bodyMedium` | 14 / 20 | Normal |
+| `bodySmall` | 12 / 16 | Normal |
+| `labelLarge` | 14 / 20 | Medium |
+| `labelMedium` | 12 / 16 | Medium |
+| `labelSmall` | 11 / 16 | Medium |
 
-**Identidad editorial:** display/headline/title usan `FontFamily.Serif` del
-sistema, así que los títulos de obra y las cabeceras de pantalla leen como la
-portada de un libro. Body y labels siguen en sans por densidad y legibilidad.
-Coste cero en el APK: el serif viene en Android desde la API 21.
+**Una sola familia en la interfaz:** Google Sans Flex (`res/font/gs_*.ttf`),
+pesos 400/500/600/700. La fuente es variable (eje `wght` 1–1000); se
+instanciaron los cuatro pesos estáticos para que funcione desde API 23 sin
+`FontVariation` (que llega en 26). Licencia OFL, copia en
+`app/src/main/assets/license_google_sans_flex.txt`.
+
+**El lector no usa esta escala**: `ReaderTheme` y `ReaderPagination` siguen
+eligiendo entre `FontFamily.Serif` y `SansSerif` según el ajuste del usuario
+(Ajustes → Lector → Tipografía).
 
 ## 6. Shapes
 

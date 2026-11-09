@@ -14,7 +14,6 @@
     <string name="theme_black">AMOLED</string>
 
     <!-- Home -->
-    <string name="home_title">AO3 Lector</string>
     <string name="home_search_placeholder">Busca en AO3</string>
     <string name="home_chapter_cap">Cap. %1$d</string>
     <string name="home_continue">Continuar leyendo</string>
@@ -28,7 +27,6 @@
     <string name="home_remove_continue">Quitar de Continuar leyendo</string>
 
     <!-- Library -->
-    <string name="library_title">Biblioteca</string>
     <string name="library_favorites">Favoritos</string>
     <string name="library_history">Historial</string>
     <string name="library_downloads">Descargas</string>
@@ -52,7 +50,6 @@
     <string name="library_nothing_downloaded">Sin descargas</string>
 
     <!-- Settings -->
-    <string name="settings_title">Ajustes</string>
     <string name="settings_appearance">Apariencia</string>
     <string name="settings_app_theme">Tema de la app</string>
     <string name="settings_on">Activado</string>
@@ -76,6 +73,10 @@
     <string name="settings_comments">Comentarios (invitado)</string>
     <string name="settings_name">Nombre</string>
     <string name="settings_email">Email</string>
+    <string name="settings_translation">Traducción</string>
+    <string name="settings_not_set">Sin configurar</string>
+    <string name="settings_test">Probar</string>
+    <string name="settings_save">Guardar</string>
     <string name="settings_backup">Copia de seguridad</string>
     <string name="settings_export">Exportar</string>
     <string name="settings_import">Importar</string>

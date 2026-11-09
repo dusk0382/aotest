@@ -3,6 +3,8 @@ package net.spin.ao3.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -78,7 +80,6 @@ import net.spin.ao3.ui.components.TagChipVariant
 fun HomeScreen(
     container: AppContainer,
     onSearch: (String, SortOption) -> Unit,
-    onBrowseTag: (String) -> Unit,
     onOpenDetail: (Long) -> Unit,
     onOpenReader: (Long, Int) -> Unit,
 ) {
@@ -92,15 +93,8 @@ fun HomeScreen(
     val homeScroll = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.home_title), fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
+        contentWindowInsets = WindowInsets.statusBars,
     ) { padding ->
         // LazyColumn so a long "Continuar leyendo" history only composes the
         // rows on screen (the old Column composed every row up front, which
@@ -152,14 +146,21 @@ fun HomeScreen(
             }
             // Continuar leyendo va primero: es la tarea principal de la pantalla
             // (el campo de búsqueda queda arriba por ser la otra entrada).
-            if (history.isNotEmpty()) {
-                item {
-                    Column {
-                        Spacer(Modifier.height(14.dp))
-                        SectionTitle(stringResource(R.string.home_continue))
-                    }
+            item {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    SectionTitle(stringResource(R.string.home_continue))
                 }
-
+            }
+            if (history.isEmpty()) {
+                item {
+                    Text(
+                        stringResource(R.string.home_nothing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
                 // AO3 es un archivo de texto: las obras no tienen portadas, así
                 // que "Continuar leyendo" usa tarjetas de texto limpias (título,
                 // autor, capítulo, tiempo, progreso) en una lista vertical.
@@ -183,48 +184,6 @@ fun HomeScreen(
                             }
                         },
                     )
-                }
-            }
-            // Descubrimiento: atajos secundarios, sin relleno de acento que
-            // compita con la tarea principal.
-            item {
-                Column {
-                    Spacer(Modifier.height(14.dp))
-                    SectionTitle(stringResource(R.string.home_explore_fandoms))
-                }
-            }
-            // Cuatro destinos en rejilla 2x2: caben sin recortes y no dejan
-            // una fila a medio hacer cuando la pantalla es estrecha.
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickCard(stringResource(R.string.home_trends), Modifier.weight(1f)) { onSearch("", SortOption.KUDOS) }
-                        QuickCard(stringResource(R.string.home_new), Modifier.weight(1f)) { onSearch("", SortOption.UPDATED) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickCard(stringResource(R.string.home_most_read), Modifier.weight(1f)) { onSearch("", SortOption.HITS) }
-                        QuickCard(stringResource(R.string.home_longest), Modifier.weight(1f)) { onSearch("", SortOption.WORDS) }
-                    }
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "Naruto", "Harry Potter", "Marvel", "DCU",
-                        "My Hero Academia", "One Piece", "Sherlock (TV)",
-                    ).forEach { fandom ->
-                        TagChip(
-                            fandom,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                            variant = TagChipVariant.OUTLINED,
-                            onClick = { onBrowseTag(fandom) },
-                        )
-                    }
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }

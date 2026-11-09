@@ -171,7 +171,6 @@ private fun AppRoot() {
                             AppTab.HOME -> HomeScreen(
                                 container = container,
                                 onSearch = { q, s -> nav.push(Route.Search(SearchFilters(query = q), s)) },
-                                onBrowseTag = { tag -> browseTag(tag) },
                                 onOpenDetail = { nav.push(Route.Detail(it)) },
                                 onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
                             )

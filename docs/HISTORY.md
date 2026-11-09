@@ -1516,3 +1516,28 @@ propia interfaz ya decía.
 - **Verificado en dispositivo** (M2006C3LG, Android 10): Home 100 % y 200 %,
   Biblioteca y Ajustes 100 %. Sin verificar: detalle de obra, lector y autor
   (AO3 sigue caído).
+
+## Ronda v0.7.32 (chaparrón de UX)
+
+- **Sin cabeceras redundantes**: fuera la top bar de Inicio («AO3 Lector») y los
+  títulos «Biblioteca» y «Ajustes», que ya dice la barra inferior. Las pantallas
+  empiezan directamente en su contenido, con el inset de la barra de estado.
+- **Inicio**: se quedan el buscador y «Continuar leyendo». Fuera «Descubrir»,
+  la rejilla de atajos y los chips de fandoms. Sin historial la sección enseña
+  una línea, «Nada que continuar».
+- **Ajustes como índice de categorías**: cinco filas (Apariencia, Lector,
+  Comentarios, Traducción, Copia de seguridad), cada una con su valor actual
+  resumido, y cada categoría en su propia pantalla con flecha de volver. El
+  `BackHandler` de la pantalla devuelve al índice, no a Inicio. La versión vive
+  al pie del índice.
+- **Biblioteca**: las tres píldoras miden lo que mide su etiqueta, se centran
+  cuando caben (`widthIn(min = maxWidth)` dentro de `BoxWithConstraints`) y se
+  desplazan cuando no. Tres tramos iguales partían «Descargas» al 200 %.
+- **Tipografía**: Google Sans Flex en toda la interfaz (400/500/600/700,
+  instanciados del eje variable para que funcione desde API 23). Licencia OFL en
+  `app/src/main/assets/license_google_sans_flex.txt`. El lector mantiene su
+  propio ajuste serif/sans.
+- **Verificado en dispositivo**: Inicio, Biblioteca (100 % y 200 %), índice de
+  Ajustes y pantalla de Lector a 100 %. Volver con gesto/tecla comprobado por
+  log.
+- **Sin verificar**: detalle de obra, lector y autor siguen dependiendo de AO3.

@@ -16,8 +16,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import net.spin.ao3.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -155,19 +157,24 @@ val LocalSemanticColors = staticCompositionLocalOf { LightSemantic }
  * 24-28, title 14-22, body 12-16, label 11-14) so screens never need raw
  * `fontSize` literals.
  *
- * Editorial identity: display/headline/titleLarge/titleMedium use the system
- * SERIF — the biggest identity lever with zero APK weight (the serif ships on
- * every Android since API 21). Body/labels stay sans for density and
- * legibility: work titles read like a book cover; metadata stays a UI.
+ * La interfaz usa Google Sans Flex (empaquetada: los ejes de la variable se
+ * instanciaron a 400/500/600/700, así funciona desde API 23 sin variaciones en
+ * runtime). El lector NO usa esta escala: tiene la suya en ReaderTheme, donde
+ * serif y sans siguen siendo ajustes del usuario.
  */
-private val TitleSerif = FontFamily.Serif
+private val AppSans = FontFamily(
+    Font(R.font.gs_regular, FontWeight.Normal),
+    Font(R.font.gs_medium, FontWeight.Medium),
+    Font(R.font.gs_semibold, FontWeight.SemiBold),
+    Font(R.font.gs_bold, FontWeight.Bold),
+)
 
 val Ao3Typography = Typography(
-    displaySmall = TextStyle(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
-    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, fontFamily = TitleSerif),
-    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, fontFamily = TitleSerif),
-    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
-    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = TitleSerif),
+    displaySmall = TextStyle(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
+    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, fontFamily = AppSans),
+    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, fontFamily = AppSans),
+    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
     titleSmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
     bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
