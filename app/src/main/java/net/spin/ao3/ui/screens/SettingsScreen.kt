@@ -24,8 +24,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -61,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -96,7 +102,6 @@ fun SettingsScreen(
     onDynamicColorChanged: (Boolean) -> Unit,
 ) {
     val store = container.store
-    val prefs = store.prefs
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
@@ -109,10 +114,7 @@ fun SettingsScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { _ ->
         when (page) {
-            null -> SettingsHub(
-                prefs = prefs,
-                onOpen = { page = it },
-            )
+            null -> SettingsHub(onOpen = { page = it })
             SettingsPage.APPEARANCE -> AppearancePage(
                 store = store,
                 onBack = { page = null },
@@ -128,22 +130,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsHub(
-    prefs: Store.Prefs,
-    onOpen: (SettingsPage) -> Unit,
-) {
-    val themeLabel = AppThemeMode.from(prefs.appThemeMode).label
-    // En Android sin Material You el resumen se queda en el tema: repetir aquí
-    // el requisito de la versión alargaba la fila a dos líneas.
-    val appearanceSummary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val dynamicLabel = stringResource(if (prefs.dynamicColor) R.string.settings_on else R.string.settings_off)
-        "$themeLabel · ${stringResource(R.string.settings_dynamic_colors)}: $dynamicLabel"
-    } else {
-        themeLabel
-    }
-    val readerThemeLabel = stringResource(prefs.theme.labelRes)
-    val modeLabel = stringResource(if (prefs.paged) R.string.settings_paged else R.string.settings_scroll)
-
+private fun SettingsHub(onOpen: (SettingsPage) -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -152,58 +139,39 @@ private fun SettingsHub(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        HubRow(
-            title = stringResource(R.string.settings_appearance),
-            summary = appearanceSummary,
-            onClick = { onOpen(SettingsPage.APPEARANCE) },
-        )
-        HubRow(
-            title = stringResource(R.string.settings_reader_defaults),
-            summary = "$modeLabel · ${prefs.fontSizeSp} sp · $readerThemeLabel",
-            onClick = { onOpen(SettingsPage.READER) },
-        )
-        HubRow(
-            title = stringResource(R.string.settings_comments),
-            summary = prefs.commentName.ifBlank { stringResource(R.string.settings_not_set) },
-            onClick = { onOpen(SettingsPage.COMMENTS) },
-        )
-        HubRow(
-            title = stringResource(R.string.settings_translation),
-            summary = if (prefs.translationProvider == "ai") "IA (OpenAI)" else "Google",
-            onClick = { onOpen(SettingsPage.TRANSLATION) },
-        )
-        HubRow(
-            title = stringResource(R.string.settings_backup),
-            summary = null,
-            onClick = { onOpen(SettingsPage.BACKUP) },
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            stringResource(R.string.settings_about_body, BuildConfig.VERSION_NAME),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        HubRow(R.string.settings_appearance, Icons.Default.Palette) { onOpen(SettingsPage.APPEARANCE) }
+        HubRow(R.string.settings_reader_defaults, Icons.AutoMirrored.Filled.MenuBook) { onOpen(SettingsPage.READER) }
+        HubRow(R.string.settings_comments, Icons.AutoMirrored.Filled.Chat) { onOpen(SettingsPage.COMMENTS) }
+        HubRow(R.string.settings_translation, Icons.Default.Translate) { onOpen(SettingsPage.TRANSLATION) }
+        HubRow(R.string.settings_backup, Icons.Default.CloudUpload) { onOpen(SettingsPage.BACKUP) }
     }
 }
 
-/** Fila del índice: título, valor actual y toda la superficie como toque. */
+/** Fila del índice: icono, título y toda la superficie como toque. */
 @Composable
-private fun HubRow(title: String, summary: String?, onClick: () -> Unit) {
+private fun HubRow(@StringRes titleRes: Int, icon: ImageVector, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainer,
         onClick = onClick,
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            if (summary != null) {
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                stringResource(titleRes),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }

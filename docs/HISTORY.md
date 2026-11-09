@@ -1537,7 +1537,10 @@ propia interfaz ya decía.
   instanciados del eje variable para que funcione desde API 23). Licencia OFL en
   `app/src/main/assets/license_google_sans_flex.txt`. El lector mantiene su
   propio ajuste serif/sans.
+- **Índice de Ajustes sin resúmenes**: solo icono y título («Apariencia»,
+  «Ajustes del Lector», «Comentarios», «Traducciones», «Copia de seguridad»).
+  Se fueron los resúmenes de valor actual y la línea de versión del pie.
 - **Verificado en dispositivo**: Inicio, Biblioteca (100 % y 200 %), índice de
-  Ajustes y pantalla de Lector a 100 %. Volver con gesto/tecla comprobado por
-  log.
+  Ajustes (100 % y 200 %) y pantalla de Lector a 100 %. Volver con gesto/tecla
+  comprobado por log.
 - **Sin verificar**: detalle de obra, lector y autor siguen dependiendo de AO3.

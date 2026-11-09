@@ -56,7 +56,7 @@
     <string name="settings_off">Off</string>
     <string name="settings_dynamic_colors">Dynamic colors</string>
     <string name="settings_dynamic_colors_off">Requires Android 12 or later.</string>
-    <string name="settings_reader_defaults">Reader (defaults)</string>
+    <string name="settings_reader_defaults">Reader settings</string>
     <string name="settings_reading_mode">Reading mode</string>
     <string name="settings_scroll">Continuous scroll</string>
     <string name="settings_paged">Paged</string>
@@ -70,10 +70,10 @@
     <string name="settings_typography">Typography</string>
     <string name="settings_serif">Serif</string>
     <string name="settings_sans">Sans serif</string>
-    <string name="settings_comments">Comments (guest)</string>
+    <string name="settings_comments">Comments</string>
     <string name="settings_name">Name</string>
     <string name="settings_email">Email</string>
-    <string name="settings_translation">Translation</string>
+    <string name="settings_translation">Translations</string>
     <string name="settings_not_set">Not set</string>
     <string name="settings_test">Test</string>
     <string name="settings_save">Save</string>
