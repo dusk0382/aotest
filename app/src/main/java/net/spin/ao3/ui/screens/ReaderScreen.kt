@@ -409,7 +409,7 @@ fun ReaderScreen(
                 chapters = downloaded.chapters.sortedBy { it.index }
             } else {
                 error = if (!online) {
-                    "Sin conexión y esta obra no está descargada. Descargala desde su detalle para leerla sin conexión."
+                    "Sin conexión. Esta obra no está descargada."
                 } else {
                     e.message ?: "No se pudo cargar la obra"
                 }
@@ -445,7 +445,7 @@ fun ReaderScreen(
             } catch (e: Exception) {
                 content = null
                 error = if (!online) {
-                    "Sin conexión y este capítulo no está descargado. Descargá la obra (o este capítulo) para leerlo sin conexión."
+                    "Sin conexión. Este capítulo no está descargado."
                 } else {
                     e.message ?: "No se pudo cargar el capítulo"
                 }
@@ -1655,13 +1655,7 @@ fun ReaderScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
-                Text(
-                    "Se traduce solo este capítulo y se guarda en el dispositivo: " +
-                        "no se vuelve a traducir por segunda vez.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
+                Spacer(Modifier.height(12.dp))
                 // Provider: Google (web endpoint) or any OpenAI-compatible API.
                 Text("Proveedor", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
@@ -1689,7 +1683,7 @@ fun ReaderScreen(
                     (store.prefs.aiBaseUrl.isBlank() || store.prefs.aiApiKey.isBlank() || store.prefs.aiModel.isBlank())
                 ) {
                     Text(
-                        "Falta configurar la API: Base URL, API key y modelo en Ajustes → Traducción.",
+                        "Configura la API en Ajustes → Traducción.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 6.dp),

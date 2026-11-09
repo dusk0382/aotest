@@ -1,6 +1,7 @@
 package net.spin.ao3.ui.screens
 
 import android.os.Build
+import net.spin.ao3.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -122,13 +123,7 @@ fun SettingsScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    stringResource(R.string.settings_reader_theme_note),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -137,7 +132,7 @@ fun SettingsScreen(
                         Text(stringResource(R.string.settings_dynamic_colors), style = MaterialTheme.typography.bodyMedium)
                         Text(
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                stringResource(R.string.settings_dynamic_colors_on)
+                                stringResource(if (dynamicColor) R.string.settings_on else R.string.settings_off)
                             } else {
                                 stringResource(R.string.settings_dynamic_colors_off)
                             },
@@ -293,12 +288,6 @@ fun SettingsScreen(
 
             // ---- Comentarios ----
             SettingsSection(stringResource(R.string.settings_comments)) {
-                Text(
-                    stringResource(R.string.settings_comments_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = commentName,
                     onValueChange = { commentName = it },
@@ -314,23 +303,17 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Estos datos se usarán como valores predeterminados al comentar; el email no se muestra públicamente.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
                         prefs.commentName = commentName.trim()
                         prefs.commentEmail = commentEmail.trim()
                         store.savePrefs()
-                        scope.launch { snackbar.showSnackbar("Datos de comentarios guardados") }
+                        scope.launch { snackbar.showSnackbar("Datos guardados") }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Guardar datos")
+                    Text("Guardar")
                 }
             }
 
@@ -343,7 +326,7 @@ fun SettingsScreen(
             // ---- Acerca de ----
             SettingsSection(stringResource(R.string.settings_about)) {
                 Text(
-                    stringResource(R.string.settings_about_body),
+                    stringResource(R.string.settings_about_body, BuildConfig.VERSION_NAME),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -382,13 +365,6 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
     }
 
     SettingsSection("Traducción") {
-        Text(
-            "Proveedor del botón “Traducir capítulo” del lector. Google no necesita " +
-                "configuración; la IA usa cualquier API compatible con OpenAI.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = provider != "ai",
@@ -436,13 +412,6 @@ private fun TranslationSection(container: AppContainer, snackbar: SnackbarHostSt
                 placeholder = { Text("gpt-4o-mini") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "La API key se guarda solo en este dispositivo. Compatible con OpenAI, " +
-                    "OpenRouter, Groq, Ollama u otro servidor con /chat/completions.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
             )
         }
         Spacer(Modifier.height(10.dp))
@@ -554,12 +523,6 @@ private fun BackupSection(store: Store, snackbar: SnackbarHostState) {
     }
 
     SettingsSection(stringResource(R.string.settings_backup)) {
-        Text(
-            stringResource(R.string.settings_backup_note),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
             modifier = Modifier.fillMaxWidth(),

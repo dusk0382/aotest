@@ -1484,3 +1484,35 @@ de luminancia por píxel (el modelo visual se equivoca con textos de 11-12 sp).
 - **Sin verificar visualmente**: detalle de obra, lector y pantalla de autor
   (AO3 llevaba una semana caído; revisión solo de código). Pendiente medirlas
   cuando el sitio vuelva.
+
+## Ronda v0.7.32 (limpieza de texto)
+
+Segunda pasada, esta vez contra la verbosidad: la app explicaba cosas que la
+propia interfaz ya decía.
+
+- **Se van párrafos explicativos**: pie de Home («AO3 Lector · app de uso
+  personal / El contenido pertenece a sus autores…»), nota del tema de la app,
+  nota de copia de seguridad, nota de comentarios (x2), nota del proveedor de
+  traducción, nota de la API key y descripciones de los cuatro estados vacíos.
+  El formulario de comentarios se explica solo con dos campos y «Guardar».
+- **Etiquetas sin repetir la sección**: en Copia de seguridad, «Exportar
+  biblioteca» / «Importar copia de seguridad» → «Exportar» / «Importar»; en
+  Comentarios, «Guardar datos» → «Guardar».
+- **Buscar**: el placeholder de Home pasa de «Busca por título, fandom, autor,
+  tag…» a «Busca en AO3»; el banner de sin conexión pierde la coletilla de
+  resultados guardados (Home y Búsqueda).
+- **Home sin historial**: ya no aparece el bloque «Continuar leyendo / Nada que
+  continuar / Explorar tendencias». Sin nada en curso la sección no existe y la
+  pantalla empieza en «Descubrir».
+- **Atajos de descubrimiento**: de una fila de cuatro píldoras que se cortaba en
+  el borde a una rejilla 2×2 de tarjetas iguales (`surfaceContainerHigh`,
+  `heightIn(min = 52.dp)`, texto centrado). Los fandoms siguen como fila
+  desplazable, pero en píldoras neutras con borde en vez de acento secundario.
+- **`EmptyState`**: la descripción pasa a opcional (`String? = null`); un estado
+  vacío con título y acción ya se entiende.
+- **Versión**: `versionCode 65`, `versionName 0.7.32`, y `buildConfig = true`
+  para que «Acerca de» lea la versión real en vez de un literal congelado en
+  `strings.xml` (decía v0.7.19).
+- **Verificado en dispositivo** (M2006C3LG, Android 10): Home 100 % y 200 %,
+  Biblioteca y Ajustes 100 %. Sin verificar: detalle de obra, lector y autor
+  (AO3 sigue caído).

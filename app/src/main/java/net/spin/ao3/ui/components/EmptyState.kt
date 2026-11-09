@@ -39,7 +39,7 @@ import net.spin.ao3.ui.theme.Ao3Theme
 fun EmptyState(
     icon: ImageVector,
     title: String,
-    description: String,
+    description: String? = null,
     modifier: Modifier = Modifier,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
@@ -66,12 +66,14 @@ fun EmptyState(
                             fontWeight = FontWeight.SemiBold,
                             color = colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colorScheme.onSurfaceVariant,
-                        )
+                        if (description != null) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 if (actionLabel != null && onAction != null) {
@@ -99,13 +101,15 @@ fun EmptyState(
                     color = colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+                if (description != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
                 if (actionLabel != null && onAction != null) {
                     Spacer(Modifier.height(18.dp))
                     Button(onClick = onAction) { Text(actionLabel) }
@@ -142,8 +146,7 @@ private fun EmptyStateCompactPreview() {
         Column(Modifier.padding(12.dp)) {
             EmptyState(
                 icon = Icons.Filled.Star,
-                title = "Sin favoritos todavía",
-                description = "Marca obras con la estrella en su detalle para tenerlas aquí, siempre a mano.",
+                title = "Sin favoritos",
                 actionLabel = "Explorar tendencias",
                 onAction = {},
                 compact = true,

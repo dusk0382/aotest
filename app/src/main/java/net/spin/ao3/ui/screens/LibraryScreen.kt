@@ -363,7 +363,6 @@ private fun FavoritesTab(
         EmptyState(
             icon = Icons.Default.Star,
             title = stringResource(R.string.library_no_favs),
-            description = stringResource(R.string.library_favs_empty_desc),
             actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
@@ -410,7 +409,6 @@ private fun HistoryTab(
         EmptyState(
             icon = Icons.Default.History,
             title = stringResource(R.string.library_history_empty),
-            description = stringResource(R.string.library_history_empty_desc),
             actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
@@ -459,7 +457,7 @@ private fun HistoryTab(
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("Borrar historial") },
-            text = { Text("Se quitarán todas las obras de tu historial de lectura. Las descargas y favoritos no se modificarán.") },
+            text = { Text("Se vacía el historial. Favoritos y descargas no se tocan.") },
             confirmButton = {
                 TextButton(onClick = { showClearDialog = false; onClearAll() }) { Text("Borrar historial") }
             },
@@ -496,7 +494,6 @@ private fun DownloadsTab(
         EmptyState(
             icon = Icons.Default.Download,
             title = stringResource(R.string.library_nothing_downloaded),
-            description = stringResource(R.string.library_downloads_empty_desc),
             actionLabel = stringResource(R.string.home_explore_trends),
             onAction = onExplore,
         )
@@ -510,7 +507,7 @@ private fun DownloadsTab(
         if (downloads.isNotEmpty()) {
             item {
                 Text(
-                    "${downloads.size} ${if (downloads.size == 1) "obra" else "obras"} · ${downloads.sumOf { it.chapters.size }} capítulos disponibles sin conexión",
+                    "${downloads.size} ${if (downloads.size == 1) "obra" else "obras"} · ${downloads.sumOf { it.chapters.size }} capítulos",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 2.dp),
@@ -580,7 +577,7 @@ private fun DownloadsTab(
                         iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
                         iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
                         title = dl.title,
-                        subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"} · sin conexión",
+                        subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"}",
                         onClick = { onOpenDetail(dl.id) },
                         trailing = {
                             IconButton(onClick = { expanded = if (dl.id in expanded) expanded - dl.id else expanded + dl.id }) {

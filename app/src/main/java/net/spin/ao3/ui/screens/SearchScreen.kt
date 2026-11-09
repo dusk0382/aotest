@@ -470,7 +470,7 @@ fun SearchScreen(
                         Icon(Icons.Default.CloudOff, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Sin conexión · se usarán resultados guardados cuando estén disponibles",
+                            "Sin conexión",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                         )
@@ -496,7 +496,6 @@ fun SearchScreen(
                 EmptyState(
                     icon = Icons.Default.Search,
                     title = "Sin resultados",
-                    description = "No encontramos obras con esa combinación. Prueba a quitar filtros o a cambiar la búsqueda.",
                     actionLabel = if (hasFilters) "Limpiar filtros" else null,
                     onAction = {
                         currentFilters = SearchFilters(query = currentFilters.query, tag = currentFilters.tag)

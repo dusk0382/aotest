@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,7 +70,6 @@ import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import kotlinx.coroutines.launch
 import net.spin.ao3.data.model.SortOption
-import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.TagChipVariant
 
@@ -127,7 +127,7 @@ fun HomeScreen(
                             Icon(Icons.Default.CloudOff, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "Sin conexión · mostrando tu biblioteca y datos guardados",
+                                "Sin conexión",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                             )
@@ -152,24 +152,14 @@ fun HomeScreen(
             }
             // Continuar leyendo va primero: es la tarea principal de la pantalla
             // (el campo de búsqueda queda arriba por ser la otra entrada).
-            item {
-                Column {
-                    Spacer(Modifier.height(14.dp))
-                    SectionTitle(stringResource(R.string.home_continue))
-                }
-            }
-            if (history.isEmpty()) {
+            if (history.isNotEmpty()) {
                 item {
-                    EmptyState(
-                        icon = Icons.AutoMirrored.Filled.MenuBook,
-                        title = stringResource(R.string.home_nothing),
-                        description = stringResource(R.string.home_empty_desc),
-                        actionLabel = stringResource(R.string.home_explore_trends),
-                        onAction = { onSearch("", SortOption.KUDOS) },
-                        compact = true,
-                    )
+                    Column {
+                        Spacer(Modifier.height(14.dp))
+                        SectionTitle(stringResource(R.string.home_continue))
+                    }
                 }
-            } else {
+
                 // AO3 es un archivo de texto: las obras no tienen portadas, así
                 // que "Continuar leyendo" usa tarjetas de texto limpias (título,
                 // autor, capítulo, tiempo, progreso) en una lista vertical.
@@ -203,15 +193,18 @@ fun HomeScreen(
                     SectionTitle(stringResource(R.string.home_explore_fandoms))
                 }
             }
+            // Cuatro destinos en rejilla 2x2: caben sin recortes y no dejan
+            // una fila a medio hacer cuando la pantalla es estrecha.
             item {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    QuickChip(Icons.Filled.TrendingUp, stringResource(R.string.home_trends)) { onSearch("", SortOption.KUDOS) }
-                    QuickChip(Icons.Filled.NewReleases, stringResource(R.string.home_new)) { onSearch("", SortOption.UPDATED) }
-                    QuickChip(Icons.Filled.Visibility, stringResource(R.string.home_most_read)) { onSearch("", SortOption.HITS) }
-                    QuickChip(Icons.Filled.FormatListNumbered, stringResource(R.string.home_longest)) { onSearch("", SortOption.WORDS) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QuickCard(stringResource(R.string.home_trends), Modifier.weight(1f)) { onSearch("", SortOption.KUDOS) }
+                        QuickCard(stringResource(R.string.home_new), Modifier.weight(1f)) { onSearch("", SortOption.UPDATED) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        QuickCard(stringResource(R.string.home_most_read), Modifier.weight(1f)) { onSearch("", SortOption.HITS) }
+                        QuickCard(stringResource(R.string.home_longest), Modifier.weight(1f)) { onSearch("", SortOption.WORDS) }
+                    }
                 }
             }
             item {
@@ -227,24 +220,14 @@ fun HomeScreen(
                     ).forEach { fandom ->
                         TagChip(
                             fandom,
-                            MaterialTheme.colorScheme.secondary,
-                            variant = TagChipVariant.FILLED_SECONDARY,
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                            variant = TagChipVariant.OUTLINED,
                             onClick = { onBrowseTag(fandom) },
                         )
                     }
                 }
             }
-            item {
-                Column {
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        stringResource(R.string.home_footer),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                }
-            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
@@ -354,20 +337,21 @@ private fun relativeTime(at: Long): String {
 
 /** Atajo de descubrimiento: superficie neutra, no un acento más. */
 @Composable
-private fun QuickChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun QuickCard(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
-        shape = CircleShape,
+        modifier = modifier.heightIn(min = 52.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         onClick = onClick,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
