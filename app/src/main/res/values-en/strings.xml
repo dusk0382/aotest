@@ -17,13 +17,8 @@
     <string name="home_search_placeholder">Search AO3</string>
     <string name="home_chapter_cap">Ch. %1$d</string>
     <string name="home_continue">Continue reading</string>
-    <string name="home_explore_fandoms">Discover</string>
-    <string name="home_explore_trends">Explore trends</string>
-    <string name="home_new">New</string>
-    <string name="home_longest">Longest</string>
-    <string name="home_most_read">Most read</string>
+    <string name="library_explore">Browse works</string>
     <string name="home_nothing">Nothing to continue</string>
-    <string name="home_trends">Trending</string>
     <string name="home_remove_continue">Remove from Continue reading</string>
 
     <!-- Library -->

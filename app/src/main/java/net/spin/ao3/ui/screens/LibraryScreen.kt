@@ -365,7 +365,7 @@ private fun FavoritesTab(
         EmptyState(
             icon = Icons.Default.Star,
             title = stringResource(R.string.library_no_favs),
-            actionLabel = stringResource(R.string.home_explore_trends),
+            actionLabel = stringResource(R.string.library_explore),
             onAction = onExplore,
         )
         return
@@ -411,7 +411,7 @@ private fun HistoryTab(
         EmptyState(
             icon = Icons.Default.History,
             title = stringResource(R.string.library_history_empty),
-            actionLabel = stringResource(R.string.home_explore_trends),
+            actionLabel = stringResource(R.string.library_explore),
             onAction = onExplore,
         )
         return
@@ -496,7 +496,7 @@ private fun DownloadsTab(
         EmptyState(
             icon = Icons.Default.Download,
             title = stringResource(R.string.library_nothing_downloaded),
-            actionLabel = stringResource(R.string.home_explore_trends),
+            actionLabel = stringResource(R.string.library_explore),
             onAction = onExplore,
         )
         return

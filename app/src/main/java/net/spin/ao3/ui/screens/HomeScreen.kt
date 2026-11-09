@@ -154,11 +154,20 @@ fun HomeScreen(
             }
             if (history.isEmpty()) {
                 item {
-                    Text(
-                        stringResource(R.string.home_nothing),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            stringResource(R.string.home_nothing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             } else {
                 // AO3 es un archivo de texto: las obras no tienen portadas, así
@@ -291,27 +300,6 @@ private fun relativeTime(at: Long): String {
         minutes < 60 * 24 -> "hace ${minutes / 60} h"
         minutes < 60 * 24 * 7 -> "hace ${minutes / (60 * 24)} d"
         else -> "hace ${minutes / (60 * 24 * 7)} sem"
-    }
-}
-
-/** Atajo de descubrimiento: superficie neutra, no un acento más. */
-@Composable
-private fun QuickCard(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        modifier = modifier.heightIn(min = 52.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        onClick = onClick,
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-            )
-        }
     }
 }
 

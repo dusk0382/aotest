@@ -27,6 +27,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.FormatLineSpacing
+import androidx.compose.material.icons.filled.Margin
+import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Palette
@@ -210,7 +216,11 @@ private fun SettingsPageScaffold(
 }
 
 @Composable
-private fun SettingsSection(title: String? = null, content: @Composable () -> Unit) {
+private fun SettingsSection(
+    title: String? = null,
+    icon: ImageVector? = null,
+    content: @Composable () -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
         shape = MaterialTheme.shapes.large,
@@ -218,7 +228,18 @@ private fun SettingsSection(title: String? = null, content: @Composable () -> Un
     ) {
         Column(Modifier.padding(16.dp)) {
             if (title != null) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (icon != null) {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
                 Spacer(Modifier.height(10.dp))
             }
             content()
@@ -239,7 +260,7 @@ private fun AppearancePage(
     var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
 
     SettingsPageScaffold(R.string.settings_appearance, onBack) {
-        SettingsSection(stringResource(R.string.settings_app_theme)) {
+        SettingsSection(stringResource(R.string.settings_app_theme), Icons.Default.DarkMode) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppThemeMode.entries.forEach { option ->
                     FilterChip(
@@ -255,7 +276,7 @@ private fun AppearancePage(
                 }
             }
         }
-        SettingsSection(stringResource(R.string.settings_dynamic_colors)) {
+        SettingsSection(stringResource(R.string.settings_dynamic_colors), Icons.Default.Palette) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -297,7 +318,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
     var paged by remember { mutableStateOf(prefs.paged) }
 
     SettingsPageScaffold(R.string.settings_reader_defaults, onBack) {
-        SettingsSection(stringResource(R.string.settings_reading_mode)) {
+        SettingsSection(stringResource(R.string.settings_reading_mode), Icons.AutoMirrored.Filled.MenuBook) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = !paged,
@@ -320,7 +341,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
             }
         }
 
-        SettingsSection(stringResource(R.string.settings_reading_theme)) {
+        SettingsSection(stringResource(R.string.settings_reading_theme), Icons.Default.Brightness6) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Store.ReaderTheme.entries.forEach { option ->
                     FilterChip(
@@ -336,7 +357,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
             }
         }
 
-        SettingsSection(stringResource(R.string.settings_font_size)) {
+        SettingsSection(stringResource(R.string.settings_font_size), Icons.Default.FormatSize) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Slider(
@@ -359,7 +380,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
             )
         }
 
-        SettingsSection(stringResource(R.string.settings_line_height)) {
+        SettingsSection(stringResource(R.string.settings_line_height), Icons.Default.FormatLineSpacing) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("1.2", style = MaterialTheme.typography.labelSmall)
                 Slider(
@@ -382,7 +403,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
             )
         }
 
-        SettingsSection(stringResource(R.string.settings_margins)) {
+        SettingsSection(stringResource(R.string.settings_margins), Icons.Default.Margin) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
                     0 to R.string.settings_margins_narrow,
@@ -402,7 +423,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
             }
         }
 
-        SettingsSection(stringResource(R.string.settings_typography)) {
+        SettingsSection(stringResource(R.string.settings_typography), Icons.Default.FontDownload) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = serif,

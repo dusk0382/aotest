@@ -1540,6 +1540,14 @@ propia interfaz ya decía.
 - **Índice de Ajustes sin resúmenes**: solo icono y título («Apariencia»,
   «Ajustes del Lector», «Comentarios», «Traducciones», «Copia de seguridad»).
   Se fueron los resúmenes de valor actual y la línea de versión del pie.
+- **Iconos en las pantallas de categoría**: cada tarjeta de Ajustes → Apariencia
+  y → Lector lleva su icono Material junto al título (tema, dinámicos, modo,
+  tema de lectura, tamaño, interlineado, márgenes, tipografía). En Inicio la
+  línea «Nada que continuar» lleva el mismo icono de libro que sus filas.
+- **Limpieza**: fuera `QuickCard` (código muerto de los atajos retirados), los
+  strings `home_trends`/`home_new`/`home_most_read`/`home_longest` y
+  `home_explore_fandoms`. La acción de los estados vacíos de Biblioteca pasa a
+  `library_explore` («Explorar obras»), que ya no lleva a una lista de atajos.
 - **Verificado en dispositivo**: Inicio, Biblioteca (100 % y 200 %), índice de
   Ajustes (100 % y 200 %) y pantalla de Lector a 100 %. Volver con gesto/tecla
   comprobado por log.
