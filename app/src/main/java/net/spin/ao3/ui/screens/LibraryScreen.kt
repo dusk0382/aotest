@@ -1,33 +1,28 @@
 package net.spin.ao3.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -39,21 +34,23 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -68,14 +65,12 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,6 +78,7 @@ import kotlinx.coroutines.withContext
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
+import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.theme.LocalSemanticColors
@@ -101,14 +97,9 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    // Keeps each tab's scroll position alive when switching tabs (plain `when`
-    // disposes the old tab, so rememberSaveable alone would lose it).
     val tabStates = rememberSaveableStateHolder()
     var lastQueueCompletion by remember { mutableLongStateOf(0L) }
 
-    // Queue ticks used to recompose this whole Scaffold (with all 3 tabs) once
-    // per downloaded chapter: the two queue-driven effects now live in a small
-    // composable that collects the state in its own scope and just signals.
     QueueEventsEffect(
         lastConsumed = lastQueueCompletion,
         onCompleted = { completedAt, total ->
@@ -125,20 +116,13 @@ fun LibraryScreen(
 
     val favorites = remember(refreshTick) { store.savedWorks() }
     val history = remember(refreshTick) { store.history() }
-    // Las descargas viven en un fichero de MB (HTML completo): leerlas en
-    // composición y re-claveadas a TODO queueState re-parseaba el fichero entero
-    // en el hilo principal POR CADA capítulo descargado. Ahora se leen fuera de
-    // main y solo en cambios relevantes (refresco manual, fin o pausa/resumen de
-    // la cola, señalados por QueueEventsEffect); el progreso vivo lo pinta la
-    // tarjeta de la cola en su propio scope.
-    var downloads by remember { mutableStateOf<List<net.spin.ao3.data.Store.Download>>(emptyList()) }
+    var downloads by remember { mutableStateOf<List<Store.Download>>(emptyList()) }
     var downloadsLoading by remember { mutableStateOf(true) }
     LaunchedEffect(refreshTick) {
         downloads = withContext(Dispatchers.IO) { store.downloads() }
         downloadsLoading = false
     }
 
-    // Resolved in composable context (stringResource can't run inside coroutines).
     val removedFavMsg = stringResource(R.string.library_removed_fav)
     val chapterRemovedMsg = stringResource(R.string.library_chapter_removed)
     val downloadRemovedMsg = stringResource(R.string.library_download_removed)
@@ -152,7 +136,6 @@ fun LibraryScreen(
             }
         }
     }
-    // Export de una obra ya descargada a un solo .txt — sin red, usa lo local.
     val workExporter = ChapterExporter.rememberWorkExporter { msg ->
         scope.launch {
             if (msg.startsWith("OK:")) {
@@ -163,9 +146,38 @@ fun LibraryScreen(
         }
     }
 
+    val count = when (tab) {
+        0 -> favorites.size
+        1 -> history.size
+        else -> downloads.size
+    }
+    val countLabel = when (tab) {
+        0 -> stringResource(R.string.library_favorites)
+        1 -> stringResource(R.string.library_history)
+        else -> stringResource(R.string.library_downloads)
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets.statusBars,
+        topBar = {
+            MediumFlexibleTopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            stringResource(R.string.tab_library),
+                            style = MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        Text(
+                            "$count · $countLabel",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             LibraryTabSelector(selected = tab, onSelect = { tab = it })
@@ -219,76 +231,39 @@ fun LibraryScreen(
     }
 }
 
-/** Selector de pestañas: píldoras de texto medidas por su contenido. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
-    Surface(
+    val labels = listOf(
+        stringResource(R.string.library_favorites),
+        stringResource(R.string.library_history),
+        stringResource(R.string.library_downloads),
+    )
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Píldoras medidas por su etiqueta, centradas cuando caben y
-        // desplazables cuando no (al 200 % de escala tres tramos iguales
-        // partían «Descargas»). Sin iconos.
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .widthIn(min = maxWidth)
-                    .padding(4.dp)
-                    .selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-            ) {
-                LibraryTabPill(stringResource(R.string.library_favorites), selected == 0) { onSelect(0) }
-                LibraryTabPill(stringResource(R.string.library_history), selected == 1) { onSelect(1) }
-                LibraryTabPill(stringResource(R.string.library_downloads), selected == 2) { onSelect(2) }
-            }
+        labels.forEachIndexed { index, label ->
+            val shapes = connectedToggleShapes(index, labels.size)
+            ToggleButton(
+                checked = selected == index,
+                onCheckedChange = { if (it) onSelect(index) },
+                shapes = shapes,
+                modifier = Modifier.semantics { role = Role.Tab },
+            ) { Text(label, maxLines = 1) }
         }
     }
 }
 
-@Composable
-private fun LibraryTabPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        label = "tabBg",
-    )
-    val fg by animateColorAsState(
-        if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        label = "tabFg",
-    )
-    Surface(
-        shape = CircleShape,
-        color = bg,
-        contentColor = fg,
-        modifier = Modifier.selectable(selected = selected, onClick = onClick, role = Role.Tab),
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-        )
-    }
-}
-
-/**
- * Fila tipo card con icono en círculo tonal a la izquierda, título + subtítulo
- * (y opcionalmente una barra de progreso) y acciones al final.
- */
+/** Fila plana con título/subtítulo a 2 líneas, progreso y acciones de 48 dp. */
 @Composable
 private fun LibraryRowCard(
-    icon: ImageVector,
-    iconTint: Color,
-    iconContainer: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: androidx.compose.ui.graphics.Color,
+    iconContainer: androidx.compose.ui.graphics.Color,
     title: String,
     subtitle: String,
     onClick: () -> Unit,
@@ -302,80 +277,99 @@ private fun LibraryRowCard(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(iconContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (progress != null) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     LinearProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(CircleShape),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
                     )
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             trailing()
         }
     }
 }
 
+/** Filas de [columns] celdas dentro del LazyColumn existente. */
+private fun <T> LazyListScope.gridItems(
+    values: List<T>,
+    columns: Int,
+    key: (T) -> Long,
+    content: @Composable (T) -> Unit,
+) {
+    val rows = (values.size + columns - 1) / columns
+    items(values.chunked(columns), key = { key(it.first()) }) { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            row.forEach { value ->
+                Box(Modifier.weight(1f)) { content(value) }
+            }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/** Formas conectadas para el grupo de ToggleButtons (alpha23 no trae helper). */
+@Composable
+private fun connectedToggleShapes(index: Int, count: Int): ToggleButtonShapes {
+    val shape = when {
+        count == 1 -> RoundedCornerShape(20.dp)
+        index == 0 -> RoundedCornerShape(
+            topStart = 20.dp, bottomStart = 20.dp, topEnd = 4.dp, bottomEnd = 4.dp,
+        )
+        index == count - 1 -> RoundedCornerShape(
+            topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp,
+        )
+        else -> RoundedCornerShape(4.dp)
+    }
+    return ToggleButtonDefaults.shapes(shape, shape, shape)
+}
+
 @Composable
 private fun FavoritesTab(
-    favorites: List<net.spin.ao3.data.Store.SavedWork>,
+    favorites: List<Store.SavedWork>,
     onOpen: (Long) -> Unit,
     onRemove: (Long) -> Unit,
     onExplore: () -> Unit,
 ) {
-    val semantic = LocalSemanticColors.current
-    // Scroll survives tab switches and navigation (each tab lives under its own
-    // SaveableStateProvider slot).
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     if (favorites.isEmpty()) {
         EmptyState(
             icon = Icons.Default.Star,
             title = stringResource(R.string.library_no_favs),
+            description = "Guarda obras para leerlas sin conexión.",
             actionLabel = stringResource(R.string.library_explore),
             onAction = onExplore,
         )
         return
     }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(favorites, key = { it.id }) { sw ->
+        gridItems(favorites, columns, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
                 iconTint = MaterialTheme.colorScheme.primary,
@@ -388,18 +382,18 @@ private fun FavoritesTab(
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = stringResource(R.string.library_remove_fav),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 },
             )
         }
     }
+    }
 }
 
 @Composable
 private fun HistoryTab(
-    history: List<net.spin.ao3.data.Store.HistoryEntry>,
+    history: List<Store.HistoryEntry>,
     onOpen: (Long, Int) -> Unit,
     onRemove: (Long) -> Unit,
     onClearAll: () -> Unit,
@@ -416,10 +410,12 @@ private fun HistoryTab(
         )
         return
     }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -428,7 +424,7 @@ private fun HistoryTab(
                 }
             }
         }
-        items(history, key = { it.id }) { entry ->
+        gridItems(history, columns, key = { it.id }) { entry ->
             val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
             val finished = progress >= 0.97f
             LibraryRowCard(
@@ -448,12 +444,12 @@ private fun HistoryTab(
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = stringResource(R.string.library_remove_history),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 },
             )
         }
+    }
     }
     if (showClearDialog) {
         AlertDialog(
@@ -472,7 +468,7 @@ private fun HistoryTab(
 
 @Composable
 private fun DownloadsTab(
-    downloads: List<net.spin.ao3.data.Store.Download>,
+    downloads: List<Store.Download>,
     loading: Boolean,
     onOpenDetail: (Long) -> Unit,
     onOpenChapter: (Long, Int) -> Unit,
@@ -482,16 +478,12 @@ private fun DownloadsTab(
     workExporter: (String, String, List<String>, String, List<ChapterInfo>, (Int, Int) -> Unit) -> Unit,
     onExplore: () -> Unit,
 ) {
-    val semantic = LocalSemanticColors.current
     var expanded by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var pendingDelete by remember { mutableStateOf<Long?>(null) }
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val queueState by DownloadQueueService.state.collectAsState()
-
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // `loading` evita el destello del estado vacío mientras la primera lectura
-    // (posiblemente MB) llega desde IO.
     if (!loading && downloads.isEmpty() && !queueState.active && !queueState.paused) {
         EmptyState(
             icon = Icons.Default.Download,
@@ -501,10 +493,12 @@ private fun DownloadsTab(
         )
         return
     }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (downloads.isNotEmpty()) {
             item {
@@ -512,49 +506,37 @@ private fun DownloadsTab(
                     "${downloads.size} ${if (downloads.size == 1) "obra" else "obras"} · ${downloads.sumOf { it.chapters.size }} capítulos",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 2.dp),
                 )
             }
         }
         if (queueState.active || queueState.paused) {
             item {
+                val active = queueState.active
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.padding(14.dp)) {
+                    Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (queueState.active) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    if (queueState.paused) "Descarga pausada: ${queueState.workTitle}" else stringResource(R.string.library_downloading, queueState.workTitle),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    stringResource(R.string.library_queue_chapter, queueState.done, queueState.total),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Text(
+                                if (queueState.paused) "Descarga pausada: ${queueState.workTitle}" else stringResource(R.string.library_downloading, queueState.workTitle),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                         Spacer(Modifier.height(10.dp))
                         LinearProgressIndicator(
                             progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
-                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.library_queue_chapter, queueState.done, queueState.total),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(
                                 onClick = {
                                     if (queueState.paused) DownloadQueueService.resume(context)
@@ -568,7 +550,7 @@ private fun DownloadsTab(
                 }
             }
         }
-        items(downloads, key = { it.id }) { dl ->
+        gridItems(downloads, columns, key = { it.id }) { dl ->
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -576,8 +558,8 @@ private fun DownloadsTab(
                 Column {
                     LibraryRowCard(
                         icon = Icons.Default.Download,
-                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        iconContainer = MaterialTheme.colorScheme.surfaceVariant,
                         title = dl.title,
                         subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"}",
                         onClick = { onOpenDetail(dl.id) },
@@ -588,22 +570,18 @@ private fun DownloadsTab(
                                     contentDescription = stringResource(
                                         if (dl.id in expanded) R.string.library_collapse else R.string.library_expand,
                                     ),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             IconButton(onClick = { pendingDelete = dl.id }) {
                                 Icon(
                                     Icons.Default.DeleteOutline,
                                     contentDescription = stringResource(R.string.library_delete_download),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         },
                     )
                     AnimatedVisibility(visible = dl.id in expanded) {
                         Column {
-                            // Export de la obra completa con lo ya descargado:
-                            // no toca la red, funciona sin conexión.
                             TextButton(
                                 onClick = {
                                     workExporter(
@@ -616,11 +594,7 @@ private fun DownloadsTab(
                                 },
                                 modifier = Modifier.padding(start = 8.dp),
                             ) {
-                                Icon(
-                                    Icons.Default.Description,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                Icon(Icons.Default.Description, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Exportar obra completa (.txt)")
                             }
@@ -638,6 +612,7 @@ private fun DownloadsTab(
                 }
             }
         }
+    }
     }
     pendingDelete?.let { id ->
         val download = downloads.firstOrNull { it.id == id }
@@ -665,33 +640,28 @@ private fun ChapterDownloadRow(
     onDelete: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.size(26.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = stringResource(R.string.library_downloaded),
-                tint = LocalSemanticColors.current.success,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Spacer(Modifier.width(6.dp))
+        Icon(
+            Icons.Default.Check,
+            contentDescription = stringResource(R.string.library_downloaded),
+            tint = LocalSemanticColors.current.success,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(8.dp))
         Text(
             stringResource(R.string.library_chapter_row, chapter.index + 1, chapter.title.ifBlank { "Sin título" }),
             style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onExport) {
-            Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.library_export_txt), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.library_export_txt))
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = stringResource(R.string.library_remove_chapter), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.DeleteOutline, contentDescription = stringResource(R.string.library_remove_chapter))
         }
     }
 }
@@ -699,8 +669,6 @@ private fun ChapterDownloadRow(
 /**
  * Queue events for the library (completion + pause/resume), collected in a
  * tiny scope: queue ticks no longer recompose the whole library Scaffold.
- * [onCompleted] fires once per finished download; [onQueueSettled] fires when
- * the queue pauses or resumes (the downloads list may have changed).
  */
 @Composable
 private fun QueueEventsEffect(

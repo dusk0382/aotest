@@ -20,6 +20,7 @@
     <string name="library_explore">Explorar obras</string>
     <string name="home_nothing">Nada que continuar</string>
     <string name="home_remove_continue">Quitar de Continuar leyendo</string>
+    <string name="home_continue_chapter">Continuar capítulo %1$d</string>
 
     <!-- Library -->
     <string name="library_favorites">Favoritos</string>
