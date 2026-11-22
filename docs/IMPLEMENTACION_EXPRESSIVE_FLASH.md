@@ -178,12 +178,12 @@ Gate obligatorio en verde: `ReaderPagingTest`, `ReaderSearchTest`, `ReaderRatioT
   --tests "net.spin.ao3.util.ReaderSearchTest" \
   --tests "net.spin.ao3.ui.screens.ReaderRatioTest"
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
-./gradlew :app:assembleRelease                          # ver abajo
-git diff --check
+./gradlew :app:assembleRelease                          # BUILD SUCCESSFUL in 14m 23s
+git diff --check                                        # limpio
 ```
 
-`assembleRelease` se lanzó al final; su resultado se registró en la crónica de
-la sesión. No hubo bump de versión, release, publicación ni firma nueva.
+No hubo bump de versión, release, publicación ni firma nueva. El APK debug
+generado pesa ~23 MB.
 
 ## Verificación real: NO REALIZADA
 
