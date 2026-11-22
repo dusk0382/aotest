@@ -124,3 +124,17 @@ private fun EmptyStatePreview() {
         )
     }
 }
+
+@Preview(showBackground = true, widthDp = 320, fontScale = 2f, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun EmptyStateDarkScaledPreview() {
+    Ao3Theme {
+        EmptyState(
+            icon = Icons.Filled.Star,
+            title = "Sin favoritos en esta biblioteca tan vacía",
+            description = "Guarda obras para leerlas después cuando tengas conexión.",
+            actionLabel = "Explorar tendencias",
+            onAction = {},
+        )
+    }
+}

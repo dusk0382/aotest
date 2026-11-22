@@ -322,3 +322,40 @@ private fun WorkCardPreview() {
         )
     }
 }
+
+@Preview(showBackground = true, widthDp = 320, fontScale = 2f, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun WorkCardLongDarkScaledPreview() {
+    Ao3Theme {
+        WorkCard(
+            work = WorkSummary(
+                id = 2,
+                title = "Un título deliberadamente muy largo para comprobar el salto a tres líneas y el recorte en pantalla estrecha con fuente al 200 por ciento",
+                author = "Una autora con un nombre también bastante largo",
+                authorUrl = null,
+                fandoms = listOf("Harry Potter", "Marvel", "Star Wars"),
+                rating = "Explicit",
+                ratingKey = "explicit",
+                warnings = listOf("Graphic Depictions Of Violence", "Major Character Death"),
+                categories = listOf("F/M", "Gen"),
+                otherTags = listOf("Angst", "Hurt/Comfort", "Slow Burn", "Post-Canon", "Alternative Universe"),
+                relationships = listOf("Draco Malfoy/Hermione Granger"),
+                characters = listOf("Hermione Granger", "Draco Malfoy", "Severus Snape"),
+                summary = "Resumen extenso que ocupa varias líneas para verificar el límite de cuatro líneas y la elipsis en el modo oscuro con escala de fuente doble.",
+                words = 123_456,
+                chapterCount = 27,
+                chapterTotal = 40,
+                hits = 123_456,
+                kudos = 9_876,
+                comments = 1_234,
+                bookmarks = 567,
+                published = "2020-01-01",
+                updated = "2026-11-01",
+                url = "",
+            ),
+            onClick = {},
+            onTagClick = {},
+            modifier = Modifier.padding(12.dp),
+        )
+    }
+}
