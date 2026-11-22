@@ -139,16 +139,16 @@ fun TagChip(
 }
 
 // ---- Tag accent colors (one per category; drive the dot or tinted fill) ------
-// Harmonized with the Material 3 baseline palette (v0.7.32). These are the
-// SOLID variant: used for text, dots and borders, never as a translucent wash.
+// Identidad azul tinta + hielo. SOLID variant: texto, puntos y bordes, nunca un
+// lavado translúcido. Los nombres y usos se conservan; cambian los valores.
 
-val FandomColor = Color(0xFF625B71)
-val RatingColor = Color(0xFF8A5000)
-val WarningColor = Color(0xFFB3261E)
-val CategoryColor = Color(0xFF6750A4)
-val RelationshipColor = Color(0xFFA03462)
-val CharacterColor = Color(0xFF146C2E)
-val AdditionalColor = Color(0xFF6F6B73)
+val FandomColor = Color(0xFF315DA8)
+val RatingColor = Color(0xFF9B6400)
+val WarningColor = Color(0xFFB3263C)
+val CategoryColor = Color(0xFF243B6B)
+val RelationshipColor = Color(0xFFB83B5E)
+val CharacterColor = Color(0xFF237A57)
+val AdditionalColor = Color(0xFF65717B)
 
 /**
  * Rating accent color. Returns the dark-mode pastel variant on dark themes
@@ -158,14 +158,7 @@ val AdditionalColor = Color(0xFF6F6B73)
 @Composable
 fun ratingColor(key: String?): Color {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    return when (key) {
-        "general-audiences" -> if (light) Color(0xFF00639A) else Color(0xFF97CAFF)
-        "teen-and-up-audiences" -> if (light) Color(0xFF146C2E) else Color(0xFF6DD58C)
-        "mature" -> if (light) Color(0xFF8B5000) else Color(0xFFFFB86B)
-        "explicit" -> Color(0xFFB3261E)
-        "not-rated" -> if (light) Color(0xFF5F5B62) else Color(0xFFCAC4D0)
-        else -> RatingColor
-    }
+    return Color(ratingTextHex(key, light))
 }
 
 /**
@@ -178,28 +171,14 @@ fun ratingColor(key: String?): Color {
 @Composable
 fun ratingSolidColors(key: String?): Pair<Color, Color> {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    return when (key) {
-        "general-audiences" ->
-            if (light) Color(0xFFC8E6FF) to Color(0xFF00344A) else Color(0xFF00344A) to Color(0xFFC8E6FF)
-        "teen-and-up-audiences" ->
-            if (light) Color(0xFFB9F0BB) to Color(0xFF0A3D14) else Color(0xFF0A3D14) to Color(0xFFB9F0BB)
-        "mature" ->
-            if (light) Color(0xFFFFDDB0) to Color(0xFF4A2800) else Color(0xFF4A2800) to Color(0xFFFFDDB0)
-        "explicit" ->
-            if (light) Color(0xFFFFDAD6) to Color(0xFF690005) else Color(0xFF690005) to Color(0xFFFFDAD6)
-        "not-rated" ->
-            if (light) Color(0xFFE3E1E1) to Color(0xFF2B2B2B) else Color(0xFF2B2B2B) to Color(0xFFE3E1E1)
-        // Unknown rating keys share the archive-warning family.
-        else ->
-            if (light) Color(0xFFFFD8E4) to Color(0xFF4A1533) else Color(0xFF4A1533) to Color(0xFFFFD8E4)
-    }
+    return ratingSolidHex(key, light).let { (container, text) -> Color(container) to Color(text) }
 }
 
-/** Solid container/text pair for archive warnings (shared with Explicit per spec). */
+/** Solid container/text pair for archive warnings. */
 @Composable
 fun warningSolidColors(): Pair<Color, Color> {
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    return if (light) Color(0xFFFFDAD6) to Color(0xFF690005) else Color(0xFF690005) to Color(0xFFFFDAD6)
+    return warningSolidHex(light).let { (container, text) -> Color(container) to Color(text) }
 }
 
 /**

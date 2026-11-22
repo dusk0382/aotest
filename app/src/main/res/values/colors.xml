@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Surface oscuro de la paleta Material 3 baseline (#1C1B1F): el fondo del
-         splash y del icono. Antes #1A1B18 (surface del tema "Terracota & Salvia"). -->
-    <color name="splash_background">#1C1B1F</color>
-    <color name="ic_launcher_background">#1C1B1F</color>
+    <!-- Fondo del splash y del icono: surface oscuro de la identidad azul tinta
+         + hielo (#111820). El icono de libro ámbar se conserva tal cual. -->
+    <color name="splash_background">#111820</color>
+    <color name="ic_launcher_background">#111820</color>
 </resources>

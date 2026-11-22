@@ -1,17 +1,20 @@
 package net.spin.ao3.ui.theme
 
+import android.app.UiModeManager
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -19,9 +22,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import net.spin.ao3.R
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.spin.ao3.R
 
 /**
  * App theme mode (Settings -> Apariencia). The reader has its own per-work
@@ -38,93 +42,93 @@ enum class AppThemeMode(val label: String) {
     }
 }
 
-/**
- * AO3 Lector palette — Material 3 baseline (los valores canónicos de la
- * especificación de Material, no una paleta inventada).
- *
- * Motivo del cambio (v0.7.32): la paleta anterior ("Terracota & Serif") llevaba
- * un primary terracota #B03A2E y un secondary cacao #7C5825 con ratio de
- * contraste 1.06 entre sí — indistinguibles, marrón sobre marrón. Los colores
- * actuales son la familia estándar de Google: primary violeta #6750A4 para
- * acciones y selección, surfaces neutros que nunca llegan a negro puro, y
- * superficies SÓLIDAS (sin `copy(alpha=…)`) para que las sesiones largas de
- * lectura no produzcan halación.
- *
- * Todos los pares on-* / *-container superan WCAG AA (el mínimo es 5.48:1 en
- * dark onSurfaceVariant); la escala sólida de ratings/warnings va de 9.6:1 a
- * 11.2:1. Verificado con el linter de `@google/design.md`.
- *
- * El serif del sistema en display/headline/title se conserva: es la identidad
- * editorial y no cuesta peso en el APK.
- */
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF6750A4),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFEADDFF),
-    onPrimaryContainer = Color(0xFF21005D),
-    secondary = Color(0xFF625B71),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFE8DEF8),
-    onSecondaryContainer = Color(0xFF1D192B),
-    tertiary = Color(0xFF7D5260),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFFD8E4),
-    onTertiaryContainer = Color(0xFF31111D),
-    background = Color(0xFFFFFBFE),
-    onBackground = Color(0xFF1C1B1F),
-    surface = Color(0xFFFFFBFE),
-    onSurface = Color(0xFF1C1B1F),
-    surfaceVariant = Color(0xFFE7E0EC),
-    onSurfaceVariant = Color(0xFF49454F),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF7F2FA),
-    surfaceContainer = Color(0xFFF3EDF7),
-    surfaceContainerHigh = Color(0xFFECE6F0),
-    surfaceContainerHighest = Color(0xFFE6E0E9),
-    outline = Color(0xFF79747E),
-    outlineVariant = Color(0xFFCAC4D0),
-    error = Color(0xFFB3261E),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B),
-)
+// La identidad azul tinta + hielo se genera en `ColorSchemes.kt` a partir de:
+//   semilla de marca #243B6B, hielo #4B8296,
+//   semánticos success #237A57 / favorite #B83B5E / warning #9B6400 / info #315DA8
+// con TonalSpot + SPEC_2025 y contraste 0 / 0.5 / 1 (light y dark).
+private const val LightSurfaceHex = 0xFFF4F6F8
+private const val DarkSurfaceHex = 0xFF111820
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFFD0BCFF),
-    onPrimary = Color(0xFF381E72),
-    primaryContainer = Color(0xFF4F378B),
-    onPrimaryContainer = Color(0xFFEADDFF),
-    secondary = Color(0xFFCCC2DC),
-    onSecondary = Color(0xFF332D41),
-    secondaryContainer = Color(0xFF4A4458),
-    onSecondaryContainer = Color(0xFFE8DEF8),
-    tertiary = Color(0xFFEFB8C8),
-    onTertiary = Color(0xFF492532),
-    tertiaryContainer = Color(0xFF633B48),
-    onTertiaryContainer = Color(0xFFFFD8E4),
-    background = Color(0xFF1C1B1F),
-    onBackground = Color(0xFFE6E1E5),
-    surface = Color(0xFF1C1B1F),
-    onSurface = Color(0xFFE6E1E5),
-    surfaceVariant = Color(0xFF49454F),
-    onSurfaceVariant = Color(0xFFCAC4D0),
-    surfaceContainerLowest = Color(0xFF131318),
-    surfaceContainerLow = Color(0xFF1D1B20),
-    surfaceContainer = Color(0xFF211F26),
-    surfaceContainerHigh = Color(0xFF2B2930),
-    surfaceContainerHighest = Color(0xFF36343B),
-    outline = Color(0xFF938F99),
-    outlineVariant = Color(0xFF49454F),
-    error = Color(0xFFF2B8B5),
-    onError = Color(0xFF601410),
-    errorContainer = Color(0xFF8C1D18),
-    onErrorContainer = Color(0xFFF9DEDC),
-)
+/** Contraste del sistema (API 34+); en versiones anteriores, neutro 0.0. */
+@Composable
+private fun rememberSystemContrast(): Double {
+    val context = LocalContext.current
+    return remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val manager = context.getSystemService(UiModeManager::class.java)
+            manager?.contrast?.toDouble() ?: 0.0
+        } else {
+            0.0
+        }
+    }
+}
+
+/** El contraste continuo del sistema se ajusta al cubo exportado más cercano. */
+private fun contrastBucket(contrast: Double): Int = when {
+    contrast < 0.25 -> 0
+    contrast < 0.75 -> 1
+    else -> 2
+}
+
+private fun brandScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> BrandDarkC0
+    dark && bucket == 1 -> BrandDarkC05
+    dark -> BrandDarkC1
+    bucket == 0 -> BrandLightC0
+    bucket == 1 -> BrandLightC05
+    else -> BrandLightC1
+}
+
+private fun iceScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> IceDarkC0
+    dark && bucket == 1 -> IceDarkC05
+    dark -> IceDarkC1
+    bucket == 0 -> IceLightC0
+    bucket == 1 -> IceLightC05
+    else -> IceLightC1
+}
+
+private fun successScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> SuccessDarkC0
+    dark && bucket == 1 -> SuccessDarkC05
+    dark -> SuccessDarkC1
+    bucket == 0 -> SuccessLightC0
+    bucket == 1 -> SuccessLightC05
+    else -> SuccessLightC1
+}
+
+private fun favoriteScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> FavoriteDarkC0
+    dark && bucket == 1 -> FavoriteDarkC05
+    dark -> FavoriteDarkC1
+    bucket == 0 -> FavoriteLightC0
+    bucket == 1 -> FavoriteLightC05
+    else -> FavoriteLightC1
+}
+
+private fun warningScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> WarningDarkC0
+    dark && bucket == 1 -> WarningDarkC05
+    dark -> WarningDarkC1
+    bucket == 0 -> WarningLightC0
+    bucket == 1 -> WarningLightC05
+    else -> WarningLightC1
+}
+
+private fun infoScheme(dark: Boolean, bucket: Int): ColorScheme = when {
+    dark && bucket == 0 -> InfoDarkC0
+    dark && bucket == 1 -> InfoDarkC05
+    dark -> InfoDarkC1
+    bucket == 0 -> InfoLightC0
+    bucket == 1 -> InfoLightC05
+    else -> InfoLightC1
+}
 
 /**
  * Semantic colors used across the app (success = downloaded/read, favorite,
- * etc.) so screens stop hardcoding one-off hex values. `info` is a token, not
- * the brand accent — the brand accent is `primary` (see LightColors).
+ * etc.). Se generan con sus propias semillas; `info` es un token, no el acento
+ * de marca (que es `primary`). La firma se conserva: los campos sin `on*` se
+ * rellenan con el `primary` del esquema generado de cada semilla.
  */
 data class SemanticColors(
     val success: Color,
@@ -134,33 +138,19 @@ data class SemanticColors(
     val info: Color,
 )
 
-private val LightSemantic = SemanticColors(
-    success = Color(0xFF146C2E),
+private val DefaultSemantic = SemanticColors(
+    success = Color(0xFF237A57),
     onSuccess = Color(0xFFFFFFFF),
-    favorite = Color(0xFFB3261E),
-    warning = Color(0xFF8B5000),
-    info = Color(0xFF1565C0),
+    favorite = Color(0xFFB83B5E),
+    warning = Color(0xFF9B6400),
+    info = Color(0xFF315DA8),
 )
 
-private val DarkSemantic = SemanticColors(
-    success = Color(0xFF6DD58C),
-    onSuccess = Color(0xFF00391B),
-    favorite = Color(0xFFFFB4AB),
-    warning = Color(0xFFFFB86B),
-    info = Color(0xFFA8C7FA),
-)
-
-val LocalSemanticColors = staticCompositionLocalOf { LightSemantic }
+val LocalSemanticColors = staticCompositionLocalOf { DefaultSemantic }
 
 /**
- * MD3 type scale for AO3 Lector. Sizes follow the spec (display 36, headline
- * 24-28, title 14-22, body 12-16, label 11-14) so screens never need raw
- * `fontSize` literals.
- *
- * La interfaz usa Google Sans Flex (empaquetada: los ejes de la variable se
- * instanciaron a 400/500/600/700, así funciona desde API 23 sin variaciones en
- * runtime). El lector NO usa esta escala: tiene la suya en ReaderTheme, donde
- * serif y sans siguen siendo ajustes del usuario.
+ * Google Sans Flex para la escala utilitaria (Title Medium/Small, Body y Label).
+ * El lector NO usa esta escala: tiene la suya en ReaderTheme.
  */
 private val AppSans = FontFamily(
     Font(R.font.gs_regular, FontWeight.Normal),
@@ -169,34 +159,57 @@ private val AppSans = FontFamily(
     Font(R.font.gs_bold, FontWeight.Bold),
 )
 
-val Ao3Typography = Typography(
-    displaySmall = TextStyle(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
-    headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, fontFamily = AppSans),
-    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, fontFamily = AppSans),
-    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
-    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = AppSans),
-    titleSmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
-    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
-    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+/** Fraunces estático (TTF instanciado en build time, sin FontVariation en runtime). */
+private val AppEditorial = FontFamily(
+    Font(R.font.fraunces_semibold, FontWeight.SemiBold),
+    Font(R.font.fraunces_bold, FontWeight.Bold),
+)
+
+private fun editorial(size: TextUnit, lineHeight: TextUnit, emphasized: Boolean = false) = TextStyle(
+    fontSize = size,
+    lineHeight = lineHeight,
+    fontWeight = if (emphasized) FontWeight.Bold else FontWeight.SemiBold,
+    fontFamily = AppEditorial,
 )
 
 /**
- * MD3 shape tokens: chips = small (8dp), cards/surfaces = medium (12dp), large
- * sheets = large (16dp), dialogs/bottom sheets = extraLarge (28dp). Components
- * reference these instead of magic radii.
+ * MD3 Expressive type scale. Las medidas M3 se conservan; cambia la familia:
+ * Fraunces en los seis Display, seis Headline y titleLarge (y sus variantes
+ * *Emphasized en Bold); Google Sans Flex en el resto de la escala.
+ */
+val Ao3Typography = Typography(fontFamily = AppSans).copy(
+    displayLarge = editorial(57.sp, 64.sp),
+    displayLargeEmphasized = editorial(57.sp, 64.sp, emphasized = true),
+    displayMedium = editorial(45.sp, 52.sp),
+    displayMediumEmphasized = editorial(45.sp, 52.sp, emphasized = true),
+    displaySmall = editorial(36.sp, 44.sp),
+    displaySmallEmphasized = editorial(36.sp, 44.sp, emphasized = true),
+    headlineLarge = editorial(32.sp, 40.sp),
+    headlineLargeEmphasized = editorial(32.sp, 40.sp, emphasized = true),
+    headlineMedium = editorial(28.sp, 36.sp),
+    headlineMediumEmphasized = editorial(28.sp, 36.sp, emphasized = true),
+    headlineSmall = editorial(24.sp, 32.sp),
+    headlineSmallEmphasized = editorial(24.sp, 32.sp, emphasized = true),
+    titleLarge = editorial(22.sp, 28.sp),
+    titleLargeEmphasized = editorial(22.sp, 28.sp, emphasized = true),
+)
+
+/**
+ * MD3 shape tokens con los radios Expressive: chips 8dp, tarjetas 12/20dp,
+ * hero 32dp, diálogos/hojas 28dp y superiores.
  */
 val Ao3Shapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp),
     small = RoundedCornerShape(8.dp),
     medium = RoundedCornerShape(12.dp),
     large = RoundedCornerShape(16.dp),
+    largeIncreased = RoundedCornerShape(20.dp),
     extraLarge = RoundedCornerShape(28.dp),
+    extraLargeIncreased = RoundedCornerShape(32.dp),
+    extraExtraLarge = RoundedCornerShape(48.dp),
 )
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun Ao3Theme(
     mode: AppThemeMode = AppThemeMode.SYSTEM,
@@ -211,18 +224,50 @@ fun Ao3Theme(
         AppThemeMode.LIGHT -> false
         AppThemeMode.DARK -> true
     }
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        dark -> DarkColors
-        else -> LightColors
+    val bucket = contrastBucket(rememberSystemContrast())
+    val useDynamic = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val brand = brandScheme(dark, bucket)
+    val ice = iceScheme(dark, bucket)
+
+    val colorScheme = if (useDynamic) {
+        // Material You: esquema del sistema SIN overrides de marca.
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        brand.copy(
+            // Secondary = ice.primary family, Tertiary = ice.secondary family.
+            secondary = ice.primary,
+            onSecondary = ice.onPrimary,
+            secondaryContainer = ice.primaryContainer,
+            onSecondaryContainer = ice.onPrimaryContainer,
+            tertiary = ice.secondary,
+            onTertiary = ice.onSecondary,
+            tertiaryContainer = ice.secondaryContainer,
+            onTertiaryContainer = ice.onSecondaryContainer,
+            // Superficies sólidas de la identidad; on-* del esquema base.
+            surface = Color(if (dark) DarkSurfaceHex else LightSurfaceHex),
+            background = Color(if (dark) DarkSurfaceHex else LightSurfaceHex),
+            onSurface = brand.onSurface,
+            onBackground = brand.onBackground,
+        )
     }
-    CompositionLocalProvider(
-        LocalSemanticColors provides (if (dark) DarkSemantic else LightSemantic),
-    ) {
-        MaterialTheme(
+
+    val success = successScheme(dark, bucket)
+    val favorite = favoriteScheme(dark, bucket)
+    val warning = warningScheme(dark, bucket)
+    val info = infoScheme(dark, bucket)
+    val semantic = SemanticColors(
+        success = success.primary,
+        onSuccess = success.onPrimary,
+        favorite = favorite.primary,
+        warning = warning.primary,
+        info = info.primary,
+    )
+
+    CompositionLocalProvider(LocalSemanticColors provides semantic) {
+        MaterialExpressiveTheme(
             colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
             typography = Ao3Typography,
             shapes = Ao3Shapes,
             content = content,
