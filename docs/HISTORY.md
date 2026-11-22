@@ -1552,3 +1552,37 @@ propia interfaz ya decía.
   Ajustes (100 % y 200 %) y pantalla de Lector a 100 %. Volver con gesto/tecla
   comprobado por log.
 - **Sin verificar**: detalle de obra, lector y autor siguen dependiendo de AO3.
+
+---
+
+## Ronda 2026-11-22 — rediseño Material 3 Expressive «azul tinta + hielo»
+
+Ejecución del plan `docs/EXPRESSIVE_FLASH_PLAN.md` en la rama
+`redesign/editorial-20261121-234543`. Informe técnico completo:
+[IMPLEMENTACION_EXPRESSIVE_FLASH.md](IMPLEMENTACION_EXPRESSIVE_FLASH.md).
+
+- **Decisión forzada**: MaterialKolor 5.0.1 arrastra una segunda familia Compose
+  (`org.jetbrains.compose.*:1.12.0`) junto a `androidx.compose.material3:1.5.0-alpha23`.
+  El gate de dependencias lo detectó; se retiró la librería y se generaron 36
+  esquemas estáticos (TonalSpot + SPEC_2025, Light/Dark × contraste 0/0.5/1)
+  en `ui/theme/ColorSchemes.kt`, sin subir BOM/Kotlin/AGP/SDK.
+- **Tema**: `MaterialExpressiveTheme` con `MotionScheme.expressive()`, escala
+  Fraunces en display/headline/titleLarge y Google Sans Flex en el resto,
+  shapes Expressive, superficies sólidas y pares on-* generados.
+- **Shell y pantallas**: rail en ≥600 dp, ShortNavigationBar en compacto,
+  transiciones por MotionScheme; WorkCard/EmptyState rediseñados; Home con hero
+  editorial; Biblioteca con ToggleButtons conectados y cuadrículas 2/3;
+  Search con AppBarWithSearch; Author y Detail adaptativos; Ajustes con hub
+  segmentado y dos paneles; chrome del lector con colores sólidos.
+- **Menús/inputs**: seis DropdownMenu → DropdownMenuPopup; AutocompleteTagField
+  y API key migrados a TextFieldState; `TagPalette.kt` con contraste testeado.
+- **Gates**: `compileDebugKotlin`, `TagPaletteTest`, tests del lector,
+  `testDebugUnitTest + assembleDebug` y `assembleRelease` en verde.
+- **Sin verificar en dispositivo**: no había ningún dispositivo conectado;
+  capturas, 200 % de fuente y viewports compact/expanded/large quedan como
+  «calidad visual no verificada». Las capturas antiguas de `.design-review/`
+  no son evidencia de esta ronda.
+- **Pendiente para la próxima ronda**: reordenar `FilterSheet` en secciones
+  colapsables, migrar el resto de formularios a TextFieldState, añadir
+  `ReaderPreview` en Ajustes del Lector y ejecutar la verificación real cuando
+  el dispositivo `DAWSAICMVKAQGQS8` vuelva a estar disponible.
