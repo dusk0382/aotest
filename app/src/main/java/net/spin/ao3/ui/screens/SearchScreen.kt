@@ -45,8 +45,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.AppBarWithSearch
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,7 +59,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -65,8 +68,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -77,6 +78,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +90,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -100,6 +106,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AutocompleteType
 import net.spin.ao3.data.model.CATEGORY_OPTIONS
@@ -119,6 +126,9 @@ import net.spin.ao3.ui.components.appendCommittedTag
 import net.spin.ao3.ui.components.CharacterColor
 import net.spin.ao3.ui.components.committedTagSegments
 import net.spin.ao3.ui.components.EmptyState
+import net.spin.ao3.ui.components.AdaptiveSheet
+import net.spin.ao3.ui.components.PrimaryCtaButton
+import net.spin.ao3.ui.components.SecondaryTonalButton
 import net.spin.ao3.ui.components.FandomColor
 import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.removeCommittedTag
@@ -128,7 +138,7 @@ import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.formatCount
 import net.spin.ao3.util.usernameFromAuthorUrl
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SearchScreen(
     container: AppContainer,
@@ -282,111 +292,44 @@ fun SearchScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            val searchBarState = rememberSearchBarState()
+            val queryState = rememberTextFieldState(queryDraft)
+            LaunchedEffect(queryDraft) {
+                if (queryState.text.toString() != queryDraft) {
+                    queryState.setTextAndPlaceCursorAtEnd(queryDraft)
+                }
+            }
+            LaunchedEffect(Unit) {
+                snapshotFlow { queryState.text.toString() }.collect { text ->
+                    if (text != queryDraft) queryDraft = text
+                }
+            }
+            AppBarWithSearch(
+                state = searchBarState,
+                inputField = {
+                    SearchBarDefaults.InputField(
+                        textFieldState = queryState,
+                        searchBarState = searchBarState,
+                        onSearch = { submitQuery() },
+                        placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 },
-                title = {
-                    // The query itself IS the search field — but it must READ as
-                    // one: a subtle pill (surface + 1dp outline) keeps it
-                    // compact while signaling "tap to edit" (critique P1).
-                    var focused by remember { mutableStateOf(false) }
-                    val focusRequester = remember { FocusRequester() }
-                    val pillShape = RoundedCornerShape(20.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(pillShape)
-                            .background(
-                                if (focused) {
-                                    MaterialTheme.colorScheme.surfaceContainerHigh
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerLow
-                                },
-                            )
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, pillShape)
-                            .heightIn(min = 40.dp)
-                            // The whole pill reads as a field: tapping anywhere
-                            // (not just the text) focuses it.
-                            .clickable { focusRequester.requestFocus() },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Spacer(Modifier.width(12.dp))
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (focused) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        BasicTextField(
-                            value = queryDraft,
-                            onValueChange = { queryDraft = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(focusRequester)
-                                .onFocusChanged { focused = it.isFocused },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { submitQuery() }),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (queryDraft.isBlank() && !focused) {
-                                        Text(
-                                            "Buscar…",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    inner()
-                                }
-                            },
-                        )
-                        if (queryDraft.isNotBlank()) {
-                            IconButton(onClick = { queryDraft = ""; submitQuery() }) {
-                                Icon(
-                                    Icons.Default.Clear,
-                                    contentDescription = "Limpiar búsqueda",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(4.dp))
-                    }
-                },
                 actions = {
-                    // Filters: Tune icon + badge with the active-filter count.
-                    // The count is exposed via the button's contentDescription so
-                    // TalkBack reads "Filtros, N activos"; the badge itself is
-                    // decorative (clearAndSetSemantics).
                     Box {
                         IconButton(onClick = { showFilters = true }) {
                             Icon(
                                 Icons.Default.Tune,
                                 contentDescription = if (activeFilterCount > 0) {
                                     "Filtros, $activeFilterCount activos"
-                                } else {
-                                    "Filtros"
-                                },
+                                } else "Filtros",
                                 tint = if (activeFilterCount > 0) {
                                     MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
+                                } else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (activeFilterCount > 0) {
@@ -403,16 +346,11 @@ fun SearchScreen(
                                 Text(
                                     activeFilterCount.coerceAtMost(9).toString(),
                                     style = MaterialTheme.typography.labelSmall,
-                                    // 9sp sin antialiasing legible: mínimo 11sp.
-                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             }
                         }
                     }
-                    // Sort: A-Z icon (reads as "sort" better than SwapVert) +
-                    // dropdown with the current option checked; the icon tints
-                    // primary when the order differs from the default.
                     var menuOpen by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
@@ -421,9 +359,7 @@ fun SearchScreen(
                                 contentDescription = "Ordenar: ${currentSort.label}",
                                 tint = if (currentSort != SortOption.BEST_MATCH) {
                                     MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
+                                } else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -431,28 +367,14 @@ fun SearchScreen(
                                 DropdownMenuItem(
                                     text = { Text(option.label) },
                                     trailingIcon = if (option == currentSort) {
-                                        {
-                                            Icon(
-                                                Icons.Default.Check,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                    onClick = {
-                                        currentSort = option
-                                        menuOpen = false
-                                    },
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                    } else null,
+                                    onClick = { currentSort = option; menuOpen = false },
                                 )
                             }
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
     ) { padding ->
@@ -484,7 +406,7 @@ fun SearchScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(friendlySearchError(error), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { fetchFirst() }) {
+                    PrimaryCtaButton(onClick = { fetchFirst() }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Reintentar")
@@ -502,7 +424,9 @@ fun SearchScreen(
                     },
                 )
             }
-            else -> LazyColumn(
+            else -> BoxWithConstraints(Modifier.fillMaxSize()) {
+            val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+            LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
@@ -545,13 +469,31 @@ fun SearchScreen(
                         }
                     }
                 }
-                items(results, key = { it.id }) { work ->
-                    WorkCard(
-                        work = work,
-                        onTagClick = onOpenTag,
-                        onAuthorClick = usernameFromAuthorUrl(work.authorUrl)?.let { name -> { onOpenAuthor(name) } },
-                        onClick = { onOpenDetail(work.id) },
-                    )
+                if (columns == 1) {
+                    items(results, key = { it.id }) { work ->
+                        WorkCard(
+                            work = work,
+                            onTagClick = onOpenTag,
+                            onAuthorClick = usernameFromAuthorUrl(work.authorUrl)?.let { name -> { onOpenAuthor(name) } },
+                            onClick = { onOpenDetail(work.id) },
+                        )
+                    }
+                } else {
+                    items(results.chunked(columns), key = { it.first().id }) { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            row.forEach { work ->
+                                Box(Modifier.weight(1f)) {
+                                    WorkCard(
+                                        work = work,
+                                        onTagClick = onOpenTag,
+                                        onAuthorClick = usernameFromAuthorUrl(work.authorUrl)?.let { name -> { onOpenAuthor(name) } },
+                                        onClick = { onOpenDetail(work.id) },
+                                    )
+                                }
+                            }
+                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
                 }
                 item {
                     if (error != null) {
@@ -564,7 +506,7 @@ fun SearchScreen(
                     }
                     if (loadingMore) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(28.dp))
+                            LoadingIndicator(Modifier.size(28.dp))
                         }
                     } else if (noMorePages) {
                         Text(
@@ -575,7 +517,7 @@ fun SearchScreen(
                             textAlign = TextAlign.Center,
                         )
                     } else {
-                        Button(
+                        SecondaryTonalButton(
                             onClick = { fetchMore() },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -585,6 +527,7 @@ fun SearchScreen(
                 }
             }
         }
+    }
     }
     }
     }
@@ -671,7 +614,6 @@ private fun FilterSheet(
     onDismiss: () -> Unit,
     onApply: (SearchFilters) -> Unit,
 ) {
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     var f by remember { mutableStateOf(initial) }
 
     // For a free-text query AO3's /works search page has NO sidebar, so we
@@ -713,7 +655,7 @@ private fun FilterSheet(
         ?.filter { it.include.isNotEmpty() }
         ?: emptyList()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    AdaptiveSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -723,7 +665,7 @@ private fun FilterSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Filtros de búsqueda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Filtros de búsqueda", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(2.dp))
                     Text(
                         "Empieza por lo más frecuente y abre Avanzado solo si necesitas afinar más.",
@@ -1028,7 +970,7 @@ private fun FilterSheet(
                     Text("Restablecer")
                 }
                 Spacer(Modifier.weight(1f))
-                Button(onClick = { onApply(f) }) {
+                PrimaryCtaButton(onClick = { onApply(f) }) {
                     Text("Aplicar filtros")
                 }
             }
@@ -1036,6 +978,7 @@ private fun FilterSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SearchLoadingState() {
     Column(
@@ -1045,6 +988,7 @@ private fun SearchLoadingState() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        LoadingIndicator(Modifier.size(32.dp))
         Text(
             "Buscando obras…",
             style = MaterialTheme.typography.labelLarge,

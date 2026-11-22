@@ -7,11 +7,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,13 +27,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +58,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.model.AuthorProfile
@@ -62,10 +68,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import net.spin.ao3.ui.components.EmptyState
+import net.spin.ao3.ui.components.PrimaryCtaButton
+import net.spin.ao3.ui.components.SecondaryOutlinedButton
+import net.spin.ao3.ui.components.SecondaryTonalButton
 import net.spin.ao3.ui.components.WorkCard
 import net.spin.ao3.util.AvatarImages
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AuthorScreen(
     container: AppContainer,
@@ -202,14 +211,15 @@ fun AuthorScreen(
         val p = profile
         when {
             loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                LoadingIndicator()
             }
             error != null && p == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(error ?: "", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { retryTick++ }) {
+                    PrimaryCtaButton(onClick = { retryTick++ }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
                         Text("Reintentar")
                     }
                 }
@@ -217,7 +227,9 @@ fun AuthorScreen(
             p == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("Perfil no encontrado")
             }
-            else -> LazyColumn(
+            else -> BoxWithConstraints(Modifier.fillMaxSize()) {
+            val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+            LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = 32.dp),
@@ -230,7 +242,7 @@ fun AuthorScreen(
                     }
                     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
-                            shape = CircleShape,
+                            shape = MaterialShapes.Cookie9Sided.toShape(),
                             color = MaterialTheme.colorScheme.primaryContainer,
                             modifier = Modifier.size(84.dp),
                         ) {
@@ -256,9 +268,8 @@ fun AuthorScreen(
                         Spacer(Modifier.height(12.dp))
                         Text(
                             p.displayName,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.semantics { heading() },
                         )
                         if (p.displayName != "@${p.username}") {
                             Text(
@@ -296,19 +307,20 @@ fun AuthorScreen(
                                     modifier = Modifier.padding(14.dp),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3,
                                 )
                             }
                             Spacer(Modifier.height(14.dp))
                         }
-                        OutlinedButton(
+                        SecondaryOutlinedButton(
                             onClick = {
                                 context.startActivity(
                                     Intent(Intent.ACTION_VIEW, Uri.parse("https://archiveofourown.org/users/${p.username}")),
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.widthIn(max = 320.dp),
                         ) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.OpenInNew, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Abrir perfil en AO3")
                         }
@@ -324,7 +336,7 @@ fun AuthorScreen(
                             modifier = Modifier.fillMaxWidth().padding(24.dp),
                             horizontalArrangement = Arrangement.Center,
                         ) {
-                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            LoadingIndicator(Modifier.size(28.dp))
                         }
                     }
                     works.isEmpty() -> item {
@@ -340,14 +352,35 @@ fun AuthorScreen(
                         )
                     }
                     else -> {
-                        items(works, key = { it.id }) { work ->
-                            WorkCard(
-                                work = work,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                onClick = { onOpenDetail(work.id) },
-                                onTagClick = { tag -> onOpenTag(tag) },
-                                onAuthorClick = null, // ya estamos en el perfil del autor
-                            )
+                        if (columns == 1) {
+                            items(works, key = { it.id }) { work ->
+                                WorkCard(
+                                    work = work,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                    onClick = { onOpenDetail(work.id) },
+                                    onTagClick = { tag -> onOpenTag(tag) },
+                                    onAuthorClick = null,
+                                )
+                            }
+                        } else {
+                            items(works.chunked(columns), key = { it.first().id }) { row ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    row.forEach { work ->
+                                        Box(Modifier.weight(1f)) {
+                                            WorkCard(
+                                                work = work,
+                                                onClick = { onOpenDetail(work.id) },
+                                                onTagClick = { tag -> onOpenTag(tag) },
+                                                onAuthorClick = null,
+                                            )
+                                        }
+                                    }
+                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
                         }
                         val count = worksCount
                         val hasMore = !noMoreWorks && (count == null || works.size < count)
@@ -355,9 +388,9 @@ fun AuthorScreen(
                             item {
                                 Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                                     if (loadingMore) {
-                                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                                        LoadingIndicator(Modifier.size(28.dp))
                                     } else {
-                                        OutlinedButton(onClick = { loadMoreWorks() }) {
+                                        SecondaryTonalButton(onClick = { loadMoreWorks() }) {
                                             Text("Cargar más obras")
                                         }
                                     }
@@ -367,6 +400,7 @@ fun AuthorScreen(
                     }
                 }
             }
+        }
         }
     }
 }

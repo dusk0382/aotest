@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -47,8 +49,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,7 +61,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
@@ -66,7 +69,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -110,6 +112,8 @@ import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.TagChipSolid
 import net.spin.ao3.ui.components.TagChipVariant
 import net.spin.ao3.ui.components.ratingSolidColors
+import net.spin.ao3.ui.components.PrimaryCtaButton
+import net.spin.ao3.ui.components.SecondaryOutlinedButton
 import net.spin.ao3.ui.components.warningSolidColors
 import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.AvatarImages
@@ -118,7 +122,7 @@ import net.spin.ao3.util.formatCount
 import net.spin.ao3.util.htmlToAnnotated
 import net.spin.ao3.util.usernameFromAuthorUrl
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WorkDetailScreen(
     container: AppContainer,
@@ -468,13 +472,18 @@ fun WorkDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MediumFlexibleTopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 },
-                title = { Text("Detalle de la obra", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Text(
+                        detail?.summary?.title ?: "Obra",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 actions = {
                     IconButton(onClick = { toggleSaved() }) {
                         Icon(
@@ -501,7 +510,7 @@ fun WorkDetailScreen(
         when {
             loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
+                    LoadingIndicator(Modifier.size(36.dp))
                     Spacer(Modifier.height(14.dp))
                     Text(
                         "Cargando obra…",
@@ -522,8 +531,9 @@ fun WorkDetailScreen(
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { loadDetail() }) {
+                    PrimaryCtaButton(onClick = { loadDetail() }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
                         Text("Reintentar")
                     }
                 }
@@ -597,8 +607,6 @@ fun WorkDetailScreen(
                     }
                     item {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            Text(d.summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(4.dp))
                             val authorUser = usernameFromAuthorUrl(d.summary.authorUrl)
                             Text(
                                 d.summary.author,
@@ -666,7 +674,7 @@ fun WorkDetailScreen(
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            OutlinedButton(
+                            SecondaryOutlinedButton(
                                 onClick = { sendKudos() },
                                 enabled = !kudosSending && !kudoed,
                                 modifier = Modifier.weight(1f),
@@ -683,7 +691,7 @@ fun WorkDetailScreen(
                                 Spacer(Modifier.width(6.dp))
                                 Text(if (kudoed) "Kudo enviado" else "Dar kudos")
                             }
-                            OutlinedButton(onClick = { openBookmarkPage() }, modifier = Modifier.weight(1f)) {
+                            SecondaryOutlinedButton(onClick = { openBookmarkPage() }, modifier = Modifier.weight(1f)) {
                                 Icon(Icons.Default.BookmarkBorder, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Marcar en AO3")
@@ -696,16 +704,28 @@ fun WorkDetailScreen(
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Button(
-                                onClick = { onOpenChapter(history?.chapterIndex ?: 0) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    if (history != null) "Continuar · Cap. ${history.chapterIndex + 1}"
-                                    else "Leer desde el principio",
-                                )
+                            if (chapters.isNotEmpty()) {
+                                PrimaryCtaButton(
+                                    onClick = { onOpenChapter(chapters.first().index) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Leer capítulo 1")
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                ) {
+                                    Text(
+                                        "Esta obra aún no tiene capítulos disponibles.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(16.dp),
+                                    )
+                                }
                             }
                             DownloadActionsRow(
                                 workId = d.summary.id,
@@ -987,7 +1007,7 @@ private fun CommentSection(
         }
     }
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = onOpenForm, modifier = Modifier.fillMaxWidth()) {
+    SecondaryOutlinedButton(onClick = onOpenForm, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(6.dp))
         Text("Deja un comentario")
@@ -1328,7 +1348,7 @@ private fun DownloadActionsRow(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             val queuedHere = queueState.workId == workId && (queueState.active || queueState.paused)
             if (queuedHere) {
-                OutlinedButton(
+                SecondaryOutlinedButton(
                     onClick = {
                         if (queueState.paused) DownloadQueueService.resume(context)
                         else DownloadQueueService.cancel(context, workId)
@@ -1347,13 +1367,13 @@ private fun DownloadActionsRow(
                     )
                 }
             } else if (downloadedCount >= totalChapters && totalChapters > 0) {
-                OutlinedButton(onClick = onDeleteDownload, modifier = Modifier.weight(1f)) {
+                SecondaryOutlinedButton(onClick = onDeleteDownload, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Descargado ($downloadedCount)")
                 }
             } else {
-                OutlinedButton(onClick = onEnqueueAll, modifier = Modifier.weight(1f)) {
+                SecondaryOutlinedButton(onClick = onEnqueueAll, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -1365,10 +1385,9 @@ private fun DownloadActionsRow(
             // Menú de export: obra completa a un solo .txt.
             Box {
                 var exportMenu by remember { mutableStateOf(false) }
-                OutlinedButton(
+                SecondaryOutlinedButton(
                     onClick = { exportMenu = true },
                     enabled = !exportingWork,
-                    contentPadding = PaddingValues(horizontal = 12.dp),
                     modifier = Modifier.width(52.dp),
                 ) {
                     if (exportingWork) {
