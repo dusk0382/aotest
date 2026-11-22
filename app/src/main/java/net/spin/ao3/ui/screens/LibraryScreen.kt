@@ -166,11 +166,12 @@ fun LibraryScreen(
                     Column {
                         Text(
                             stringResource(R.string.tab_library),
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.semantics { heading() },
                         )
                         Text(
-                            "$count · $countLabel",
+                            "$count $countLabel",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -284,6 +285,7 @@ private fun LibraryRowCard(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics { heading() },
@@ -356,7 +358,6 @@ private fun FavoritesTab(
         EmptyState(
             icon = Icons.Default.Star,
             title = stringResource(R.string.library_no_favs),
-            description = "Guarda obras para leerlas sin conexión.",
             actionLabel = stringResource(R.string.library_explore),
             onAction = onExplore,
         )

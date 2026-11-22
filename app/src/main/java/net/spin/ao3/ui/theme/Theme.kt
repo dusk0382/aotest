@@ -6,6 +6,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
@@ -248,6 +249,7 @@ fun Ao3Theme(
             surface = Color(if (dark) DarkSurfaceHex else LightSurfaceHex),
             background = Color(if (dark) DarkSurfaceHex else LightSurfaceHex),
             onSurface = brand.onSurface,
+            onSurfaceVariant = brand.onSurfaceVariant,
             onBackground = brand.onBackground,
         )
     }
@@ -270,7 +272,14 @@ fun Ao3Theme(
             motionScheme = MotionScheme.expressive(),
             typography = Ao3Typography,
             shapes = Ao3Shapes,
-            content = content,
+            content = {
+                // Los textos que no fijan color heredan LocalContentColor. Fijarlo
+                // aquí evita que queden con un tono claro sobre superficies claras
+                // después de recomponer el árbol (jugaba con el crossfade de tabs).
+                CompositionLocalProvider(LocalContentColor provides colorScheme.onSurface) {
+                    content()
+                }
+            },
         )
     }
 }

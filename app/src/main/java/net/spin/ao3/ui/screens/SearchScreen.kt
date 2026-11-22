@@ -667,11 +667,6 @@ private fun FilterSheet(
                 Column(Modifier.weight(1f)) {
                     Text("Filtros de búsqueda", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Empieza por lo más frecuente y abre Avanzado solo si necesitas afinar más.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     if (activeFilterCount(f) > 0) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -706,7 +701,6 @@ private fun FilterSheet(
             if (suggestionsLoading || suggestionGroups.isNotEmpty()) {
                 CollapsibleSection(
                     title = "Sugerencias de tags",
-                    subtitle = "Toca + para incluir o − para excluir",
                     initiallyExpanded = true,
                 ) {
                     if (suggestionsLoading) {

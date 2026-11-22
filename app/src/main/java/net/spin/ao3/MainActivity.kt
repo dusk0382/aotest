@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -136,9 +138,10 @@ private fun AppRoot() {
                             targetState = navTarget,
                             transitionSpec = {
                                 if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
-                                    // Cambio de pestaña: crossfade corto (no es navegación espacial).
-                                    fadeIn(motion.fastEffectsSpec()) togetherWith
-                                        fadeOut(motion.fastEffectsSpec())
+                                    // Cambio de pestaña: sustitución directa. El crossfade con
+                                    // specs de resorte dejaba la pantalla saliente con alfa
+                                    // intermedio (títulos gris claro sobre fondo claro).
+                                    EnterTransition.None togetherWith ExitTransition.None
                                 } else {
                                     val forward = nav.lastDirection >= 0
                                     if (forward) {

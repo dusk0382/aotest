@@ -215,12 +215,7 @@ private fun SettingsHub(onOpen: (SettingsPage) -> Unit) {
             MediumFlexibleTopAppBar(
                 title = {
                     Column {
-                        Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineMedium)
-                        Text(
-                            "Lectura, datos y personalización",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.titleLarge)
                     }
                 },
             )
@@ -251,7 +246,6 @@ private fun HubList(onOpen: (SettingsPage) -> Unit) {
             SegmentedListItem(
                 onClick = { onOpen(target) },
                 shapes = ListItemDefaults.segmentedShapes(index, entries.size),
-                leadingContent = { Icon(icon, contentDescription = null) },
                 content = { Text(stringResource(titleRes)) },
             )
             if (index < entries.lastIndex) Spacer(Modifier.height(ListItemDefaults.SegmentedGap))
@@ -309,7 +303,7 @@ private fun SettingsPageScaffold(
     Scaffold(
         topBar = {
             MediumFlexibleTopAppBar(
-                title = { Text(stringResource(titleRes)) },
+                title = { Text(stringResource(titleRes), style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = navIcon(showBack, onBack),
             )
         },
@@ -341,15 +335,6 @@ private fun SettingsSection(
     ) {
             if (title != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (icon != null) {
-                        Icon(
-                            icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                    }
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(10.dp))
@@ -482,7 +467,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit, showBack: Boolean = tru
                     valueRange = 13f..28f,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                 )
-                Text("A", style = MaterialTheme.typography.titleLarge)
+                Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 "$fontSize sp",
@@ -584,14 +569,14 @@ private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(12.dp))
-        Button(
+        PrimaryCtaButton(
             onClick = {
                 prefs.commentName = commentName.trim()
                 prefs.commentEmail = commentEmail.trim()
                 store.savePrefs()
                 scope.launch { snackbar.showSnackbar("Datos guardados") }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.widthIn(max = 320.dp),
         ) {
             Text(stringResource(R.string.settings_save))
         }
@@ -711,7 +696,7 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
                     Text(stringResource(R.string.settings_test), maxLines = 1)
                 }
             }
-            Button(
+            PrimaryCtaButton(
                 onClick = {
                     val invalid = saveNow()
                     scope.launch {

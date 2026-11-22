@@ -51,7 +51,7 @@ fun EmptyState(
         Spacer(Modifier.height(12.dp))
         Text(
             title,
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             color = colors.onSurface,
             textAlign = if (compact) TextAlign.Start else TextAlign.Center,
             modifier = Modifier.semantics { heading() },

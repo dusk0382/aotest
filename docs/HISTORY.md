@@ -1586,3 +1586,20 @@ Ejecución del plan `docs/EXPRESSIVE_FLASH_PLAN.md` en la rama
   colapsables, migrar el resto de formularios a TextFieldState, añadir
   `ReaderPreview` en Ajustes del Lector y ejecutar la verificación real cuando
   el dispositivo `DAWSAICMVKAQGQS8` vuelva a estar disponible.
+
+### Ajuste visual tras revisión de capturas (2026-11-22, segunda ronda)
+
+Con `android-design` y `unslop-ui` sobre las capturas reales del dispositivo:
+
+- **Contraste**: `Ao3Theme` fija `LocalContentColor = colorScheme.onSurface`, de modo
+  que ningún texto herede un tono claro sobre superficie clara. Se eliminó el
+  crossfade por resorte entre pestañas de `AnimatedContent` (dejaba la pantalla
+  saliente con alfa intermedio).
+- **Jerarquía**: títulos de Home, Biblioteca y Ajustes bajados a `titleLarge`;
+  estados vacíos con `titleLarge`; slider de tamaño de letra sin la «A» gigante.
+- **unslop**: fuera «Tu biblioteca personal», «Lectura, datos y personalización»,
+  «Empieza por lo más frecuente…», «Toca + para incluir o − para excluir» y
+  «Guarda obras para leerlas sin conexión». Sin iconos decorativos en el índice
+  de Ajustes ni en los encabezados de sección. Contador sin centros: 0 → 0.
+- Los botones de Comentarios y Copia de seguridad dejaron de estirarse a todo
+  el ancho (tope 320 dp); «Exportar» e «Importar» perdieron el icono duplicado.

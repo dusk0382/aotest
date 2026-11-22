@@ -93,6 +93,7 @@ fun WorkCard(
                     Text(
                         text = work.title,
                         style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
@@ -228,6 +229,7 @@ private fun AllTagsSheet(
             Text(
                 stringResource(R.string.wc_all_tags),
                 style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() },
             )
             Spacer(Modifier.height(8.dp))
@@ -236,6 +238,7 @@ private fun AllTagsSheet(
                 onSearch = {},
                 expanded = false,
                 onExpandedChange = {},
+                colors = standaloneSearchFieldColors(),
                 placeholder = { Text(stringResource(R.string.wc_filter_tags)) },
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -54,6 +54,7 @@ import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.components.PrimaryCtaButton
+import net.spin.ao3.ui.components.standaloneSearchFieldColors
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -137,6 +138,7 @@ fun HomeScreen(
                         Text(
                             stringResource(R.string.home_continue),
                             style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.semantics { heading() },
                         )
                     }
@@ -180,13 +182,9 @@ private fun HomeHeader(wide: Boolean, online: Boolean, onSearch: (String) -> Uni
         Column {
             Text(
                 stringResource(R.string.app_name),
-                style = MaterialTheme.typography.displaySmall,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() },
-            )
-            Text(
-                "Tu biblioteca personal",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -196,6 +194,7 @@ private fun HomeHeader(wide: Boolean, online: Boolean, onSearch: (String) -> Uni
             onSearch = onSearch,
             expanded = false,
             onExpandedChange = {},
+            colors = standaloneSearchFieldColors(),
             placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -267,11 +266,13 @@ private fun ContinueReadingHero(
                     Text(
                         "${(progress * 100).toInt()}%",
                         style = MaterialTheme.typography.displaySmallEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         entry.title,
                         style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },

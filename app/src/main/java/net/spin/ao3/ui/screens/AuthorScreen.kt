@@ -268,7 +268,8 @@ fun AuthorScreen(
                         Spacer(Modifier.height(12.dp))
                         Text(
                             p.displayName,
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.semantics { heading() },
                         )
                         if (p.displayName != "@${p.username}") {

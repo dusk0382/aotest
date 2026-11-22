@@ -481,7 +481,8 @@ fun WorkDetailScreen(
                 title = {
                     Text(
                         detail?.summary?.title ?: "Obra",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 },
                 actions = {
