@@ -7,6 +7,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -45,10 +51,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -57,7 +68,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -85,6 +95,10 @@ import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.ui.theme.AppThemeMode
+import net.spin.ao3.ui.components.EmptyState
+import net.spin.ao3.ui.components.PrimaryCtaButton
+import net.spin.ao3.ui.components.SecondaryOutlinedButton
+import net.spin.ao3.ui.components.SecondaryTonalButton
 
 /** Las categorías del índice de Ajustes. Cada una abre su propia pantalla. */
 private enum class SettingsPage(@get:StringRes val titleRes: Int) {
@@ -101,6 +115,7 @@ private enum class SettingsPage(@get:StringRes val titleRes: Int) {
  * lista, donde nada destacaba y había que recorrer media pantalla para cambiar
  * el tamaño del lector.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsScreen(
     container: AppContainer,
@@ -118,38 +133,126 @@ fun SettingsScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-    ) { _ ->
-        when (page) {
-            null -> SettingsHub(onOpen = { page = it })
-            SettingsPage.APPEARANCE -> AppearancePage(
-                store = store,
-                onBack = { page = null },
-                onThemeModeChanged = onThemeModeChanged,
-                onDynamicColorChanged = onDynamicColorChanged,
-            )
-            SettingsPage.READER -> ReaderPage(store = store, onBack = { page = null })
-            SettingsPage.COMMENTS -> CommentsPage(store = store, snackbar = snackbar, onBack = { page = null })
-            SettingsPage.TRANSLATION -> TranslationPage(container = container, snackbar = snackbar, onBack = { page = null })
-            SettingsPage.BACKUP -> BackupPage(store = store, snackbar = snackbar, onBack = { page = null })
+    ) { padding ->
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val twoPane = maxWidth >= 840.dp && maxHeight >= 480.dp
+            val showBack = !twoPane
+            if (twoPane) {
+                Row(Modifier.fillMaxSize()) {
+                    Column(
+                        Modifier
+                            .width(320.dp)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        HubList(onOpen = { page = it })
+                    }
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        if (page == null) {
+                            EmptyState(
+                                icon = Icons.Default.Settings,
+                                title = "Elige una categoría",
+                                description = "Selecciona un ajuste a la izquierda para abrirlo.",
+                            )
+                        } else {
+                            SettingsPageContent(
+                                page = page!!, store = store, container = container,
+                                snackbar = snackbar, showBack = false,
+                                onBack = { page = null },
+                                onThemeModeChanged = onThemeModeChanged,
+                                onDynamicColorChanged = onDynamicColorChanged,
+                            )
+                        }
+                    }
+                }
+            } else {
+                if (page == null) {
+                    SettingsHub(onOpen = { page = it })
+                } else {
+                    SettingsPageContent(
+                        page = page!!, store = store, container = container,
+                        snackbar = snackbar, showBack = true,
+                        onBack = { page = null },
+                        onThemeModeChanged = onThemeModeChanged,
+                        onDynamicColorChanged = onDynamicColorChanged,
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
+private fun SettingsPageContent(
+    page: SettingsPage,
+    store: Store,
+    container: AppContainer,
+    snackbar: SnackbarHostState,
+    showBack: Boolean,
+    onBack: () -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
+) {
+    when (page) {
+        SettingsPage.APPEARANCE -> AppearancePage(store, onBack, onThemeModeChanged, onDynamicColorChanged, showBack)
+        SettingsPage.READER -> ReaderPage(store, onBack, showBack)
+        SettingsPage.COMMENTS -> CommentsPage(store, snackbar, onBack, showBack)
+        SettingsPage.TRANSLATION -> TranslationPage(container, snackbar, onBack, showBack)
+        SettingsPage.BACKUP -> BackupPage(store, snackbar, onBack, showBack)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun SettingsHub(onOpen: (SettingsPage) -> Unit) {
+    Scaffold(
+        contentWindowInsets = WindowInsets.statusBars,
+        topBar = {
+            MediumFlexibleTopAppBar(
+                title = {
+                    Column {
+                        Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            "Lectura, datos y personalización",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            HubList(onOpen = onOpen)
+        }
+    }
+}
+
+@Composable
+private fun HubList(onOpen: (SettingsPage) -> Unit) {
+    val entries = listOf(
+        Triple(R.string.settings_appearance, Icons.Default.Palette, SettingsPage.APPEARANCE),
+        Triple(R.string.settings_reader_defaults, Icons.AutoMirrored.Filled.MenuBook, SettingsPage.READER),
+        Triple(R.string.settings_comments, Icons.AutoMirrored.Filled.Chat, SettingsPage.COMMENTS),
+        Triple(R.string.settings_translation, Icons.Default.Translate, SettingsPage.TRANSLATION),
+        Triple(R.string.settings_backup, Icons.Default.CloudUpload, SettingsPage.BACKUP),
+    )
     Column(
         Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
+            .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        HubRow(R.string.settings_appearance, Icons.Default.Palette) { onOpen(SettingsPage.APPEARANCE) }
-        HubRow(R.string.settings_reader_defaults, Icons.AutoMirrored.Filled.MenuBook) { onOpen(SettingsPage.READER) }
-        HubRow(R.string.settings_comments, Icons.AutoMirrored.Filled.Chat) { onOpen(SettingsPage.COMMENTS) }
-        HubRow(R.string.settings_translation, Icons.Default.Translate) { onOpen(SettingsPage.TRANSLATION) }
-        HubRow(R.string.settings_backup, Icons.Default.CloudUpload) { onOpen(SettingsPage.BACKUP) }
+        entries.forEachIndexed { index, (titleRes, icon, target) ->
+            SegmentedListItem(
+                onClick = { onOpen(target) },
+                shapes = ListItemDefaults.segmentedShapes(index, entries.size),
+                leadingContent = { Icon(icon, contentDescription = null) },
+                content = { Text(stringResource(titleRes)) },
+            )
+            if (index < entries.lastIndex) Spacer(Modifier.height(ListItemDefaults.SegmentedGap))
+        }
     }
 }
 
@@ -183,23 +286,28 @@ private fun HubRow(@StringRes titleRes: Int, icon: ImageVector, onClick: () -> U
 }
 
 /** Marco común de una categoría: barra con «volver» y contenido desplazable. */
+@Composable
+private fun navIcon(showBack: Boolean, onBack: () -> Unit): @Composable () -> Unit = {
+    if (showBack) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsPageScaffold(
     @StringRes titleRes: Int,
     onBack: () -> Unit,
+    showBack: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(titleRes), fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            MediumFlexibleTopAppBar(
+                title = { Text(stringResource(titleRes)) },
+                navigationIcon = navIcon(showBack, onBack),
             )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -221,12 +329,13 @@ private fun SettingsSection(
     icon: ImageVector? = null,
     content: @Composable () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 720.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(Modifier.padding(16.dp)) {
             if (title != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (icon != null) {
@@ -242,8 +351,7 @@ private fun SettingsSection(
                 }
                 Spacer(Modifier.height(10.dp))
             }
-            content()
-        }
+        content()
     }
 }
 
@@ -254,12 +362,13 @@ private fun AppearancePage(
     onBack: () -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
+    showBack: Boolean = true,
 ) {
     val prefs = store.prefs
     var mode by remember { mutableStateOf(AppThemeMode.from(prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
 
-    SettingsPageScaffold(R.string.settings_appearance, onBack) {
+    SettingsPageScaffold(R.string.settings_appearance, onBack, showBack) {
         SettingsSection(stringResource(R.string.settings_app_theme), Icons.Default.DarkMode) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppThemeMode.entries.forEach { option ->
@@ -308,7 +417,7 @@ private fun AppearancePage(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReaderPage(store: Store, onBack: () -> Unit) {
+private fun ReaderPage(store: Store, onBack: () -> Unit, showBack: Boolean = true) {
     val prefs = store.prefs
     var fontSize by remember { mutableIntStateOf(prefs.fontSizeSp) }
     var theme by remember { mutableStateOf(prefs.theme) }
@@ -317,7 +426,7 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
     var margins by remember { mutableIntStateOf(prefs.margins) }
     var paged by remember { mutableStateOf(prefs.paged) }
 
-    SettingsPageScaffold(R.string.settings_reader_defaults, onBack) {
+    SettingsPageScaffold(R.string.settings_reader_defaults, onBack, showBack) {
         SettingsSection(stringResource(R.string.settings_reading_mode), Icons.AutoMirrored.Filled.MenuBook) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -449,13 +558,13 @@ private fun ReaderPage(store: Store, onBack: () -> Unit) {
 }
 
 @Composable
-private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit) {
+private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit, showBack: Boolean = true) {
     val prefs = store.prefs
     val scope = rememberCoroutineScope()
     var commentName by remember { mutableStateOf(prefs.commentName) }
     var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
 
-    SettingsPageScaffold(R.string.settings_comments, onBack) {
+    SettingsPageScaffold(R.string.settings_comments, onBack, showBack) {
         OutlinedTextField(
             value = commentName,
             onValueChange = { commentName = it },
@@ -488,7 +597,7 @@ private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState, onBack: () -> Unit) {
+private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState, onBack: () -> Unit, showBack: Boolean = true) {
     val store = container.store
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(if (store.prefs.translationProvider == "ai") "ai" else "google") }
@@ -515,7 +624,7 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
         return ""
     }
 
-    SettingsPageScaffold(R.string.settings_translation, onBack) {
+    SettingsPageScaffold(R.string.settings_translation, onBack, showBack) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = provider != "ai",
@@ -567,14 +676,14 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
         }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            SecondaryOutlinedButton(
                 onClick = {
                     val invalid = saveNow()
                     if (invalid.isNotBlank()) {
                         scope.launch { snackbar.showSnackbar(invalid) }
-                        return@OutlinedButton
+                        return@SecondaryOutlinedButton
                     }
-                    if (testing) return@OutlinedButton
+                    if (testing) return@SecondaryOutlinedButton
                     testing = true
                     scope.launch {
                         val msg = try {
@@ -617,7 +726,7 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
 }
 
 @Composable
-private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit) {
+private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> Unit, showBack: Boolean = true) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmImport by remember { mutableStateOf(false) }
@@ -672,8 +781,8 @@ private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> 
         }
     }
 
-    SettingsPageScaffold(R.string.settings_backup, onBack) {
-        OutlinedButton(
+    SettingsPageScaffold(R.string.settings_backup, onBack, showBack) {
+        SecondaryOutlinedButton(
             onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -682,7 +791,7 @@ private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> 
             Text(stringResource(R.string.settings_export))
         }
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        SecondaryOutlinedButton(
             onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
             modifier = Modifier.fillMaxWidth(),
         ) {
