@@ -69,6 +69,8 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -78,7 +80,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -106,6 +107,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import net.spin.ao3.ui.components.AdaptiveSheet
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -180,7 +183,7 @@ import net.spin.ao3.util.sliceSegments
 
 private const val BASE_URL = "https://archiveofourown.org"
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ReaderScreen(
     container: AppContainer,
@@ -830,12 +833,12 @@ fun ReaderScreen(
         // Loading overlay (chapter fetch OR off-main pagination)
         if (loading || paginating) {
             Surface(
-                color = readerBgColor(theme).copy(alpha = 0.9f),
+                color = readerBgColor(theme),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        androidx.compose.material3.CircularProgressIndicator()
+                        LoadingIndicator()
                         Spacer(Modifier.height(12.dp))
                         Text("Cargando capítulo…", color = readerFgColor(theme))
                     }
@@ -875,7 +878,7 @@ fun ReaderScreen(
         // Translation progress overlay / error
         if (translating) {
             Surface(
-                color = readerBgColor(theme).copy(alpha = 0.92f),
+                color = readerBgColor(theme),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -893,16 +896,16 @@ fun ReaderScreen(
                                 progress = { done.toFloat() / total },
                                 modifier = Modifier.fillMaxWidth(0.7f).height(4.dp),
                                 color = readerAccentColor(theme),
-                                trackColor = readerFgColor(theme).copy(alpha = 0.15f),
+                                trackColor = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.15f),
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 "$done / $total",
-                                color = readerFgColor(theme).copy(alpha = 0.7f),
+                                color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.7f),
                                 style = MaterialTheme.typography.labelMedium,
                             )
                         } else {
-                            androidx.compose.material3.CircularProgressIndicator(color = readerAccentColor(theme))
+                            LoadingIndicator(color = readerAccentColor(theme))
                         }
                         if (translateJob != null) {
                             Spacer(Modifier.height(14.dp))
@@ -920,7 +923,7 @@ fun ReaderScreen(
             }
         } else if (translateError != null) {
             Surface(
-                color = readerBgColor(theme).copy(alpha = 0.95f),
+                color = readerBgColor(theme),
                 shape = MaterialTheme.shapes.medium,
                 onClick = { translateError = null },
                 modifier = Modifier
@@ -940,7 +943,7 @@ fun ReaderScreen(
                     Text(
                         "Toca para cerrar",
                         style = MaterialTheme.typography.labelSmall,
-                        color = readerFgColor(theme).copy(alpha = 0.55f),
+                        color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.55f),
                     )
                 }
             }
@@ -949,7 +952,7 @@ fun ReaderScreen(
         // Top chrome: title bar + (optional) search bar. Hidden with a tap on the text.
         if (chromeVisible) {
             Surface(
-                color = readerBgColor(theme).copy(alpha = 0.97f),
+                color = readerBgColor(theme),
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
@@ -983,14 +986,14 @@ fun ReaderScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     if (chapters.isNotEmpty()) "Capítulo ${currentIndex + 1} de ${chapters.size}" else " ",
-                                    color = readerFgColor(theme).copy(alpha = 0.7f),
+                                    color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.7f),
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Icon(
                                     Icons.Default.OpenInNew,
                                     contentDescription = "Abrir ficha de la obra",
-                                    tint = readerFgColor(theme).copy(alpha = 0.45f),
+                                    tint = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.45f),
                                     modifier = Modifier.size(12.dp),
                                 )
                             }
@@ -1109,7 +1112,7 @@ fun ReaderScreen(
                         }
                     }
                     if (translatedHtml != null && !searchOpen) {
-                        HorizontalDivider(color = readerFgColor(theme).copy(alpha = 0.12f))
+                        HorizontalDivider(color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.12f))
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1118,7 +1121,7 @@ fun ReaderScreen(
                             Text(
                                 "Ver:",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = readerFgColor(theme).copy(alpha = 0.6f),
+                                color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.6f),
                             )
                             FilterChip(
                                 selected = !translationOn,
@@ -1145,7 +1148,7 @@ fun ReaderScreen(
                         }
                     }
                     if (searchOpen) {
-                        HorizontalDivider(color = readerFgColor(theme).copy(alpha = 0.12f))
+                        HorizontalDivider(color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.12f))
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1153,14 +1156,14 @@ fun ReaderScreen(
                             Icon(
                                 Icons.Default.Search,
                                 contentDescription = null,
-                                tint = readerFgColor(theme).copy(alpha = 0.6f),
+                                tint = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.6f),
                                 modifier = Modifier.size(18.dp),
                             )
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
                                 placeholder = {
-                                    Text("Buscar en el capítulo…", color = readerFgColor(theme).copy(alpha = 0.45f))
+                                    Text("Buscar en el capítulo…", color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.45f))
                                 },
                                 singleLine = true,
                                 textStyle = TextStyle(color = readerFgColor(theme), fontSize = 14.sp),
@@ -1168,8 +1171,8 @@ fun ReaderScreen(
                                     focusedTextColor = readerFgColor(theme),
                                     unfocusedTextColor = readerFgColor(theme),
                                     cursorColor = readerFgColor(theme),
-                                    focusedBorderColor = readerFgColor(theme).copy(alpha = 0.4f),
-                                    unfocusedBorderColor = readerFgColor(theme).copy(alpha = 0.25f),
+                                    focusedBorderColor = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.4f),
+                                    unfocusedBorderColor = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.25f),
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
                                     disabledContainerColor = Color.Transparent,
@@ -1190,7 +1193,7 @@ fun ReaderScreen(
                             val current = if (paged) searchIndex + 1 else findActive + 1
                             Text(
                                 if (searchQuery.isBlank() || total <= 0) "0/0" else "$current/$total",
-                                color = readerFgColor(theme).copy(alpha = 0.7f),
+                                color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.7f),
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(horizontal = 6.dp),
                             )
@@ -1242,7 +1245,7 @@ fun ReaderScreen(
         // Bottom bar (chapter indicator + navigation + reading progress)
         if (chromeVisible) {
             Surface(
-                color = readerBgColor(theme).copy(alpha = 0.97f),
+                color = readerBgColor(theme),
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
@@ -1289,14 +1292,14 @@ fun ReaderScreen(
                             Icon(
                                 Icons.Default.CloudOff,
                                 contentDescription = null,
-                                tint = readerFgColor(theme).copy(alpha = 0.6f),
+                                tint = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.6f),
                                 modifier = Modifier.size(13.dp),
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 "Sin conexión · copia local",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = readerFgColor(theme).copy(alpha = 0.6f),
+                                color = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.6f),
                             )
                         }
                     }
@@ -1319,7 +1322,7 @@ fun ReaderScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                 contentDescription = "Anterior",
-                                tint = if (currentIndex > 0) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
+                                tint = if (currentIndex > 0) readerFgColor(theme) else readerMuted(readerBgColor(theme), readerFgColor(theme), 0.3f),
                             )
                         }
                         ReaderProgressLabel(
@@ -1342,7 +1345,7 @@ fun ReaderScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = "Siguiente",
-                                tint = if (currentIndex < chapters.size - 1) readerFgColor(theme) else readerFgColor(theme).copy(alpha = 0.3f),
+                                tint = if (currentIndex < chapters.size - 1) readerFgColor(theme) else readerMuted(readerBgColor(theme), readerFgColor(theme), 0.3f),
                             )
                         }
                     }
@@ -1379,10 +1382,7 @@ fun ReaderScreen(
         var draftSerif by remember { mutableStateOf(serif) }
         var draftPaged by remember { mutableStateOf(paged) }
         var draftTtsRate by remember { mutableFloatStateOf(store.prefs.ttsRate) }
-        ModalBottomSheet(
-            onDismissRequest = { showSettings = false },
-            sheetState = sheetState,
-        ) {
+        AdaptiveSheet(onDismissRequest = { showSettings = false }) {
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
@@ -1562,10 +1562,7 @@ fun ReaderScreen(
     if (showChapters) {
         val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
         val downloadedIds = remember(workId) { store.downloadedChapterIds(workId) }
-        ModalBottomSheet(
-            onDismissRequest = { showChapters = false },
-            sheetState = sheetState,
-        ) {
+        AdaptiveSheet(onDismissRequest = { showChapters = false }) {
             Text(
                 "Capítulos",
                 style = MaterialTheme.typography.titleMedium,
@@ -1640,10 +1637,7 @@ fun ReaderScreen(
     // ---- Language picker sheet ----
     if (showLangPicker) {
         val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
-        ModalBottomSheet(
-            onDismissRequest = { showLangPicker = false },
-            sheetState = sheetState,
-        ) {
+        AdaptiveSheet(onDismissRequest = { showLangPicker = false }) {
             Column(
                 Modifier
                     .padding(horizontal = 20.dp)
@@ -1750,3 +1744,6 @@ private enum class TranslationLang(val code: String, val label: String) {
     HI("hi", "हिन्दी"),
 }
 
+
+/** Color sólido del lector derivado por mezcla opaca (sin transparencias). */
+private fun readerMuted(bg: Color, fg: Color, factor: Float): Color = lerp(bg, fg, factor)
