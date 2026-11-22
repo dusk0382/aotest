@@ -1,5 +1,6 @@
 package net.spin.ao3
 
+import androidx.annotation.StringRes
 import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,9 +13,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,11 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.annotation.StringRes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import net.spin.ao3.R
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -38,11 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.Route
 import net.spin.ao3.ui.components.BottomBarDestination
 import net.spin.ao3.ui.components.CapsuleBottomBar
+import net.spin.ao3.ui.components.PrimaryNavigationRail
 import net.spin.ao3.ui.rememberNavController
 import net.spin.ao3.ui.screens.AuthorScreen
 import net.spin.ao3.ui.screens.HomeScreen
@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** The three top-level destinations of the bottom navigation bar. */
+/** The three top-level destinations of the navigation bar / rail. */
 enum class AppTab(
     @get:StringRes override val labelRes: Int,
     override val icon: ImageVector,
@@ -81,23 +81,15 @@ private fun AppRoot() {
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
-    // Recrear la actividad es el único remedio fiable al cambiar de tema:
-    // los CompositionLocal de MaterialTheme son `static`, así que los
-    // composables que Compose salta conservan lecturas del esquema anterior
-    // (la etiqueta de la barra inferior quedaba gris claro sobre fondo claro
-    // aunque el resto de la pantalla ya estuviera en el tema nuevo).
+    // Recrear la actividad es el único remedio fiable al cambiar de tema.
     val activity = LocalContext.current as? Activity
     fun reloadTheme() {
         activity?.recreate()
     }
 
-    // Stack for Search / Detail / Reader (full-screen, hidden bottom bar).
     val nav = rememberNavController()
-    // Keeps every screen's saveable state (scroll positions, pagination, form
-    // fields) alive across navigation. Without it, AnimatedContent disposes the
-    // outgoing screen and rememberSaveable inside it is lost, so returning to a
-    // search / Home / Library reset it to the top (the v0.6.7 fix only worked
-    // across activity recreation, not across plain navigation).
+    // SaveableStateHolder mantiene scroll, paginación y formularios de cada
+    // pantalla a través de AnimatedContent y de la navegación.
     val screenStates = rememberSaveableStateHolder()
     val showTabs = nav.stack.size == 1
 
@@ -107,130 +99,135 @@ private fun AppRoot() {
         if (nav.canGoBack) nav.pop() else tab = AppTab.HOME
     }
 
-    // `key` fuerza a recrear TODO el árbol temático cuando cambia el tema: sin
-    // esto, cambiar de tema en caliente dejaba textos con los colores del
-    // esquema anterior (los estados vacíos quedaban blancos sobre blanco) hasta
-    // reiniciar el proceso. La pila de navegación y la pestaña viven fuera, así
-    // que se conservan.
+    // `key` fuerza a recrear TODO el árbol temático cuando cambia el tema.
     key(themeMode, dynamicColor) {
     Ao3Theme(mode = themeMode, dynamicColor = dynamicColor) {
-        Scaffold(
-            // Every screen draws its own status-bar insets (TopAppBar etc.);
-            // consuming them here too would double the top padding.
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            contentColor = MaterialTheme.colorScheme.onBackground,
-            bottomBar = {
-                if (showTabs) {
-                    CapsuleBottomBar(
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val useRail = showTabs && maxWidth >= 600.dp && maxHeight >= 480.dp
+            val railExpanded = maxWidth >= 1200.dp
+            val motion = MaterialTheme.motionScheme
+            Row(Modifier.fillMaxSize()) {
+                if (useRail) {
+                    PrimaryNavigationRail(
                         items = AppTab.entries,
                         selected = tab,
                         onSelect = { tab = it },
+                        railExpanded = railExpanded,
                     )
                 }
-            },
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                // Slot captured at targetState creation — frozen during transitions, so the
-                // exiting screen's SaveableStateProvider key doesn't flip to slot 0 mid-pop.
-                val navTarget: NavTarget = if (showTabs) NavTarget.Tab(tab)
-                    else NavTarget.Screen(nav.current, nav.stack.lastIndex)
-                AnimatedContent(
-                    targetState = navTarget,
-                    transitionSpec = {
-                        // Tab switches are a plain crossfade (no slide — they are
-                        // not spatial navigation and felt wrong with a slide).
-                        // Screen pushes slide in from the right; pops slide in
-                        // from the left, matching the physical direction.
-                        if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
-                            (fadeIn(tween(200, easing = StandardDecelerate)) togetherWith
-                                fadeOut(tween(120)))
-                        } else {
-                            val forward = nav.lastDirection >= 0
-                            if (forward) {
-                                (fadeIn(tween(240, easing = StandardDecelerate)) +
-                                    slideInHorizontally(tween(300, easing = StandardDecelerate)) { it / 3 }) togetherWith
-                                    (fadeOut(tween(180, easing = StandardAccelerate)) +
-                                        slideOutHorizontally(tween(300, easing = StandardAccelerate)) { -it / 4 })
-                            } else {
-                                (fadeIn(tween(240, easing = StandardDecelerate)) +
-                                    slideInHorizontally(tween(300, easing = StandardDecelerate)) { -it / 3 }) togetherWith
-                                    (fadeOut(tween(180, easing = StandardAccelerate)) +
-                                        slideOutHorizontally(tween(300, easing = StandardAccelerate)) { it / 4 })
-                            }
+                Scaffold(
+                    modifier = Modifier.weight(1f),
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    contentColor = MaterialTheme.colorScheme.onBackground,
+                    bottomBar = {
+                        if (showTabs && !useRail) {
+                            CapsuleBottomBar(
+                                items = AppTab.entries,
+                                selected = tab,
+                                onSelect = { tab = it },
+                            )
                         }
                     },
-                    label = "nav",
-                ) { target ->
-                    val slotKey = when (target) {
-                        is NavTarget.Tab -> "tab-${target.tab.name}"
-                        is NavTarget.Screen -> "screen@${target.slot}-${target.route.serialize()}"
-                    }
-                    screenStates.SaveableStateProvider(slotKey) {
-                        when (target) {
-                        is NavTarget.Tab -> when (target.tab) {
-                            AppTab.HOME -> HomeScreen(
-                                container = container,
-                                onSearch = { q, s -> nav.push(Route.Search(SearchFilters(query = q), s)) },
-                                onOpenDetail = { nav.push(Route.Detail(it)) },
-                                onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
-                            )
-                            AppTab.LIBRARY -> LibraryScreen(
-                                container = container,
-                                onOpenDetail = { nav.push(Route.Detail(it)) },
-                                onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
-                                onExplore = { tab = AppTab.HOME },
-                            )
-                            AppTab.SETTINGS -> SettingsScreen(
-                                container = container,
-                                onThemeModeChanged = { mode ->
-                                    themeMode = mode
-                                    reloadTheme()
-                                },
-                                onDynamicColorChanged = { dc ->
-                                    dynamicColor = dc
-                                    reloadTheme()
-                                },
-                            )
+                ) { padding ->
+                    Box(Modifier.fillMaxSize().padding(padding)) {
+                        val navTarget: NavTarget = if (showTabs) NavTarget.Tab(tab)
+                            else NavTarget.Screen(nav.current, nav.stack.lastIndex)
+                        AnimatedContent(
+                            targetState = navTarget,
+                            transitionSpec = {
+                                if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
+                                    // Cambio de pestaña: crossfade corto (no es navegación espacial).
+                                    fadeIn(motion.fastEffectsSpec()) togetherWith
+                                        fadeOut(motion.fastEffectsSpec())
+                                } else {
+                                    val forward = nav.lastDirection >= 0
+                                    if (forward) {
+                                        (fadeIn(motion.defaultEffectsSpec()) +
+                                            slideInHorizontally(motion.defaultSpatialSpec()) { it / 3 }) togetherWith
+                                            (fadeOut(motion.defaultEffectsSpec()) +
+                                                slideOutHorizontally(motion.defaultSpatialSpec()) { -it / 4 })
+                                    } else {
+                                        (fadeIn(motion.defaultEffectsSpec()) +
+                                            slideInHorizontally(motion.defaultSpatialSpec()) { -it / 3 }) togetherWith
+                                            (fadeOut(motion.defaultEffectsSpec()) +
+                                                slideOutHorizontally(motion.defaultSpatialSpec()) { it / 4 })
+                                    }
+                                }
+                            },
+                            label = "nav",
+                        ) { target ->
+                            val slotKey = when (target) {
+                                is NavTarget.Tab -> "tab-${target.tab.name}"
+                                is NavTarget.Screen -> "screen@${target.slot}-${target.route.serialize()}"
+                            }
+                            screenStates.SaveableStateProvider(slotKey) {
+                                when (target) {
+                                is NavTarget.Tab -> when (target.tab) {
+                                    AppTab.HOME -> HomeScreen(
+                                        container = container,
+                                        onSearch = { q, s -> nav.push(Route.Search(SearchFilters(query = q), s)) },
+                                        onOpenDetail = { nav.push(Route.Detail(it)) },
+                                        onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
+                                    )
+                                    AppTab.LIBRARY -> LibraryScreen(
+                                        container = container,
+                                        onOpenDetail = { nav.push(Route.Detail(it)) },
+                                        onOpenReader = { id, ch -> nav.push(Route.Reader(id, ch)) },
+                                        onExplore = { tab = AppTab.HOME },
+                                    )
+                                    AppTab.SETTINGS -> SettingsScreen(
+                                        container = container,
+                                        onThemeModeChanged = { mode ->
+                                            themeMode = mode
+                                            reloadTheme()
+                                        },
+                                        onDynamicColorChanged = { dc ->
+                                            dynamicColor = dc
+                                            reloadTheme()
+                                        },
+                                    )
+                                }
+                                is NavTarget.Screen -> when (val route = target.route) {
+                                    is Route.Search -> SearchScreen(
+                                        container = container,
+                                        filters = route.filters,
+                                        sort = route.sort,
+                                        onBack = { nav.pop() },
+                                        onOpenDetail = { nav.push(Route.Detail(it)) },
+                                        onOpenTag = { tag -> browseTag(tag) },
+                                        onOpenAuthor = { name -> nav.push(Route.Author(name)) },
+                                    )
+                                    is Route.Detail -> WorkDetailScreen(
+                                        container = container,
+                                        workId = route.workId,
+                                        onBack = { nav.pop() },
+                                        onOpenChapter = { ch -> nav.push(Route.Reader(route.workId, ch)) },
+                                        onOpenTag = { tag -> browseTag(tag) },
+                                        onOpenAuthor = { name -> nav.push(Route.Author(name)) },
+                                    )
+                                    is Route.Author -> AuthorScreen(
+                                        container = container,
+                                        username = route.username,
+                                        onBack = { nav.pop() },
+                                        onOpenDetail = { nav.push(Route.Detail(it)) },
+                                        onOpenTag = { tag -> browseTag(tag) },
+                                    )
+                                    is Route.Reader -> ReaderScreen(
+                                        container = container,
+                                        workId = route.workId,
+                                        initialChapter = route.chapterIndex,
+                                        onBack = { nav.pop() },
+                                        onOpenWork = {
+                                            nav.pop()
+                                            nav.push(Route.Detail(route.workId))
+                                        },
+                                    )
+                                    Route.Home -> Unit
+                                }
+                                }
+                            }
                         }
-                        is NavTarget.Screen -> when (val route = target.route) {
-                            is Route.Search -> SearchScreen(
-                                container = container,
-                                filters = route.filters,
-                                sort = route.sort,
-                                onBack = { nav.pop() },
-                                onOpenDetail = { nav.push(Route.Detail(it)) },
-                                onOpenTag = { tag -> browseTag(tag) },
-                                onOpenAuthor = { name -> nav.push(Route.Author(name)) },
-                            )
-                            is Route.Detail -> WorkDetailScreen(
-                                container = container,
-                                workId = route.workId,
-                                onBack = { nav.pop() },
-                                onOpenChapter = { ch -> nav.push(Route.Reader(route.workId, ch)) },
-                                onOpenTag = { tag -> browseTag(tag) },
-                                onOpenAuthor = { name -> nav.push(Route.Author(name)) },
-                            )
-                            is Route.Author -> AuthorScreen(
-                                container = container,
-                                username = route.username,
-                                onBack = { nav.pop() },
-                                onOpenDetail = { nav.push(Route.Detail(it)) },
-                                onOpenTag = { tag -> browseTag(tag) },
-                            )
-                            is Route.Reader -> ReaderScreen(
-                                container = container,
-                                workId = route.workId,
-                                initialChapter = route.chapterIndex,
-                                onBack = { nav.pop() },
-                                onOpenWork = {
-                                    nav.pop()
-                                    nav.push(Route.Detail(route.workId))
-                                },
-                            )
-                            Route.Home -> Unit
-                        }
                     }
-                    } // SaveableStateProvider
                 }
             }
         }
@@ -242,8 +239,3 @@ private sealed interface NavTarget {
     data class Tab(val tab: AppTab) : NavTarget
     data class Screen(val route: Route, val slot: Int) : NavTarget
 }
-
-// MD3 standard motion easing: cubic-bezier(0,0,0,1) for enter (decelerate),
-// cubic-bezier(0.3,0,1,1) for exit (accelerate).
-private val StandardDecelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
-private val StandardAccelerate = CubicBezierEasing(0.3f, 0f, 1f, 1f)

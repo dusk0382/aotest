@@ -92,6 +92,7 @@
     <string name="wc_characters">Characters</string>
     <string name="wc_relationships">Relationships</string>
     <string name="wc_tags">Tags</string>
+    <string name="wc_warnings">Warnings</string>
     <string name="wc_completed">Completed</string>
     <string name="wc_updated">Updated: %1$s</string>
     <string name="wc_all_tags">All tags</string>

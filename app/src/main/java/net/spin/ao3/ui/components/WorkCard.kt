@@ -1,8 +1,6 @@
 package net.spin.ao3.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,41 +9,35 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -56,15 +48,10 @@ import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.formatCount
 
 /**
- * Work card redesigned for dense scanning (M3):
- *  - Title top-left (16sp SemiBold) with the rating capsule pinned top-right.
- *  - Author prefixed by a small pen icon in [secondary].
- *  - Tags in one scrolling row, capped at 3 visible + a "+N más" chip that
- *    opens a bottom sheet with every tag grouped by category.
- *  - A stats bar (surfaceContainerLow) with icons for words / chapters /
- *    views / kudos, so cards stay compact.
+ * Tarjeta de obra: una fila Surface sólida, título editorial dominante, autor
+ * clicable, rating/advertencia sólidos, tags neutros, resumen corto y una sola
+ * fila de estadísticas tabulares (sin tarjeta interior ni divisores).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkCard(
     work: WorkSummary,
@@ -74,161 +61,130 @@ fun WorkCard(
     onClick: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
-    val colorScheme = MaterialTheme.colorScheme
+    val colors = MaterialTheme.colorScheme
     var showAllTags by remember { mutableStateOf(false) }
 
-    // Memoized per work: cards recompose a lot while scrolling, and the tag
-    // grouping (set-filtering + buildList allocations) is pure data work that
-    // doesn't need to rerun on every frame. (Strings are resolved in composable
-    // scope — remember's lambda isn't composable.)
     val strFandoms = stringResource(R.string.wc_fandoms)
     val strCharacters = stringResource(R.string.wc_characters)
     val strRelationships = stringResource(R.string.wc_relationships)
     val strTags = stringResource(R.string.wc_tags)
+    val strWarnings = stringResource(R.string.wc_warnings)
     val strCompleted = stringResource(R.string.wc_completed)
     val tagGroups = remember(work) {
         buildList {
-            if (work.fandoms.isNotEmpty()) add(TagGroup(strFandoms, work.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY))
-            if (work.characters.isNotEmpty()) add(TagGroup(strCharacters, work.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY))
+            if (work.fandoms.isNotEmpty()) add(TagGroup(strFandoms, work.fandoms, FandomColor, TagChipVariant.NEUTRAL))
+            if (work.characters.isNotEmpty()) add(TagGroup(strCharacters, work.characters, CharacterColor, TagChipVariant.NEUTRAL))
             if (work.relationships.isNotEmpty()) add(TagGroup(strRelationships, work.relationships, RelationshipColor, TagChipVariant.OUTLINED))
-            // otherTags also contains characters/relationships; show only the freeforms.
             val freeforms = work.otherTags.filterNot { it in work.relationships || it in work.characters }
             if (freeforms.isNotEmpty()) add(TagGroup(strTags, freeforms, AdditionalColor, TagChipVariant.OUTLINED))
+            if (work.warnings.isNotEmpty()) add(TagGroup(strWarnings, work.warnings, WarningColor, TagChipVariant.NEUTRAL))
         }
     }
 
-    Card(
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        onClick = onClick,
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        color = colors.surface,
+        onClick = onClick,
     ) {
         Column(Modifier.padding(16.dp)) {
-            // ---- Header: title + author (left), rating capsule (top-right) ----
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = work.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
                     )
                     Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.Edit,
-                            contentDescription = null,
-                            tint = colorScheme.secondary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = work.author,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colorScheme.secondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = if (onAuthorClick != null) {
-                                Modifier.clickable(onClick = onAuthorClick)
-                            } else {
-                                Modifier
-                            },
-                        )
+                    Text(
+                        text = work.author,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (onAuthorClick != null) Modifier.clickable(onClick = onAuthorClick) else Modifier,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    work.rating?.let {
+                        val (bg, fg) = ratingSolidColors(work.ratingKey)
+                        TagChipSolid(it, bg, fg)
+                    }
+                    work.warnings.firstOrNull()?.let {
+                        Spacer(Modifier.height(4.dp))
+                        val (bg, fg) = warningSolidColors()
+                        TagChipSolid(it, bg, fg)
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                work.rating?.let {
-                    val (bg, fg) = ratingSolidColors(work.ratingKey)
-                    TagChipSolid(it, bg, fg)
-                }
             }
-            Spacer(Modifier.height(12.dp))
 
-            // ---- Tags: scrolling row, 3 visible + "+N más" overflow ----
-            val chips = remember(work) {
+            val chips = remember(work, onTagClick) {
                 buildList {
-                    if (work.isCompleted) add(Triple(strCompleted, semantic.success, TagChipVariant.TINTED))
-                    work.fandoms.forEach { add(Triple(it, FandomColor, TagChipVariant.FILLED_SECONDARY)) }
-                    work.characters.forEach { add(Triple(it, CharacterColor, TagChipVariant.FILLED_TERTIARY)) }
+                    if (work.isCompleted) add(Triple(strCompleted, semantic.success, TagChipVariant.NEUTRAL))
+                    work.fandoms.take(2).forEach { add(Triple(it, FandomColor, TagChipVariant.NEUTRAL)) }
+                    work.characters.take(2).forEach { add(Triple(it, CharacterColor, TagChipVariant.NEUTRAL)) }
                     work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
                 }
             }
             if (chips.isNotEmpty()) {
-                // The overflow chip must stay visible without scrolling, so
-                // only the first three chips live inside the scrollable strip.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Spacer(Modifier.height(14.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        chips.take(3).forEach { (text, color, variant) ->
-                            TagChip(
-                                text = text,
-                                color = color,
-                                variant = variant,
-                                onClick = onTagClick?.let { cb -> { cb(text) } },
-                            )
-                        }
-                    }
-                    if (chips.size > 3) {
+                    chips.forEach { (text, color, variant) ->
                         TagChip(
-                            text = "+${chips.size - 3} más",
-                            color = colorScheme.secondary,
-                            variant = TagChipVariant.TINTED,
+                            text = text,
+                            color = color,
+                            variant = variant,
+                            onClick = onTagClick?.let { cb -> { cb(text) } },
+                        )
+                    }
+                    val hidden = tagGroups.sumOf { it.tags.size }
+                    if (hidden > chips.size) {
+                        TagChip(
+                            text = "+${hidden - chips.size} más",
+                            color = colors.onSurfaceVariant,
+                            variant = TagChipVariant.OUTLINED,
                             onClick = { showAllTags = true },
                         )
                     }
                 }
-                Spacer(Modifier.height(10.dp))
             }
 
             if (work.summary.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = work.summary,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = colorScheme.onSurfaceVariant,
-                    maxLines = 3,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(12.dp))
             }
 
-            // ---- Stats bar with icons ----
+            Spacer(Modifier.height(16.dp))
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(colorScheme.surfaceContainerLow)
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                StatCell(Icons.Filled.Description, "${formatCount(work.words)}", "palabras", Modifier.weight(1f))
-                CellDivider()
-                StatCell(
+                StatText(Icons.Filled.Description, "${formatCount(work.words)} palabras")
+                StatText(
                     Icons.Filled.Layers,
-                    if (work.chapterTotal == null) "${work.chapterCount}+" else "${work.chapterCount}/${work.chapterTotal}",
-                    "caps",
-                    Modifier.weight(1f),
+                    if (work.chapterTotal == null) "${work.chapterCount}+ cap." else "${work.chapterCount}/${work.chapterTotal} cap.",
                 )
-                CellDivider()
-                StatCell(Icons.Filled.Visibility, "${formatCount(work.hits)}", "visitas", Modifier.weight(1f))
-                CellDivider()
-                StatCell(Icons.Filled.Favorite, "${formatCount(work.kudos)}", "kudos", Modifier.weight(1f))
+                StatText(Icons.Filled.Visibility, formatCount(work.hits))
+                StatText(Icons.Filled.Favorite, formatCount(work.kudos))
             }
             work.updated?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.wc_updated, it),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colorScheme.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
                 )
             }
         }
@@ -253,16 +209,15 @@ private data class TagGroup(
     val variant: TagChipVariant,
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AllTagsSheet(
     groups: List<TagGroup>,
     onTagClick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
-    var filter by remember { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    val filter = rememberTextFieldState()
+    AdaptiveSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -270,33 +225,31 @@ private fun AllTagsSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 40.dp),
         ) {
-            Text(stringResource(R.string.wc_all_tags), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
             Text(
-                "Toca un tag para explorar más obras de ese tag. Usa el filtro para encontrar uno rápido.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                stringResource(R.string.wc_all_tags),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = filter,
-                onValueChange = { filter = it },
-                modifier = Modifier.fillMaxWidth(),
+            SearchBarDefaults.InputField(
+                state = filter,
+                onSearch = {},
+                expanded = false,
+                onExpandedChange = {},
                 placeholder = { Text(stringResource(R.string.wc_filter_tags)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = CircleShape,
+                modifier = Modifier.fillMaxWidth(),
             )
-            val q = filter.trim().lowercase()
+            val q = filter.text.toString().trim().lowercase()
             groups.forEach { group ->
                 val visible = if (q.isEmpty()) group.tags else group.tags.filter { it.lowercase().contains(q) }
-                if (visible.isEmpty() && q.isNotEmpty()) return@forEach
-                Spacer(Modifier.height(14.dp))
-                Text(group.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                if (visible.isEmpty()) return@forEach
+                Spacer(Modifier.height(18.dp))
+                Text(group.name, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                // Wrapped rows (not a single scrollable strip) so every tag is
-                // visible without horizontal scrolling.
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     visible.forEach { tag ->
                         TagChip(
                             text = tag,
@@ -310,7 +263,7 @@ private fun AllTagsSheet(
             if (q.isNotEmpty() && groups.none { g -> g.tags.any { it.lowercase().contains(q) } }) {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    stringResource(R.string.wc_no_matches, filter),
+                    stringResource(R.string.wc_no_matches, filter.text.toString()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -320,36 +273,17 @@ private fun AllTagsSheet(
 }
 
 @Composable
-private fun StatCell(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun StatText(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
+            modifier = androidx.compose.ui.Modifier.size(16.dp),
         )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Spacer(androidx.compose.ui.Modifier.width(4.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-
-@Composable
-private fun CellDivider() {
-    HorizontalDivider(
-        modifier = Modifier.width(1.dp).height(30.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-    )
 }
 
 @Preview(showBackground = true, widthDp = 400)

@@ -8,14 +8,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +47,7 @@ enum class TagChipVariant { NEUTRAL, FILLED_SECONDARY, FILLED_TERTIARY, TINTED, 
  * The [color] drives the semantic accent (tinted fill or leading dot); filled
  * variants resolve their container from the theme tokens.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TagChip(
     text: String,
@@ -113,18 +117,18 @@ fun TagChip(
         }
     }
     if (onClick != null) {
-        Surface(
-            // M3 requires a 48x48dp minimum touch target even though the chip
-            // itself stays 32dp tall (visual size is not the touch size).
-            modifier = modifier.minimumInteractiveComponentSize(),
-            shape = shape,
-            color = bg,
-            contentColor = fg,
-            border = border,
+        FilterChip(
+            selected = false,
             onClick = onClick,
-        ) {
-            content()
-        }
+            label = content,
+            shapes = FilterChipDefaults.shapes(),
+            modifier = modifier.heightIn(min = 48.dp),
+            colors = FilterChipDefaults.filterChipColors(
+                containerColor = bg,
+                labelColor = fg,
+            ),
+            border = border,
+        )
     } else {
         Surface(
             modifier = modifier,

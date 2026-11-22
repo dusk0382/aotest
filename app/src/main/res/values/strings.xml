@@ -92,6 +92,7 @@
     <string name="wc_characters">Personajes</string>
     <string name="wc_relationships">Relaciones</string>
     <string name="wc_tags">Etiquetas</string>
+    <string name="wc_warnings">Advertencias</string>
     <string name="wc_completed">Completada</string>
     <string name="wc_updated">Actualizado: %1$s</string>
     <string name="wc_all_tags">Todos los tags</string>
