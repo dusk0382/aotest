@@ -68,7 +68,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -1018,7 +1018,7 @@ fun ReaderScreen(
                                     tint = readerFgColor(theme),
                                 )
                             }
-                            DropdownMenu(
+                            DropdownMenuPopup(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
                             ) {

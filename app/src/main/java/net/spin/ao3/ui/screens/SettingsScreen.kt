@@ -56,6 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.ListItemDefaults
@@ -84,7 +85,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -602,7 +605,8 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
     val scope = rememberCoroutineScope()
     var provider by remember { mutableStateOf(if (store.prefs.translationProvider == "ai") "ai" else "google") }
     var baseUrl by remember { mutableStateOf(store.prefs.aiBaseUrl) }
-    var apiKey by remember { mutableStateOf(store.prefs.aiApiKey) }
+    val apiKeyState = rememberSaveable(saver = TextFieldState.Saver) { TextFieldState(store.prefs.aiApiKey) }
+    val apiKey by remember { derivedStateOf { apiKeyState.text.toString() } }
     var model by remember { mutableStateOf(store.prefs.aiModel) }
     var showKey by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
@@ -648,12 +652,10 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
+            OutlinedSecureTextField(
+                state = apiKeyState,
                 label = { Text("API key") },
-                singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                textObfuscationMode = if (showKey) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
                 trailingIcon = {
                     IconButton(onClick = { showKey = !showKey }) {
                         Icon(

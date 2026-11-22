@@ -51,7 +51,7 @@ import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.rememberSearchBarState
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -362,7 +362,7 @@ fun SearchScreen(
                                 } else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuPopup(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             SortOption.entries.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.label) },
@@ -795,7 +795,7 @@ private fun FilterSheet(
                         )
                         Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
                     }
-                    DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
+                    DropdownMenuPopup(expanded = langOpen, onDismissRequest = { langOpen = false }) {
                         DropdownMenuItem(
                             text = { Text("Cualquier idioma") },
                             onClick = { f = f.copy(language = null); langOpen = false },

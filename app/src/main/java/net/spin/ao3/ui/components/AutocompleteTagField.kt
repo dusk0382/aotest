@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +30,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,7 +114,7 @@ fun removeCommittedTag(input: String, index: Int): String {
  * the term, so a new keystroke cancels the in-flight request before its result
  * could be applied (CO3's debounce has no such guard).
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AutocompleteTagField(
     label: String,
@@ -128,13 +136,28 @@ fun AutocompleteTagField(
     var suggestions by remember { mutableStateOf<List<TagSuggestion>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
+    val queryState = rememberTextFieldState(value)
+    val currentValue by rememberUpdatedState(value)
+    val currentOnChange by rememberUpdatedState(onValueChange)
+
+    // Sincronización bidireccional: el estado interno manda, el valor externo
+    // sólo se aplica cuando cambia desde fuera (selection de sugerencia, etc.).
+    LaunchedEffect(value) {
+        if (queryState.text.toString() != value) queryState.setTextAndPlaceCursorAtEnd(value)
+    }
+    LaunchedEffect(Unit) {
+        snapshotFlow { queryState.text.toString() }.collect { text ->
+            if (text != currentValue) currentOnChange(text)
+        }
+    }
+    val termNow = queryState.text.toString()
 
     // Debounced + auto-cancelling fetch: keyed on the term, so each keystroke
     // cancels the previous in-flight request (no stale result can be applied).
-    LaunchedEffect(value) {
+    LaunchedEffect(termNow) {
         suggestions = emptyList()
         loading = false
-        val term = value.trim()
+        val term = termNow.trim()
         if (term.length < 2) return@LaunchedEffect
         delay(300)
         loading = true
@@ -205,23 +228,22 @@ fun AutocompleteTagField(
         }
 
         OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
+            state = queryState,
             label = { Text(label) },
             placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            singleLine = true,
+            lineLimits = TextFieldLineLimits.SingleLine,
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
             },
             trailingIcon = {
-                if (value.isNotEmpty()) {
-                    IconButton(onClick = { onValueChange("") }) {
+                if (queryState.text.isNotEmpty()) {
+                    IconButton(onClick = { queryState.setTextAndPlaceCursorAtEnd(""); onValueChange("") }) {
                         Icon(Icons.Default.Close, contentDescription = "Limpiar", modifier = Modifier.size(18.dp))
                     }
                 }
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onSubmit?.invoke() }),
+            onKeyboardAction = { onSubmit?.invoke() },
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { focused = it.isFocused },
@@ -232,7 +254,7 @@ fun AutocompleteTagField(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 6.dp, start = 4.dp),
             ) {
-                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                LoadingIndicator(Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Buscando tags…",
