@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import net.spin.ao3.R
 import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.theme.Ao3Theme
@@ -81,21 +82,23 @@ fun WorkCard(
         color = colors.surfaceContainer,
         onClick = onClick,
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
+                    // Fraunces a 18sp: la voz editorial del título, contenida
+                    // para que la tarjeta no crezca.
                     Text(
                         text = work.title,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, lineHeight = 24.sp),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = work.author,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -123,13 +126,13 @@ fun WorkCard(
             }
             val hiddenCount = tagGroups.sumOf { it.tags.size }
             if (work.isCompleted || tagLinks.isNotEmpty() || hiddenCount > 0) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     if (work.isCompleted) {
-                        TagChip(strCompleted, semantic.success, variant = TagChipVariant.TINTED)
+                        TagChip(strCompleted, semantic.success, variant = TagChipVariant.TINTED, dense = true)
                     }
                     val rels = work.relationships
                     val extras = work.otherTags.filterNot { it in work.relationships || it in work.characters }
@@ -145,6 +148,7 @@ fun WorkCard(
                             color = dotColor,
                             variant = TagChipVariant.OUTLINED,
                             onClick = onTagClick?.let { cb -> { cb(tag) } },
+                            dense = true,
                         )
                     }
                     if (hiddenCount > tagLinks.size) {
@@ -153,14 +157,14 @@ fun WorkCard(
                             color = colors.onSurfaceVariant,
                             variant = TagChipVariant.OUTLINED,
                             onClick = { showAllTags = true },
+                            dense = true,
                         )
                     }
                 }
             }
 
-            // Bloque de estadísticas: la MISMA pieza que la ficha muestra bajo
-            // sus tags — el medio de la tarjeta habla el idioma del detalle.
-            Spacer(Modifier.height(12.dp))
+            // Bloque de estadísticas: la MISMA pieza que la ficha, en denso.
+            Spacer(Modifier.height(10.dp))
             val chapters = if (work.chapterTotal == null) {
                 "${work.chapterCount}+"
             } else {
@@ -171,14 +175,15 @@ fun WorkCard(
                 chapters = chapters,
                 hits = formatCount(work.hits),
                 kudos = formatCount(work.kudos),
+                dense = true,
             )
 
             // La descripción cierra la tarjeta.
             if (work.summary.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = work.summary,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

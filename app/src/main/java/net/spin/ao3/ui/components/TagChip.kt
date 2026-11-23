@@ -1,5 +1,6 @@
 package net.spin.ao3.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,9 +45,9 @@ import net.spin.ao3.ui.theme.Ao3Theme
 enum class TagChipVariant { NEUTRAL, FILLED_SECONDARY, FILLED_TERTIARY, TINTED, OUTLINED }
 
 /**
- * M3 metadata chip: 32dp tall with 8dp rounded corners (cápsula suavizada).
- * The [color] drives the semantic accent (tinted fill or leading dot); filled
- * variants resolve their container from the theme tokens.
+ * M3 metadata chip. Normal: 32dp con labelMedium (hojas de tags, filtros).
+ * [dense]: 26dp con labelSmall — para dentro de tarjetas, donde el chip es
+ * un enlace secundario y no debe comerse la tarjeta.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -56,6 +57,7 @@ fun TagChip(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     variant: TagChipVariant = TagChipVariant.NEUTRAL,
+    dense: Boolean = false,
 ) {
     val shape = MaterialTheme.shapes.small
     val (bg, fg, dot) = when (variant) {
@@ -97,27 +99,27 @@ fun TagChip(
     val content: @Composable () -> Unit = {
         Row(
             modifier = Modifier
-                .height(32.dp)
-                .padding(horizontal = 12.dp),
+                .height(if (dense) 26.dp else 32.dp)
+                .padding(horizontal = if (dense) 10.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (dot != null) {
                 Box(
                     Modifier
-                        .size(6.dp)
+                        .size(if (dense) 5.dp else 6.dp)
                         .background(dot, CircleShape),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(if (dense) 5.dp else 6.dp))
             }
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelMedium,
+                style = if (dense) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
-    if (onClick != null) {
+    if (onClick != null && !dense) {
         FilterChip(
             selected = false,
             onClick = onClick,
@@ -131,8 +133,11 @@ fun TagChip(
             border = border,
         )
     } else {
+        // Denso con click: Surface clicable — el chip es un enlace secundario
+        // dentro de una tarjeta que ya es el objetivo táctil completo.
+        val m = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
         Surface(
-            modifier = modifier,
+            modifier = m,
             shape = shape,
             color = bg,
             contentColor = fg,

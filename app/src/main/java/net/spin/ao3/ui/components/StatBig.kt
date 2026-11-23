@@ -35,9 +35,8 @@ fun StatBig(value: String, label: String, modifier: Modifier = Modifier) {
 
 /**
  * Bloque de estadísticas de la obra (palabras · capítulos · visitas · kudos):
- * la misma pieza que la ficha muestra bajo los tags, reutilizable en las
- * tarjetas de búsqueda para que «el medio de la tarjeta» hable el mismo
- * idioma visual que el detalle.
+ * la misma pieza que la ficha muestra bajo los tags. [dense] lo compacta para
+ * las tarjetas de búsqueda (menos aire, cifras en titleSmall).
  */
 @Composable
 fun WorkStatsBlock(
@@ -46,6 +45,7 @@ fun WorkStatsBlock(
     hits: String,
     kudos: String,
     modifier: Modifier = Modifier,
+    dense: Boolean = false,
 ) {
     Surface(
         shape = MaterialTheme.shapes.medium,
@@ -53,13 +53,36 @@ fun WorkStatsBlock(
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 12.dp),
+            modifier = Modifier.padding(vertical = if (dense) 8.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            StatBig(words, "palabras", Modifier.weight(1f))
-            StatBig(chapters, "capítulos", Modifier.weight(1f))
-            StatBig(hits, "visitas", Modifier.weight(1f))
-            StatBig(kudos, "kudos", Modifier.weight(1f))
+            if (dense) {
+                StatBigDense(words, "palabras", Modifier.weight(1f))
+                StatBigDense(chapters, "capítulos", Modifier.weight(1f))
+                StatBigDense(hits, "visitas", Modifier.weight(1f))
+                StatBigDense(kudos, "kudos", Modifier.weight(1f))
+            } else {
+                StatBig(words, "palabras", Modifier.weight(1f))
+                StatBig(chapters, "capítulos", Modifier.weight(1f))
+                StatBig(hits, "visitas", Modifier.weight(1f))
+                StatBig(kudos, "kudos", Modifier.weight(1f))
+            }
         }
+    }
+}
+
+@Composable
+private fun StatBigDense(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
