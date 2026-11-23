@@ -20,9 +20,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.toShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -60,10 +63,21 @@ fun EmptyState(
     } else {
         // Sello Expressive: icono dentro de una forma de la librería
         // MaterialShapes (contenedor tonal, par de roles onSecondaryContainer).
+        // Entra con escala + fade del motionScheme: el sello «se planta».
         {
+            val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+            LaunchedEffect(Unit) {
+                appear.animateTo(1f, MaterialTheme.motionScheme.defaultSpatialSpec())
+            }
             Box(
                 modifier = Modifier
                     .size(72.dp)
+                    .graphicsLayer {
+                        val eased = appear.value
+                        scaleX = 0.7f + 0.3f * eased
+                        scaleY = 0.7f + 0.3f * eased
+                        alpha = eased
+                    }
                     .clip(MaterialShapes.Cookie9Sided.toShape())
                     .background(colors.secondaryContainer),
                 contentAlignment = Alignment.Center,

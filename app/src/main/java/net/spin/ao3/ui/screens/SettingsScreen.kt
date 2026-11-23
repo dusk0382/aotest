@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -320,10 +322,12 @@ private fun SettingsPageScaffold(
 /** Círculo tonal con un icono: la firma del patrón «Segmented settings». */
 @Composable
 private fun TonalIconCircle(icon: ImageVector, circle: Dp = 36.dp, glyph: Dp = 20.dp) {
+    // Sello de marca: la misma forma Cookie9Sided que los estados vacíos —
+    // un sistema de sellos recurrente, no círculos genéricos.
     Box(
         modifier = Modifier
             .size(circle)
-            .clip(CircleShape)
+            .clip(MaterialShapes.Cookie9Sided.toShape())
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {

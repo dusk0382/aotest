@@ -27,6 +27,9 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
@@ -45,6 +48,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -193,15 +198,15 @@ fun HomeScreen(
 @Composable
 private fun HomeHeader(wide: Boolean, online: Boolean, onSearch: (String) -> Unit) {
     val query = rememberTextFieldState()
+    // Portada editorial: el nombre de la app a tamaño display (Fraunces), no
+    // una etiqueta de barra. Aquí arranca la app: es su momento de mayor voz.
     val title = @Composable {
-        Column {
-            Text(
-                stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() },
-            )
-        }
+        Text(
+            stringResource(R.string.app_name),
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics { heading() },
+        )
     }
     val search = @Composable {
         SearchBarDefaults.InputField(
@@ -278,11 +283,21 @@ private fun ContinueReadingHero(
         Column(Modifier.padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        "${(progress * 100).toInt()}%",
-                        style = MaterialTheme.typography.displaySmallEmphasized,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    // Ráfaga Expressive: el porcentaje vive dentro de una forma
+                    // de la librería MaterialShapes (tinta sólida + cifra clara).
+                    Box(contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier
+                                .size(84.dp)
+                                .clip(MaterialShapes.Sunny.toShape())
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                        Text(
+                            "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         entry.title,

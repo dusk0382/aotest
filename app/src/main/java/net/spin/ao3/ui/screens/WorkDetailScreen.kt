@@ -54,6 +54,12 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -479,17 +485,29 @@ fun WorkDetailScreen(
                 title = {},
                 actions = {
                     IconButton(onClick = { toggleSaved() }) {
-                        Icon(
-                            if (saved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            // El estado va en la descripción: con «Favorito» fijo,
-                            // TalkBack no distingue marcado de sin marcar.
-                            contentDescription = if (saved) {
-                                "Quitar de favoritos"
-                            } else {
-                                "Añadir a favoritos"
+                        // Micro-motion con significado: el corazón crece y se
+                        // rellena con las specs del motionScheme al marcar.
+                        AnimatedContent(
+                            targetState = saved,
+                            transitionSpec = {
+                                (fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                    scaleIn(initialScale = 0.6f, animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()))
+                                    .togetherWith(fadeOut(snap()))
                             },
-                            tint = if (saved) semantic.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                            label = "favorito",
+                        ) { isSaved ->
+                            Icon(
+                                if (isSaved) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                // El estado va en la descripción: con «Favorito» fijo,
+                                // TalkBack no distingue marcado de sin marcar.
+                                contentDescription = if (isSaved) {
+                                    "Quitar de favoritos"
+                                } else {
+                                    "Añadir a favoritos"
+                                },
+                                tint = if (isSaved) semantic.favorite else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
