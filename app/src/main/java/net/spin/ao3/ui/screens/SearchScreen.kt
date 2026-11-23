@@ -431,24 +431,11 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            totalResults?.let { "${formatCount(it.toLong())} obras" } ?: "${results.size} resultados",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "Página $page",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    ActiveFilterSummary(currentFilters, currentSort)
+                    ActiveFilterSummary(
+                        currentFilters,
+                        currentSort,
+                        totalResults?.let { "${formatCount(it.toLong())} obras" } ?: "${results.size} resultados",
+                    )
                 }
                 if (filtersNotApplied) {
                     item {
@@ -576,7 +563,7 @@ private fun activeFilterCount(f: SearchFilters): Int {
 }
 
 @Composable
-private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
+private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption, countText: String) {
     val parts = mutableListOf<String>()
     f.tag?.let { parts.add(it) }
     f.rating?.let { r -> RATING_OPTIONS.firstOrNull { it.id == r }?.let { parts.add("Rating: ${it.label}") } }
@@ -594,9 +581,15 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
     f.excludeRating?.let { r -> RATING_OPTIONS.firstOrNull { it.id == r }?.let { parts.add("Sin: ${it.label}") } }
     f.excludeWarnings.forEach { w -> WARNING_OPTIONS.firstOrNull { it.id == w }?.let { parts.add("Sin ⚠: ${it.label}") } }
     f.excludeCategories.forEach { c -> CATEGORY_OPTIONS.firstOrNull { it.id == c }?.let { parts.add("Sin: ${it.label}") } }
-    if (parts.isEmpty()) {
-        Text("Ordenadas por ${sort.label}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
+    // Una sola línea callada: recuento + orden. Los filtros activos, si los
+    // hay, van debajo como chips (tienen trabajo: recordar qué se pidió).
+    Text(
+        "$countText · Ordenadas por ${sort.label}",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (parts.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             parts.forEach { TagChip(it, MaterialTheme.colorScheme.primary) }
         }

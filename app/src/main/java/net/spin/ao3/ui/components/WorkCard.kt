@@ -15,13 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
@@ -31,10 +25,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -44,13 +36,14 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.R
 import net.spin.ao3.data.model.WorkSummary
 import net.spin.ao3.ui.theme.Ao3Theme
-import net.spin.ao3.ui.theme.LocalSemanticColors
 import net.spin.ao3.util.formatCount
 
 /**
- * Tarjeta de obra: una fila Surface sólida, título editorial dominante, autor
- * clicable, rating/advertencia sólidos, tags neutros, resumen corto y una sola
- * fila de estadísticas tabulares (sin tarjeta interior ni divisores).
+ * Tarjeta de obra: catálogo editorial en calma. El título serif manda, la
+ * valoración es el ÚNICO acento (ancla de seguridad) y todo lo demás es texto
+ * discreto: una línea de metadatos (fandom · estado), dos tags como enlaces y
+ * una línea tabular de estadísticas sin iconos. Los tags completos viven en la
+ * hoja "Todos los tags" y en la ficha, no aquí.
  */
 @Composable
 fun WorkCard(
@@ -60,7 +53,6 @@ fun WorkCard(
     onAuthorClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val semantic = LocalSemanticColors.current
     val colors = MaterialTheme.colorScheme
     var showAllTags by remember { mutableStateOf(false) }
 
@@ -110,37 +102,60 @@ fun WorkCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(horizontalAlignment = Alignment.End) {
+                    // Único acento de la tarjeta: la valoración (ancla cognitiva
+                    // de seguridad). Las advertencias quedan para la ficha.
                     work.rating?.let {
                         val (bg, fg) = ratingSolidColors(work.ratingKey)
-                        TagChipSolid(it, bg, fg)
-                    }
-                    work.warnings.firstOrNull()?.let {
-                        Spacer(Modifier.height(4.dp))
-                        val (bg, fg) = warningSolidColors()
                         TagChipSolid(it, bg, fg)
                     }
                 }
             }
 
+            // Línea de metadatos: fandom dominante + estado, texto callado.
+            val meta = buildString {
+                work.fandoms.firstOrNull()?.let { append(it) }
+                if (work.isCompleted) {
+                    if (isNotEmpty()) append(" · ")
+                    append(strCompleted)
+                }
+            }
+            if (meta.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = meta,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Máximo dos tags como enlaces (primero las relaciones, que es lo
+            // que la gente busca), sin puntos de colores: el color se reserva
+            // para la valoración. El resto va tras "+N más".
             val chips = remember(work, onTagClick) {
                 buildList {
-                    if (work.isCompleted) add(Triple(strCompleted, semantic.success, TagChipVariant.NEUTRAL))
-                    work.fandoms.take(2).forEach { add(Triple(it, FandomColor, TagChipVariant.NEUTRAL)) }
-                    work.characters.take(2).forEach { add(Triple(it, CharacterColor, TagChipVariant.NEUTRAL)) }
-                    work.relationships.forEach { add(Triple(it, RelationshipColor, TagChipVariant.OUTLINED)) }
+                    val rels = work.relationships
+                    val extras = work.otherTags.filterNot { it in work.relationships || it in work.characters }
+                    val picked = when {
+                        rels.isNotEmpty() -> rels.take(2)
+                        extras.isNotEmpty() -> extras.take(2)
+                        else -> work.characters.take(2)
+                    }
+                    addAll(picked)
                 }
             }
             if (chips.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    chips.forEach { (text, color, variant) ->
+                    chips.forEach { text ->
                         TagChip(
                             text = text,
-                            color = color,
-                            variant = variant,
+                            color = colors.onSurfaceVariant,
+                            variant = TagChipVariant.NEUTRAL,
                             onClick = onTagClick?.let { cb -> { cb(text) } },
                         )
                     }
@@ -157,37 +172,32 @@ fun WorkCard(
             }
 
             if (work.summary.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = work.summary,
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant,
-                    maxLines = 4,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                StatText(Icons.Filled.Description, "${formatCount(work.words)} palabras")
-                StatText(
-                    Icons.Filled.Layers,
-                    if (work.chapterTotal == null) "${work.chapterCount}+ cap." else "${work.chapterCount}/${work.chapterTotal} cap.",
-                )
-                StatText(Icons.Filled.Visibility, formatCount(work.hits))
-                StatText(Icons.Filled.Favorite, formatCount(work.kudos))
+            Spacer(Modifier.height(12.dp))
+            // Estadísticas: una sola línea tabular, sin iconos.
+            val chapters = if (work.chapterTotal == null) {
+                "${work.chapterCount}+ cap."
+            } else {
+                "${work.chapterCount}/${work.chapterTotal} cap."
             }
-            work.updated?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.wc_updated, it),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = listOf(
+                    "${formatCount(work.words)} palabras",
+                    chapters,
+                    "${formatCount(work.kudos)} kudos",
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.onSurfaceVariant,
+            )
         }
     }
 
@@ -272,20 +282,6 @@ private fun AllTagsSheet(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun StatText(icon: ImageVector, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = androidx.compose.ui.Modifier.size(16.dp),
-        )
-        Spacer(androidx.compose.ui.Modifier.width(4.dp))
-        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
