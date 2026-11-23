@@ -1,0 +1,214 @@
+#!/bin/sh
+set -eu
+
+# The previewer release this script runs. scripts/test_plugin_manifests.py keeps it equal to
+# plugin/plugin.json, which a skills-only install does not have.
+VERSION="0.5.0"
+
+# Resolve symlinks so ~/.local/bin/android-design-preview finds this checkout's local build.
+resolve_script() {
+  target="$1"
+  while [ -L "$target" ]; do
+    dir=$(CDPATH= cd -- "$(dirname -- "$target")" && pwd)
+    link=$(readlink "$target")
+    case "$link" in
+      /*) target="$link" ;;
+      *) target="$dir/$link" ;;
+    esac
+  done
+  dir=$(CDPATH= cd -- "$(dirname -- "$target")" && pwd)
+  printf '%s/%s\n' "$dir" "$(basename -- "$target")"
+}
+
+# This script lives at <repo>/plugin/skills/android-design-explore/scripts/ in a checkout.
+SCRIPT_PATH=$(resolve_script "$0")
+SCRIPTS_DIR=$(dirname -- "$SCRIPT_PATH")
+REPO_DIR=$(CDPATH= cd -- "$SCRIPTS_DIR/../../../.." 2>/dev/null && pwd || printf '')
+
+CACHE_ROOT="${ANDROID_DESIGN_CACHE_DIR:-${ANDROID_DESIGN_PREVIEW_CACHE_DIR:-$HOME/.cache/android-design-preview}}"
+DEFAULT_REPO="charliesbot/android-design"
+
+java_major() {
+  bin="$1"
+  [ -x "$bin" ] || return 1
+  ver=$("$bin" -version 2>&1 | sed -n 's/.*version "\([^"]*\)".*/\1/p' | head -n 1)
+  [ -n "$ver" ] || return 1
+  case "$ver" in
+    1.*) major=$(printf '%s' "$ver" | cut -d. -f2) ;;
+    *) major=$(printf '%s' "$ver" | cut -d. -f1 | sed 's/[^0-9].*//') ;;
+  esac
+  [ -n "$major" ] && [ "$major" -ge 17 ] 2>/dev/null
+}
+
+find_java() {
+  cache_file="$CACHE_ROOT/.java-bin"
+  if [ -f "$cache_file" ]; then
+    cached=$(cat "$cache_file" 2>/dev/null || true)
+    if [ -n "$cached" ] && [ -x "$cached" ]; then
+      JAVA_BIN="$cached"
+      return 0
+    fi
+  fi
+
+  # 1. Explicit JAVA_HOME
+  if [ -n "${JAVA_HOME:-}" ] && java_major "$JAVA_HOME/bin/java"; then
+    found="$JAVA_HOME/bin/java"
+  # 2. PATH
+  elif path_java=$(command -v java 2>/dev/null) && java_major "$path_java"; then
+    found="$path_java"
+  # 3. macOS java_home
+  elif [ -x /usr/libexec/java_home ] && mac_home=$(/usr/libexec/java_home -v 17+ 2>/dev/null) && java_major "$mac_home/bin/java"; then
+    found="$mac_home/bin/java"
+  else
+    found=""
+    # 4. Android Studio bundled JBR (macOS & Linux)
+    for candidate in \
+      "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" \
+      "$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" \
+      "/Applications/Android Studio Preview.app/Contents/jbr/Contents/Home/bin/java" \
+      "/opt/android-studio/jbr/bin/java" \
+      "$HOME/android-studio/jbr/bin/java" \
+      "$HOME/.local/share/JetBrains/Toolbox/apps/android-studio/jbr/bin/java"
+    do
+      if java_major "$candidate"; then
+        found="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "${found:-}" ]; then
+    printf '{"ok":false,"error":"java_not_found","message":"Java 17+ is required. Install JDK 17+ or Android Studio and retry."}\n'
+    exit 3
+  fi
+
+  mkdir -p "$CACHE_ROOT" 2>/dev/null || true
+  printf '%s\n' "$found" > "$cache_file" 2>/dev/null || true
+  JAVA_BIN="$found"
+}
+
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print tolower($1)}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print tolower($1)}'
+  else
+    return 1
+  fi
+}
+
+download_file() {
+  url="$1"
+  dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 2 -o "$dest" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dest" "$url"
+  else
+    printf '{"ok":false,"error":"download_tool_missing","message":"curl or wget is required to download android-design-preview.jar"}\n'
+    exit 3
+  fi
+}
+
+resolve_jar() {
+  if [ -n "${ANDROID_DESIGN_PREVIEW_JAR:-}" ]; then
+    if [ ! -f "$ANDROID_DESIGN_PREVIEW_JAR" ]; then
+      printf '{"ok":false,"error":"jar_not_found","message":"ANDROID_DESIGN_PREVIEW_JAR points to a missing file"}\n'
+      exit 3
+    fi
+    JAR_PATH="$ANDROID_DESIGN_PREVIEW_JAR"
+    return 0
+  fi
+
+  version="$VERSION"
+  cached_jar="$CACHE_ROOT/$version/android-design-preview.jar"
+  if [ -f "$cached_jar" ]; then
+    JAR_PATH="$cached_jar"
+    return 0
+  fi
+
+  if [ -n "$REPO_DIR" ] && [ -f "$REPO_DIR/app/app/build/libs/android-design-preview.jar" ]; then
+    JAR_PATH="$REPO_DIR/app/app/build/libs/android-design-preview.jar"
+    return 0
+  fi
+
+  # Releases ship one artifact per OS and JVM CPU (scripts/package_release.py): a .tar.xz holding
+  # an uncompressed JAR with only that platform's Skiko library.
+  target=$(release_target) || {
+    printf '{"ok":false,"error":"unsupported_platform","message":"No previewer release for this OS and Java CPU. Build it with cd app && ./gradlew :app:workerJar and set ANDROID_DESIGN_PREVIEW_JAR."}\n'
+    exit 3
+  }
+  artifact="android-design-preview-$target.tar.xz"
+  release_url="${ANDROID_DESIGN_PREVIEW_RELEASE_URL:-https://github.com/$DEFAULT_REPO/releases/download/v$version}"
+
+  mkdir -p "$CACHE_ROOT/$version"
+  tmp_dir="$CACHE_ROOT/$version/.download.$$"
+  trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+  mkdir -p "$tmp_dir"
+
+  download_file "$release_url/$artifact.sha256" "$tmp_dir/sha" || {
+    printf '{"ok":false,"error":"jar_download_failed","message":"Failed downloading the previewer checksum from GitHub Release"}\n'
+    exit 3
+  }
+  expected=$(grep -Eo '[A-Fa-f0-9]{64}' "$tmp_dir/sha" | head -n 1 | tr '[:upper:]' '[:lower:]')
+  if [ -z "$expected" ]; then
+    printf '{"ok":false,"error":"jar_checksum_invalid","message":"Invalid SHA-256 checksum file from release"}\n'
+    exit 3
+  fi
+
+  download_file "$release_url/$artifact" "$tmp_dir/$artifact" || {
+    printf '{"ok":false,"error":"jar_download_failed","message":"Failed downloading the previewer from GitHub Release"}\n'
+    exit 3
+  }
+  actual=$(sha256_of "$tmp_dir/$artifact") || {
+    printf '{"ok":false,"error":"sha_tool_missing","message":"shasum or sha256sum is required to verify the previewer download"}\n'
+    exit 3
+  }
+  if [ "$actual" != "$expected" ]; then
+    printf '{"ok":false,"error":"jar_checksum_mismatch","message":"SHA-256 verification failed for the previewer download"}\n'
+    exit 3
+  fi
+
+  tar -xmJf "$tmp_dir/$artifact" -C "$tmp_dir" android-design-preview.jar 2>/dev/null || {
+    printf '{"ok":false,"error":"jar_extract_failed","message":"Failed unpacking the previewer download; tar needs xz support (install xz-utils on Linux)"}\n'
+    exit 3
+  }
+  mv "$tmp_dir/android-design-preview.jar" "$cached_jar"
+  rm -rf "$tmp_dir"
+  trap - EXIT HUP INT TERM
+  JAR_PATH="$cached_jar"
+}
+
+# Prints the release target (for example macos-arm64) for this OS and the Java CPU. The JVM's CPU
+# decides which Skiko library loads, so an x64 JDK on Apple Silicon needs the x64 build.
+release_target() {
+  case "$(uname -s)" in
+    Darwin) os=macos ;;
+    Linux) os=linux ;;
+    *) return 1 ;;
+  esac
+  jvm_arch=$("$JAVA_BIN" -XshowSettings:properties -version 2>&1 | sed -n 's/^[[:space:]]*os\.arch = //p' | head -n 1)
+  case "$jvm_arch" in
+    aarch64|arm64) arch=arm64 ;;
+    amd64|x86_64) arch=x64 ;;
+    *) return 1 ;;
+  esac
+  printf '%s-%s\n' "$os" "$arch"
+}
+
+JAVA_BIN=""
+JAR_PATH=""
+find_java
+resolve_jar
+export ANDROID_DESIGN_PREVIEW_SCRIPT="$SCRIPT_PATH"
+export ANDROID_DESIGN_PREVIEW_JAR="$JAR_PATH"
+
+cmd="${1:-}"
+case "$cmd" in
+  server|render)
+    exec "$JAVA_BIN" -Djava.awt.headless=true -jar "$JAR_PATH" "$@"
+    ;;
+  *)
+    exec "$JAVA_BIN" -Djava.awt.headless=true -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -jar "$JAR_PATH" "$@"
+    ;;
+esac

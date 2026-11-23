@@ -1,53 +1,69 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     "android-adb-toolkit": {
       "source": "rasy007/android-skills",
       "sourceType": "github",
       "skillPath": "android-adb-toolkit/SKILL.md",
-      "computedHash": "34a7ec03736bd30557ea1de51490eb49491904ba79d78aaf260368632d162d4c"
+      "computedHash": "2a3764a000af8e9d88f03aecf6f0bd06fc852cd388c4ec00b6c13aa81c094264"
+    },
+    "android-design": {
+      "source": "charliesbot/android-design",
+      "ref": "980ff4d45565fea5d77de7cc4a945e7fdd248e08",
+      "commit": "980ff4d45565fea5d77de7cc4a945e7fdd248e08",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/android-design/SKILL.md",
+      "computedHash": "847e820e0b1a743d30e84877f80129ec4b2ce65d300b0ffb82ce83360b7b74d2"
+    },
+    "android-design-explore": {
+      "source": "charliesbot/android-design",
+      "ref": "980ff4d45565fea5d77de7cc4a945e7fdd248e08",
+      "commit": "980ff4d45565fea5d77de7cc4a945e7fdd248e08",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/android-design-explore/SKILL.md",
+      "computedHash": "7b8709f8383f27986daf14ecb5a0de2072d7b8963392ff6fd443a44cbec6844f"
     },
     "android-gradle-doctor": {
       "source": "rasy007/android-skills",
       "sourceType": "github",
       "skillPath": "android-gradle-doctor/SKILL.md",
-      "computedHash": "9ccc18c782a7838359d8b1986a84a0eaca6197ce29e582e709464eeb1985ef03"
+      "computedHash": "02f6c59b685432cec74fbccd791602fab2d153400f926b529611323323656b9f"
     },
     "android-proguard-helper": {
       "source": "rasy007/android-skills",
       "sourceType": "github",
       "skillPath": "android-proguard-helper/SKILL.md",
-      "computedHash": "759c58584a5de1af4d5b97e2b1da84b116f1cf9cf934e2a496fb16ae3b057176"
+      "computedHash": "7e8ba709cb24ef4b9e4dfe1b4d1ce86d8c0c68baebe2d68fd166dee75bfb3638"
     },
     "compose-animations": {
       "source": "chrisbanes/skills",
       "sourceType": "github",
       "skillPath": "skills/compose-animations/SKILL.md",
-      "computedHash": "03397a33040128057c65813037d31dbf37cf5e2e1ce5961ff7e1c12eaac51449"
+      "computedHash": "972fa5daa71934a7b56f18b7d660bd37dad7172e9c9e0006c79c2eee8de64a5e"
     },
     "compose-component-design": {
       "source": "chrisbanes/skills",
       "sourceType": "github",
       "skillPath": "skills/compose-component-design/SKILL.md",
-      "computedHash": "63184988d45f81348c928505454a28b02fafda99550e8de66d9ff770d25cfd09"
+      "computedHash": "7b3a51507baf4053a588a785af9f2e95bf8bed313d3742721130a3712460d868"
     },
     "compose-performance": {
       "source": "chrisbanes/skills",
       "sourceType": "github",
       "skillPath": "skills/compose-performance/SKILL.md",
-      "computedHash": "6be34619d8d8717dd01453592944003b0af79dc4ac639831a90ee6bbf76f471e"
+      "computedHash": "49edd049141271d8a3560c0dff4bfc1e797d37695297ae97b1800100c08f07c4"
     },
     "material-3": {
       "source": "hamen/material-3-skill",
       "sourceType": "github",
       "skillPath": "skills/material-3/SKILL.md",
-      "computedHash": "72d56347fae33c9b1763e16d0bffb781da382aa3be316b9252dcd35fd050c6bc"
+      "computedHash": "eb072deb6fb42a9e3ce1853ffd8420adb99dfbe1d6327bc22c5ad47edb77f56c"
     },
     "okhttp3-5.x": {
       "source": "full-stack-skills/java-skills",
       "sourceType": "github",
       "skillPath": "skills/okhttp3-5.x/SKILL.md",
-      "computedHash": "87d47866fe4280f687a928bb72bccaf3ed99d5f62d87cad058a6132c5b9598d0"
+      "computedHash": "08c905b7e25072a3b2fdcf0c8aac957f52ed5bf5f231c47707a10b8f30a9d74d"
     }
   }
 }
