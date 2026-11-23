@@ -1639,3 +1639,43 @@ Con el dispositivo `DAWSAICMVKAQGQS8` conectado, cada decisión se midió con
 - **Pendiente**: recorrido con búsqueda real (ficha de obra y lector con
   contenido); Comentarios/Traducción/Copias usan los mismos bloques verificados
   pero sin inspección pantalla a pantalla.
+
+## Ronda 2026-11-23 — red en calma y búsqueda sin ruido
+
+Dos frentes cerrados sobre `main` (todo compilado y verificado en GitHub
+Actions; artefactos `ao3-reader-debug`/`ao3-reader-release` de cada run):
+
+- **Red: por qué la búsqueda nunca funcionó** (tres fallos encadenados,
+  todos verificados en dispositivo con búsquedas reales):
+  1. Cookies aisladas: el `cf_clearance` que ganaba el WebView al resolver
+     el challenge de Cloudflare se quedaba en la store del sistema; OkHttp
+     (cookie jar propio) volvía a comerse el muro de bots en la siguiente
+     petición. Puente bidireccional WebView↔OkHttp (lo que CO3 consigue
+     sin saberlo porque `fetch` de React Native comparte la store).
+  2. El muro de bots (HTTP 429) renderizado en el WebView pasaba por
+     «éxito» y moría en el parser («No se pudo interpretar»). Ahora
+     `onReceivedHttpError` falla limpio con 429/525/etc. (403/503 quedan
+     interinos por si es el challenge resolviéndose).
+  3. El age-gate por WebView: el WebView no hereda la cookie `view_adult`
+     de OkHttp, así que las fichas le llegaban gateadas. La re-petición
+     con `?view_adult=true` (regla 2) funciona ahora en los tres caminos
+     (OkHttp, WebView y bucle de reintentos).
+  Cadena completa reparada: 429 → WebView → age-gate → `view_adult` →
+  parser. Nota de campo: tras desinstalar, el challenge de CF puede no
+  resolver en el primer intento (cookies del WebView vírgenes); el
+  segundo «Reintentar» pasa.
+- **Píldora flotante**: el Scaffold ya no reserva banda inferior; el
+  contenido fluye por detrás de la píldora y cada lista deja su propio
+  despeje (`LocalBottomBarClearance`). Verificado con contenido real
+  pasando tras la píldora.
+- **Búsqueda en calma** (skill android-design, 7 preguntas): la tarjeta
+  de obra era una pared de hasta 12 pastillas con 4 colores de punto.
+  Ahora: título serif manda, la valoración es el ÚNICO acento (ancla de
+  seguridad), línea de metadatos «fandom · Completada», máximo 2 tags
+  como enlaces + «+N más» (la hoja de tags conserva el mapa de colores
+  porque ahí los tags son el contenido), resumen a 2 líneas y una sola
+  línea tabular de estadísticas sin iconos. Cabecera fusionada: «N
+  resultados · Ordenadas por X»; «Página N» fuera (ruido de dev).
+  `WorkCard` también alimenta Autor, así que el calmo viaja allí gratis.
+- **Proceso**: compilación local desterrada (RAM de 7 GiB no da para
+  Gradle); a partir de ahora todo build sale de GitHub Actions.
