@@ -1679,3 +1679,39 @@ Actions; artefactos `ao3-reader-debug`/`ao3-reader-release` de cada run):
   `WorkCard` también alimenta Autor, así que el calmo viaja allí gratis.
 - **Proceso**: compilación local desterrada (RAM de 7 GiB no da para
   Gradle); a partir de ahora todo build sale de GitHub Actions.
+
+## Ronda 2026-11-23 (noche) — búsqueda: jerarquía, compactación y paleta por roles
+
+Iteración sobre la búsqueda tras el primer corte «en calma» (que el usuario
+tumbó: «feo y con poca jerarquía», luego «chips gigantes, compacta»):
+
+- **Tarjeta = mini-ficha** (orden pedido por el usuario): título → autor →
+  chips de tags → bloque de estadísticas → descripción abajo. El bloque de
+  stats es el MISMO componente que la ficha (`WorkStatsBlock`, extraído a
+  `ui/components/StatBig.kt`): el medio de la tarjeta habla el idioma del
+  detalle. Modo `dense` para tarjetas (8dp de aire, cifras en titleSmall).
+- **Chips densos**: `TagChip(dense = true)` = 26dp con labelSmall y Surface
+  clicable (el FilterChip de 48dp era el gigante). En hojas y filtros siguen
+  los chips normales.
+- **Título contenido**: Fraunces a 18sp dentro de la tarjeta; en la FICHA el
+  título salió de la top bar (quedaba desalineado al scrollear frente al
+  autor) y vive en el contenido con el autor justo debajo; la barra queda
+  con volver + corazón solamente.
+- **Paleta de chips por ROLES del esquema** (skill android-design): muertos
+  los 7 hex sueltos (arcoíris discordante con la marca). Ahora: relaciones
+  OUTLINED+punto `primary`, fandoms `secondaryContainer`, personajes
+  `tertiaryContainer`, libres/categorías OUTLINED+punto `onSurfaceVariant`,
+  advertencias sólido rojo, valoración escala sólida, estado TINTED success.
+  Se adapta solo a claro/oscuro/contraste/Material You.
+- **Header de resultados**: fuera el recuento «N resultados» (ruido); la
+  cabecera solo aparece con filtros activos u orden != Mejor resultado.
+- **Lector**: los 3 botones de la barra (volver, lupa, 3 puntos) llevan
+  contenedor tonal SÓLIDO (lerp bg/fg 0.16, sin alpha — regla 13): ya no son
+  iconos «transparentes» flotantes y funcionan en los 4 temas del lector.
+- **Tarjeta y fondo**: lista sobre `surfaceContainerLowest`, tarjeta en
+  `surfaceContainer` — cada resultado se lee como objeto en ambos modos
+  (verificado en oscuro y claro en dispositivo).
+- **Proceso**: el keystore DEBUG de CI rota entre imágenes del runner (dos
+  veces hoy): para iterar en el dispositivo se instala el artefacto RELEASE
+  (firma de secrets, estable). Ojo: release no es debuggable → `run-as`
+  imposible → los datos de prueba se pierden al cambiar debug↔release.
