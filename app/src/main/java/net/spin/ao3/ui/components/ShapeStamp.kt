@@ -55,8 +55,11 @@ fun ShapeStamp(
 
 /** Formas del sello por estado, para reutilizar en las llamadas. */
 object StampShapes {
+    // Favorito usa Cookie9Sided como el resto: el corazón de MaterialShapes
+    // con una estrella dentro se leyó confuso en el dispositivo (doble
+    // símbolo de cariño) y el usuario lo rechazó.
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-    val Favorito: RoundedPolygon get() = MaterialShapes.Heart
+    val Favorito: RoundedPolygon get() = MaterialShapes.Cookie9Sided
 
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     val Historial: RoundedPolygon get() = MaterialShapes.Cookie9Sided
