@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -14,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -66,4 +69,36 @@ object StampShapes {
 
     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     val Descarga: RoundedPolygon get() = MaterialShapes.Pill
+}
+
+/**
+ * Monograma-sello: la inicial de la obra dentro de una forma de
+ * MaterialShapes. Es el «lomo» de la obra — los fanfics no tienen portada,
+ * así que la ficha mínima se identifica con su letra en un sello tonal.
+ * El color y la forma los fija el id de la obra (estables entre sesiones).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun MonogramStamp(
+    letter: Char,
+    shape: RoundedPolygon,
+    container: Color,
+    content: Color,
+    modifier: Modifier = Modifier,
+    stampSize: Dp = 52.dp,
+) {
+    Box(
+        modifier
+            .size(stampSize)
+            .clip(shape.toShape())
+            .background(container),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            letter.uppercaseChar().toString(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = content,
+        )
+    }
 }

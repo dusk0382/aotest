@@ -60,7 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.spin.ao3.R
+import androidx.graphics.shapes.RoundedPolygon
 import net.spin.ao3.ui.components.LocalBottomBarClearance
+import net.spin.ao3.ui.components.MonogramStamp
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.SortOption
@@ -358,31 +360,61 @@ private fun ContinueReadingRow(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.surfaceContainerLow,
+        color = colors.surfaceContainer,
         onClick = { onOpen(entry.id, entry.chapterIndex) },
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                Text(
-                    entry.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).semantics { heading() },
+                // Monograma-sello: el «lomo» de la obra. Los fanfics no tienen
+                // portada; la inicial en un sello tonal (color y forma estables
+                // por obra) da a cada tarjeta su propio anclaje de color.
+                val (stampShape, stampContainer, stampContent) = workStamp(entry.id)
+                MonogramStamp(
+                    letter = entry.title.firstOrNull { it.isLetterOrDigit() } ?: '·',
+                    shape = stampShape,
+                    container = stampContainer,
+                    content = stampContent,
                 )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        entry.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        listOfNotNull(entry.author, stringResource(R.string.home_chapter_cap, entry.chapterIndex + 1)).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 IconButton(onClick = { onRemove(entry.id) }) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.home_remove_continue))
                 }
             }
-            Text(
-                listOfNotNull(entry.author, stringResource(R.string.home_chapter_cap, entry.chapterIndex + 1)).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             Spacer(Modifier.height(12.dp))
-            LinearWavyProgressIndicator(progress = { progress })
+            LinearWavyProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
+    }
+}
+
+/**
+ * Color y forma del sello de una obra, estables entre sesiones: el hash del
+ * id reparte las obras entre los tres pares tonales y tres formas. Cada
+ * libro tiene siempre el mismo lomo.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun workStamp(id: Long): Triple<RoundedPolygon, Color, Color> {
+    val c = MaterialTheme.colorScheme
+    return when (((id xor (id shr 7)) % 3L).toInt()) {
+        0 -> Triple(MaterialShapes.Cookie9Sided, c.primaryContainer, c.onPrimaryContainer)
+        1 -> Triple(MaterialShapes.Clover4Leaf, c.secondaryContainer, c.onSecondaryContainer)
+        else -> Triple(MaterialShapes.Flower, c.tertiaryContainer, c.onTertiaryContainer)
     }
 }
