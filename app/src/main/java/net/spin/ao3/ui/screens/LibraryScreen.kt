@@ -79,6 +79,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.spin.ao3.R
+import net.spin.ao3.ui.components.LocalBottomBarClearance
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.Store
@@ -361,7 +362,7 @@ private fun FavoritesTab(
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         gridItems(favorites, columns, key = { it.id }) { sw ->
@@ -409,7 +410,7 @@ private fun HistoryTab(
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -493,7 +494,7 @@ private fun DownloadsTab(
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (downloads.isNotEmpty()) {

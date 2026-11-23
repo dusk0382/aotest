@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -37,6 +38,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import net.spin.ao3.R
 import net.spin.ao3.ui.theme.Ao3Theme
+
+/** Despeje que deben dejar las listas al final para que el último ítem no
+ *  quede escondido tras la píldora flotante. La fija MainActivity con la
+ *  altura real de la barra (píldora + inset de gestos). */
+val LocalBottomBarClearance = staticCompositionLocalOf { 0.dp }
 
 /** A single destination of the bottom navigation bar. */
 interface BottomBarDestination {

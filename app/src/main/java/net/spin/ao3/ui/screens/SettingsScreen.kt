@@ -101,6 +101,7 @@ import net.spin.ao3.data.Store
 import net.spin.ao3.ui.reader.readerColors
 import net.spin.ao3.ui.theme.AppThemeMode
 import net.spin.ao3.ui.components.EmptyState
+import net.spin.ao3.ui.components.LocalBottomBarClearance
 import net.spin.ao3.ui.components.PrimaryCtaButton
 import net.spin.ao3.ui.components.SecondaryOutlinedButton
 
@@ -249,7 +250,9 @@ private fun HubList(onOpen: (SettingsPage) -> Unit) {
         Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            // Despeje para la píldora flotante: el índice pasa por detrás.
+            .padding(bottom = LocalBottomBarClearance.current),
     ) {
         entries.forEachIndexed { index, entry ->
             SegmentedListItem(

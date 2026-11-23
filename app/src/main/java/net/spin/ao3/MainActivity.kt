@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,7 @@ import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.ui.Route
 import net.spin.ao3.ui.components.BottomBarDestination
 import net.spin.ao3.ui.components.CapsuleBottomBar
+import net.spin.ao3.ui.components.LocalBottomBarClearance
 import net.spin.ao3.ui.components.PrimaryNavigationRail
 import net.spin.ao3.ui.rememberNavController
 import net.spin.ao3.ui.screens.AuthorScreen
@@ -133,10 +135,17 @@ private fun AppRoot() {
                         }
                     },
                 ) { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding)) {
-                        val navTarget: NavTarget = if (showTabs) NavTarget.Tab(tab)
-                            else NavTarget.Screen(nav.current, nav.stack.lastIndex)
-                        AnimatedContent(
+                    // Sin padding inferior: el contenido fluye por detrás de la
+                    // píldora flotante (look edge-to-edge). Las listas dejan su
+                    // propio despeje con LocalBottomBarClearance para que el
+                    // último ítem sea alcanzable.
+                    Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
+                        CompositionLocalProvider(
+                            LocalBottomBarClearance provides padding.calculateBottomPadding(),
+                        ) {
+                            val navTarget: NavTarget = if (showTabs) NavTarget.Tab(tab)
+                                else NavTarget.Screen(nav.current, nav.stack.lastIndex)
+                            AnimatedContent(
                             targetState = navTarget,
                             transitionSpec = {
                                 if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
@@ -238,6 +247,7 @@ private fun AppRoot() {
                                 }
                             }
                         }
+                        } // CompositionLocalProvider
                     }
                 }
             }

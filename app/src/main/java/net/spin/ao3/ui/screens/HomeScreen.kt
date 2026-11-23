@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.spin.ao3.R
+import net.spin.ao3.ui.components.LocalBottomBarClearance
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.SortOption
@@ -102,6 +104,8 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(horizontal = if (wide) 24.dp else 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
+                // Despeje para la píldora flotante: el contenido pasa por detrás.
+                contentPadding = PaddingValues(bottom = LocalBottomBarClearance.current + 16.dp),
             ) {
                 item(key = "header") {
                     HomeHeader(
