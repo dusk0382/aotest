@@ -65,7 +65,7 @@ fun EmptyState(
         // MaterialShapes (contenedor tonal, par de roles onSecondaryContainer).
         // Entra con escala + fade del motionScheme: el sello «se planta».
         {
-            val appearSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+            val appearSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
             val appear = remember { androidx.compose.animation.core.Animatable(0f) }
             LaunchedEffect(Unit) {
                 appear.animateTo(1f, appearSpec)

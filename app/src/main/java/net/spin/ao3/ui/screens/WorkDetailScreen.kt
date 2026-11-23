@@ -489,8 +489,8 @@ fun WorkDetailScreen(
                         // rellena con las specs del motionScheme al marcar.
                         // Las specs se resuelven aquí (contexto composable): el
                         // lambda transitionSpec no lo es.
-                        val fillSpec = MaterialTheme.motionScheme.fastEffectsSpec()
-                        val growSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                        val fillSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+                        val growSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
                         AnimatedContent(
                             targetState = saved,
                             transitionSpec = {
