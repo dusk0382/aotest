@@ -123,6 +123,32 @@ class Ao3Client(private val cacheDir: File? = null) {
             e is InterruptedIOException ||
             e.message?.contains("timeout", ignoreCase = true) == true
 
+    /** Si [html] es la página del age-gate, re-pide con `?view_adult=true`
+     *  (regla dura 2: NUNCA deducir el gate por parámetros ni saltarlo: se
+     *  vuelve a pedir). El body gateado ya trae la obra completa como banner,
+     *  pero el parser no puede leerla: solo se cambia por la re-petición si
+     *  esta tiene éxito — nunca se tira una buena respuesta porque la
+     *  re-petición se topara con un 525/timeout.
+     *
+     *  Vivo fuera del bucle de reintentos porque el gate también llega por
+     *  las rutas rápidas: el WebView del sistema NO hereda la cookie
+     *  view_adult del jar de OkHttp, así que una ficha traída por WebView
+     *  llega gateada aunque la app ya la hubiera aceptado antes. */
+    private suspend fun adultOrRefetch(url: String, headers: Map<String, String>, html: String): String {
+        if (!isAdultGate(html)) return html
+        val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
+        // 1) OkHttp: barato y basta cuando el muro de bots no está activo.
+        runCatching {
+            withContext(Dispatchers.IO) { okhttpGet(adultUrl, headers, client) }
+        }.getOrNull()?.let { return it }
+        // 2) WebView: cuando OkHttp está en el muro (429 medido en ~400 ms),
+        //    el WebView — Chromium real — pasa, y el parámetro view_adult
+        //    desbloquea la página en ESA misma carga. De paso AO3 suele
+        //    sentar la cookie view_adult en la store del sistema, de modo
+        //    que las siguientes fichas por WebView llegan sin gate.
+        return WebViewFetcher.fetch(adultUrl, timeoutMs = 120_000L) ?: html
+    }
+
     /** One blocking OkHttp GET against [client]. Throws on HTTP errors. */
     private fun okhttpGet(url: String, headers: Map<String, String>, client: OkHttpClient): String {
         val b = Request.Builder().url(url).header(
@@ -231,17 +257,24 @@ class Ao3Client(private val cacheDir: File? = null) {
         }
         if (quick != null && !isCfChallenge(quick)) {
             Log.d(TAG, "OkHttp rápido OK (${quick.length} chars): $url")
-            return quick
+            return adultOrRefetch(url, headers, quick)
         }
 
         // 2) WebView fallback, with its own long timeout (see KDoc).
+        // El 429 del muro de bots («bot servers are currently overloaded»)
+        // también va al WebView SIEMPRE: medido en real, ese muro se lo lleva
+        // la huella okhttp/UA-mismatched (responde en ~400 ms) mientras el
+        // WebView — Chromium de verdad — pasa y hasta gana el cf_clearance
+        // que el puente de cookies le inyecta después a OkHttp.
         val needsWebView = quick != null && isCfChallenge(quick) ||
-            (quick == null && (WebViewFetcher.cloudflareBlocked || shouldFallbackToWebView(lastError!!)))
+            (quick == null && (WebViewFetcher.cloudflareBlocked ||
+                shouldFallbackToWebView(lastError!!) ||
+                lastError is RateLimitedException))
         if (needsWebView) {
             val viaWeb = WebViewFetcher.fetch(url, timeoutMs = 120_000L)
             if (viaWeb != null && !isCfChallenge(viaWeb)) {
                 Log.d(TAG, "WebView OK (${viaWeb.length} chars): $url")
-                return viaWeb
+                return adultOrRefetch(url, headers, viaWeb)
             }
             Log.w(TAG, "WebView devolvió ${if (viaWeb == null) "null" else "challenge (${viaWeb.length} chars)"} — cae al retry loop")
         }
@@ -254,17 +287,7 @@ class Ao3Client(private val cacheDir: File? = null) {
                 try {
                     val fetched = withContext(Dispatchers.IO) { okhttpGet(url, headers, client) }
                     // AO3 shows an age gate to visitors without the view_adult cookie.
-                    if (isAdultGate(fetched)) {
-                        val adultUrl = if (url.contains('?')) "$url&view_adult=true" else "$url?view_adult=true"
-                        // The gated body already carries the full page (the notice is a
-                        // banner, not a replacement). Only swap it for the refetch when
-                        // that refetch succeeds: never throw away a good response just
-                        // because a redundant refetch hit a Cloudflare 525/timeout.
-                        runCatching {
-                            withContext(Dispatchers.IO) { okhttpGet(adultUrl, headers, client) }
-                        }.getOrNull()?.let { return@withTimeoutOrNull it }
-                    }
-                    return@withTimeoutOrNull fetched
+                    return@withTimeoutOrNull adultOrRefetch(url, headers, fetched)
                 } catch (e: CancellationException) {
                     // Never swallow cancellation (incl. the deadline's timeout)
                     // as a retryable error: it would be rethrown as a "real"
@@ -399,14 +422,41 @@ class Ao3Client(private val cacheDir: File? = null) {
             // A response without Set-Cookie headers must not clear the jar.
             if (cookieList.isEmpty()) return
             cookies.compute(url.host) { _, existing -> merge(existing.orEmpty(), cookieList) }
+            // Puente OkHttp -> WebView: la store del sistema es la que usan los
+            // WebView frescos del fallback; sin esto re-presentan el age-gate
+            // (view_adult) y re-piden challenges ya resueltos.
+            runCatching {
+                val header = cookieList.joinToString("; ") { "${it.name}=${it.value}" }
+                WebViewFetcher.pushCookiesToWebView(url.toString(), header)
+            }
         }
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> =
-            cookies[url.host].orEmpty().filter {
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            val own = cookies[url.host].orEmpty().filter {
                 // Purge on read too, not just on the next merge: sending an
                 // expired __cf_bm/view_adult invites extra CF challenges.
                 it.expiresAt > System.currentTimeMillis() && it.matches(url)
             }
+            // Puente WebView -> OkHttp (ver WebViewFetcher.webviewCookieHeader).
+            // runCatching: en los tests JVM el objeto WebViewFetcher no puede
+            // inicializarse (android.os.Handler) y aquí simplemente no hay
+            // cookies que puentear.
+            val bridged = runCatching { webviewCookiesFor(url) }.getOrDefault(emptyList())
+            if (bridged.isEmpty()) return own
+            return (own + bridged).distinctBy { it.name to it.path }
+        }
+
+        /** Parsea el header de cookies capturado del WebView. El formato es el
+         *  de un header Cookie de petición («k=v; k2=v2»): cada par se parsea
+         *  por separado porque Cookie.parse espera un solo Set-Cookie. */
+        private fun webviewCookiesFor(url: HttpUrl): List<Cookie> {
+            val header = WebViewFetcher.webviewCookieHeader ?: return emptyList()
+            val now = System.currentTimeMillis()
+            return header.split(";").mapNotNull { part ->
+                val seg = part.trim()
+                if (seg.isEmpty()) null else runCatching { Cookie.parse(url, seg) }.getOrNull()
+            }.filter { it.expiresAt > now && it.matches(url) }
+        }
 
         companion object {
             /** Pure merge behind [saveFromResponse]: a fresh cookie replaces only

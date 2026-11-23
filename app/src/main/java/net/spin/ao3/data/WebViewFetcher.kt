@@ -3,6 +3,7 @@ package net.spin.ao3.data
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Application
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -13,6 +14,7 @@ import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -72,6 +74,30 @@ object WebViewFetcher {
     var cloudflareBlocked: Boolean = false
         private set
 
+    /** Cookie header del dominio tal como lo ve el WebView del sistema, capturado
+     *  tras cada carga exitosa. CRÍTICO para pasar Cloudflare: cuando el WebView
+     *  resuelve un challenge gana un `cf_clearance` que vive en LA COOKIE STORE
+     *  DEL SISTEMA, no en el jar de OkHttp. CO3 no tiene este problema porque el
+     *  fetch de React Native comparte esa store; nuestro OkHttp no, así que sin
+     *  este puente cada petición OkHttp volvía a comerse el muro de bots aunque
+     *  el WebView acabara de resolverlo. Ao3Client lo inyecta en cada GET. */
+    @Volatile
+    var webviewCookieHeader: String? = null
+        private set
+
+    /** Puente inverso: cookies ganadas por OkHttp (p. ej. `view_adult` tras
+     *  aceptar el age-gate) se inyectan en la store del sistema para que los
+     *  WebView frescos de las siguientes cargas las lleven. Sin esto, cada
+     *  fetch por WebView re-presentaba el age-gate de obras adultas.
+     *  A prueba de JVM: el objeto no se inicializa en tests unitarios. */
+    fun pushCookiesToWebView(url: String, cookieHeader: String) {
+        mainHandler.post {
+            runCatching {
+                android.webkit.CookieManager.getInstance().setCookie(url, cookieHeader)
+            }
+        }
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // -------------------- Activity tracking --------------------
@@ -117,6 +143,12 @@ object WebViewFetcher {
     private var chunkBuffer: StringBuilder? = null
     private var overlay: FrameLayout? = null
     private var webView: WebView? = null
+
+    /** Último código HTTP >= 400 del frame principal (403/503 quedan como
+     *  interinos mientras el challenge resuelve). Se consulta al cerrar la
+     *  carga: un «done» con error vigente se descarta como página de muro. */
+    @Volatile
+    private var httpErrorStatus: Int? = null
 
     /**
      * Fetches [url] through the system WebView and returns the final rendered
@@ -186,6 +218,18 @@ object WebViewFetcher {
             TAG,
             "settle(): ${if (value != null) "OK (${value.length} chars)" else "FALLO: ${error?.message}"} para ${request.url}",
         )
+        if (value != null) {
+            // Capturar las cookies del sistema ANTES de destruir el WebView: el
+            // cf_clearance que el challenge acaba de ganar debe sobrevivir a la
+            // destrucción (la store del CookieManager es global a la app, así
+            // que también sirve para los WebView frescos de las próximas cargas).
+            webviewCookieHeader = try {
+                android.webkit.CookieManager.getInstance().getCookie(request.url)
+            } catch (t: Throwable) {
+                Log.w(TAG, "no se pudieron capturar cookies del WebView: ${t.message}")
+                null
+            }
+        }
         if (error != null || value == null) {
             request.deferred.completeExceptionally(error ?: IOException("WebView devolvió vacío"))
         } else {
@@ -248,7 +292,15 @@ object WebViewFetcher {
                 val html = chunkBuffer?.toString()
                 chunkBuffer = null
                 Log.d(TAG, "HTML completo: ${html?.length ?: 0} chars")
-                settle(html ?: "", null)
+                val err = httpErrorStatus
+                httpErrorStatus = null
+                if (err != null) {
+                    // El frame principal acabó con error y no hubo redirect que
+                    // lo resetease: es una página de muro/error, no la pedida.
+                    settle(null, IOException("WebView recibió HTTP $err"))
+                } else {
+                    settle(html ?: "", null)
+                }
             }
             payload.startsWith("chunk:") -> {
                 val body = payload.removePrefix("chunk:")
@@ -326,6 +378,13 @@ object WebViewFetcher {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    // Cada navegación (incluidos los redirects del challenge)
+                    // resetea el error HTTP: lo que manda es la respuesta FINAL.
+                    if (view === inFlight?.web) httpErrorStatus = null
+                }
+
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
                     // Never re-arm an orphaned WebView: after teardown it must
@@ -334,6 +393,31 @@ object WebViewFetcher {
                     if (view !== inFlight?.web) return
                     Log.d(TAG, "onPageFinished: $url — inyectando detector")
                     view.evaluateJavascript(DETECT_JS, null)
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    errorResponse: WebResourceResponse,
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    // Solo el frame principal: los subrecursos fallan sin que
+                    // la página esté bloqueada. Sin esto, el HTML del muro de
+                    // bots («bot servers are currently overloaded», HTTP 429)
+                    // se devolvía como si fuera la página pedida y el parser
+                    // moría con «No se pudo interpretar».
+                    if (!request.isForMainFrame || view !== inFlight?.web) return
+                    val status = errorResponse.statusCode
+                    if (status == 403 || status == 503) {
+                        // Interino: puede ser la página del challenge, que
+                        // resuelve sola y redirige. No fallar todavía.
+                        httpErrorStatus = status
+                        return
+                    }
+                    if (status >= 400) {
+                        Log.w(TAG, "onReceivedHttpError: HTTP $status (frame principal)")
+                        settle(null, IOException("WebView recibió HTTP $status"))
+                    }
                 }
 
                 override fun onReceivedError(
