@@ -1739,3 +1739,18 @@ que morphean, sellos en vacíos); lo que faltaba era que se VIERA:
   (`<T> FiniteAnimationSpec<T>`) — sin contexto no infieren; resolverlas en
   un `val` exige tipo explícito (`defaultSpatialSpec<Float>()`) y fuera de
   lambdas no-composable (transitionSpec, animateTo).
+
+## Ronda 2026-11-23 (madrugada II) — tres reglas del usuario
+
+- **Píldora sobre las subpáginas de Ajustes (regresión real)**: la
+  reescritura de Ajustes navega con estado interno (`page`), no empujando
+  rutas, así que `nav.stack.size` seguía en 1 y la píldora flotaba encima de
+  Apariencia/Lector, tapando los sliders de márgenes. Fix: SettingsScreen
+  reporta `onSubpageChange` (DisposableEffect, se resetea al salir; en
+  two-pane la píldora se queda) y MainActivity la esconde. Verificado: sin
+  píldora en «Ajustes del Lector», Márgenes alcanzable; vuelve al índice.
+- **Icono de Biblioteca**: la pestaña de la píldora pasa de
+  `List` a `LibraryBooks` (AutoMirrored).
+- **Pestañas de Biblioteca recortadas** («Favorito…», «Descarga…» con
+  fuentes grandes): ToggleButton con `contentPadding` propio (6 dp),
+  icono 14 dp y `labelMedium`. Verificado: las tres etiquetas completas.
