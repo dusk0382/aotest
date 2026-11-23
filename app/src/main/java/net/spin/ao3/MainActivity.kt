@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
@@ -74,7 +74,7 @@ enum class AppTab(
     override val icon: ImageVector,
 ) : BottomBarDestination {
     HOME(R.string.tab_home, Icons.Filled.Home),
-    LIBRARY(R.string.tab_library, Icons.AutoMirrored.Filled.List),
+    LIBRARY(R.string.tab_library, Icons.AutoMirrored.Filled.LibraryBooks),
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
 }
 
@@ -85,6 +85,10 @@ private fun AppRoot() {
     val store = container.store
 
     var tab by rememberSaveable { mutableStateOf(AppTab.HOME) }
+    // Las subpáginas de Ajustes navegan con estado interno (no empujan rutas):
+    // sin esto la píldora seguiría flotando sobre Apariencia/Lector y taparía
+    // controles. Las pantallas lo reportan; se resetea al salir.
+    var settingsSubOpen by rememberSaveable { mutableStateOf(false) }
     var themeMode by remember { mutableStateOf(AppThemeMode.from(store.prefs.appThemeMode)) }
     var dynamicColor by remember { mutableStateOf(store.prefs.dynamicColor) }
     // Recrear la actividad es el único remedio fiable al cambiar de tema.
@@ -126,7 +130,9 @@ private fun AppRoot() {
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
-                        if (showTabs && !useRail) {
+                        // La píldora solo en el nivel superior; fuera cuando hay
+                        // una subpágina de Ajustes abierta (navegación interna).
+                        if (showTabs && !settingsSubOpen && !useRail) {
                             CapsuleBottomBar(
                                 items = AppTab.entries,
                                 selected = tab,
@@ -205,6 +211,7 @@ private fun AppRoot() {
                                             dynamicColor = dc
                                             reloadTheme()
                                         },
+                                        onSubpageChange = { settingsSubOpen = it },
                                     )
                                 }
                                 is NavTarget.Screen -> when (val route = target.route) {

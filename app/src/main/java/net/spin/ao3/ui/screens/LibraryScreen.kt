@@ -238,6 +238,10 @@ private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
                 checked = selected == index,
                 onCheckedChange = { if (it) onSelect(index) },
                 shapes = shapes,
+                // Padding propio más estrecho que el default: con el icono y la
+                // etiqueta dentro de un tercio de pantalla, "Descargas" no cabe
+                // con el padding estándar y se recorta.
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                 modifier = Modifier
                     .weight(1f)
                     .semantics { role = Role.Tab },
@@ -245,10 +249,10 @@ private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(14.dp),
                 )
-                Spacer(Modifier.width(4.dp))
-                Text(label, maxLines = 1)
+                Spacer(Modifier.width(2.dp))
+                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
         }
     }

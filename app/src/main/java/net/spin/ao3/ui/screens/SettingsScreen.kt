@@ -70,6 +70,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -84,6 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -128,6 +130,7 @@ fun SettingsScreen(
     container: AppContainer,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
+    onSubpageChange: (Boolean) -> Unit = {},
 ) {
     val store = container.store
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
@@ -136,6 +139,15 @@ fun SettingsScreen(
     // Atrás vuelve al índice, no al Inicio (el BackHandler de MainActivity
     // quedaría por debajo de este mientras haya una categoría abierta).
     BackHandler(enabled = page != null) { page = null }
+
+    // Reportar si hay una subpágina abierta para que MainActivity esconda la
+    // píldora de navegación (navega con estado interno, no empuja rutas).
+    // En two-pane la página convive con el índice: ahí la píldora puede quedarse.
+    val config = LocalConfiguration.current
+    DisposableEffect(page, config) {
+        onSubpageChange(page != null && config.screenWidthDp < 840)
+        onDispose { onSubpageChange(false) }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
