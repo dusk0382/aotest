@@ -356,25 +356,23 @@ private fun ContinueReadingRow(
     onRemove: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = MaterialTheme.colorScheme
     val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
+    val (stampShape, accent) = workAccent(entry.id)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.surfaceContainer,
+        color = accent.card,
         onClick = { onOpen(entry.id, entry.chapterIndex) },
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                // Monograma-sello: el «lomo» de la obra. Los fanfics no tienen
-                // portada; la inicial en un sello tonal (color y forma estables
-                // por obra) da a cada tarjeta su propio anclaje de color.
-                val (stampShape, stampContainer, stampContent) = workStamp(entry.id)
+                // Monograma-sello: el «lomo» de la obra. Sello sólido sobre
+                // tarjeta tonal del mismo rol: cada obra lleva su color.
                 MonogramStamp(
                     letter = entry.title.firstOrNull { it.isLetterOrDigit() } ?: '·',
                     shape = stampShape,
-                    container = stampContainer,
-                    content = stampContent,
+                    container = accent.stamp,
+                    content = accent.onStamp,
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -389,7 +387,6 @@ private fun ContinueReadingRow(
                     Text(
                         listOfNotNull(entry.author, stringResource(R.string.home_chapter_cap, entry.chapterIndex + 1)).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -404,18 +401,27 @@ private fun ContinueReadingRow(
     }
 }
 
+/** Acento de una obra: color de tarjeta + par del sello, estables por hash. */
+private data class WorkAccent(val card: Color, val stamp: Color, val onStamp: Color)
+
 /**
- * Color y forma del sello de una obra, estables entre sesiones: el hash del
- * id reparte las obras entre los tres pares tonales y tres formas. Cada
- * libro tiene siempre el mismo lomo.
+ * Color y forma del acento de una obra, estables entre sesiones: el hash del
+ * id reparte formas (Cookie9/Clover/Flower) y turnos de color. En Inicio se
+ * rotan secondaryContainer y tertiaryContainer: primaryContainer queda
+ * reservado al héroe para que no compitan.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun workStamp(id: Long): Triple<RoundedPolygon, Color, Color> {
+private fun workAccent(id: Long): Pair<RoundedPolygon, WorkAccent> {
     val c = MaterialTheme.colorScheme
-    return when (((id xor (id shr 7)) % 3L).toInt()) {
-        0 -> Triple(MaterialShapes.Cookie9Sided, c.primaryContainer, c.onPrimaryContainer)
-        1 -> Triple(MaterialShapes.Clover4Leaf, c.secondaryContainer, c.onSecondaryContainer)
-        else -> Triple(MaterialShapes.Flower, c.tertiaryContainer, c.onTertiaryContainer)
+    val shape = when (((id xor (id shr 7)) % 3L).toInt()) {
+        0 -> MaterialShapes.Cookie9Sided
+        1 -> MaterialShapes.Clover4Leaf
+        else -> MaterialShapes.Flower
     }
+    val accent = when (((id shr 3) % 2L).toInt()) {
+        0 -> WorkAccent(c.secondaryContainer, c.secondary, c.onSecondary)
+        else -> WorkAccent(c.tertiaryContainer, c.tertiary, c.onTertiary)
+    }
+    return shape to accent
 }

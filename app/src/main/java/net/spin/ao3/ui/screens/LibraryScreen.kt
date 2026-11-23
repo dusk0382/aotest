@@ -266,6 +266,7 @@ private fun LibraryRowCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     iconTint: androidx.compose.ui.graphics.Color,
     iconContainer: androidx.compose.ui.graphics.Color,
+    cardColor: androidx.compose.ui.graphics.Color,
     title: String,
     subtitle: String,
     onClick: () -> Unit,
@@ -277,7 +278,7 @@ private fun LibraryRowCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = cardColor,
     ) {
         Row(
             modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
@@ -296,7 +297,6 @@ private fun LibraryRowCard(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics { heading() },
@@ -305,7 +305,6 @@ private fun LibraryRowCard(
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -384,8 +383,9 @@ private fun FavoritesTab(
         gridItems(favorites, columns, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
-                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                iconContainer = MaterialTheme.colorScheme.primaryContainer,
+                iconTint = MaterialTheme.colorScheme.onPrimary,
+                iconContainer = MaterialTheme.colorScheme.primary,
+                cardColor = MaterialTheme.colorScheme.primaryContainer,
                 stamp = StampShapes.Favorito,
                 title = sw.title,
                 subtitle = "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
@@ -442,8 +442,9 @@ private fun HistoryTab(
             val finished = progress >= 0.97f
             LibraryRowCard(
                 icon = Icons.Default.History,
-                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
-                iconContainer = MaterialTheme.colorScheme.secondaryContainer,
+                iconTint = MaterialTheme.colorScheme.onSecondary,
+                iconContainer = MaterialTheme.colorScheme.secondary,
+                cardColor = MaterialTheme.colorScheme.secondaryContainer,
                 stamp = StampShapes.Historial,
                 title = entry.title,
                 subtitle = buildString {
@@ -573,8 +574,9 @@ private fun DownloadsTab(
                 Column {
                     LibraryRowCard(
                         icon = Icons.Default.Download,
-                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiary,
+                        iconContainer = MaterialTheme.colorScheme.tertiary,
+                        cardColor = MaterialTheme.colorScheme.tertiaryContainer,
                         stamp = StampShapes.Descarga,
                         title = dl.title,
                         subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"}",
