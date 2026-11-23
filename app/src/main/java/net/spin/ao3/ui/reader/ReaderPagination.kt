@@ -76,7 +76,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -106,6 +105,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -242,7 +242,7 @@ internal fun packPagesToViewport(
         if (rows.isEmpty()) return emptyList()
         fun fits(from: Int, to: Int): Boolean {
             // to exclusive; measures EXACTLY the string the page will render.
-            val ann = linesToAnnotated(rows.subList(from, to), fontSize, Color.Black, Color.Black)
+            val ann = linesToAnnotated(rows.subList(from, to), fontSize, Color.Black, Color.Black, Color.Black)
             return measurer.measure(
                 ann,
                 style = style,
@@ -280,6 +280,7 @@ internal fun linesToAnnotated(
     fontSize: Int,
     fg: Color,
     accent: Color,
+    bg: Color,
     highlights: List<Pair<IntRange, Float>> = emptyList(),
     ttsWord: String = "",
 ): AnnotatedString {
@@ -297,7 +298,7 @@ internal fun linesToAnnotated(
                 builder.pop()
             }
             LineKind.QUOTE -> {
-                builder.pushStyle(SpanStyle(color = fg.copy(alpha = 0.85f)))
+                builder.pushStyle(SpanStyle(color = lerp(bg, fg, 0.85f)))
                 if (line.paragraphStart) builder.append("“")
                 line.segments.forEach { seg ->
                     val pushed = pushSegmentStyle(builder, seg, accent)
@@ -333,7 +334,7 @@ internal fun linesToAnnotated(
         append(base)
             highlights.forEach { (range, alpha) ->
             addStyle(
-                SpanStyle(background = accent.copy(alpha = alpha)),
+                SpanStyle(background = lerp(bg, accent, alpha)),
                 range.first.coerceIn(0, base.length),
                 range.last.coerceIn(0, base.length),
             )
@@ -342,7 +343,7 @@ internal fun linesToAnnotated(
             val start = base.text.indexOf(ttsWord, ignoreCase = true)
             if (start >= 0) {
                 addStyle(
-                    SpanStyle(background = accent.copy(alpha = 0.55f), fontWeight = FontWeight.Bold),
+                    SpanStyle(background = lerp(bg, accent, 0.55f), fontWeight = FontWeight.Bold),
                     start,
                     (start + ttsWord.length).coerceAtMost(base.length),
                 )

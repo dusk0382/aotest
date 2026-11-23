@@ -1,7 +1,6 @@
 package net.spin.ao3.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -45,7 +44,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.LoadingIndicator
@@ -605,7 +603,7 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FilterSheet(
     initial: SearchFilters,
@@ -705,7 +703,7 @@ private fun FilterSheet(
                 ) {
                     if (suggestionsLoading) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            LoadingIndicator(Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 "Cargando tags relacionados…",
@@ -1016,6 +1014,7 @@ private fun friendlySearchError(raw: String?): String {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CollapsibleSection(
     title: String,
@@ -1050,16 +1049,17 @@ private fun CollapsibleSection(
                 modifier = Modifier.size(20.dp),
             )
         }
+        val motion = MaterialTheme.motionScheme
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically(tween(200)) + fadeIn(tween(200)),
-            exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+            enter = expandVertically(motion.fastSpatialSpec()) + fadeIn(motion.fastEffectsSpec()),
+            exit = shrinkVertically(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
         ) {
             Column(Modifier.fillMaxWidth()) {
                 content()
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

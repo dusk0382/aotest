@@ -76,7 +76,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -106,6 +105,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -188,6 +188,9 @@ internal fun readerFgColor(theme: Store.ReaderTheme): Color = readerColors.getVa
 
 internal fun readerAccentColor(theme: Store.ReaderTheme): Color = readerColors.getValue(theme).third
 
+/** Color sólido del lector derivado por mezcla opaca (sin transparencias). */
+internal fun readerMuted(bg: Color, fg: Color, factor: Float): Color = lerp(bg, fg, factor)
+
 // ---- Live typography preview (settings sheet) --------------------------------
 
 @Composable
@@ -212,7 +215,7 @@ internal fun ReaderPreview(
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, fg.copy(alpha = 0.14f), MaterialTheme.shapes.medium),
+            .border(1.dp, readerMuted(bg, fg, 0.14f), MaterialTheme.shapes.medium),
     ) {
         Column(Modifier.padding(horizontal = horizontalPad, vertical = 14.dp)) {
             Text(

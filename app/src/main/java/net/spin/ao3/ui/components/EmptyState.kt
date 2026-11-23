@@ -1,5 +1,7 @@
 package net.spin.ao3.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,13 +12,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Surface
+import androidx.compose.material3.toShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -26,10 +32,11 @@ import androidx.compose.ui.unit.dp
 import net.spin.ao3.ui.theme.Ao3Theme
 
 /**
- * Estado vacío Expressive: icono 24 dp (sin círculo), titular headlineSmall,
- * descripción corta y un único CTA relleno cuando hay acción. [compact] lo
- * renderiza en línea dentro de una sección; por defecto va centrado y acotado.
+ * Estado vacío Expressive: icono en sello MaterialShapes (compact lo usa
+ * pequeño y sin sello), titular y descripción corta, y un único CTA relleno
+ * cuando hay acción. [compact] lo renderiza en línea dentro de una sección.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun EmptyState(
     icon: ImageVector,
@@ -41,14 +48,38 @@ fun EmptyState(
     compact: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
+    val iconStamp: @Composable () -> Unit = if (compact) {
+        {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    } else {
+        // Sello Expressive: icono dentro de una forma de la librería
+        // MaterialShapes (contenedor tonal, par de roles onSecondaryContainer).
+        {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(MaterialShapes.Cookie9Sided.toShape())
+                    .background(colors.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = colors.onSecondaryContainer,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
+    }
     val body: @Composable () -> Unit = {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = colors.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
-        )
-        Spacer(Modifier.height(12.dp))
+        iconStamp()
+        Spacer(Modifier.height(16.dp))
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,

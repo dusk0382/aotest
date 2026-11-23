@@ -10,8 +10,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -138,10 +140,16 @@ private fun AppRoot() {
                             targetState = navTarget,
                             transitionSpec = {
                                 if (initialState is NavTarget.Tab || targetState is NavTarget.Tab) {
-                                    // Cambio de pestaña: sustitución directa. El crossfade con
-                                    // specs de resorte dejaba la pantalla saliente con alfa
-                                    // intermedio (títulos gris claro sobre fondo claro).
-                                    EnterTransition.None togetherWith ExitTransition.None
+                                    // Cambio de pestaña: la salida se corta seca (snap)
+                                    // y la entrada aparece con fade + escala desde 92 %.
+                                    // Así nunca coinciden dos pantallas a alfa intermedio
+                                    // (el fallo del crossfade anterior: títulos grises).
+                                    (fadeIn(motion.defaultEffectsSpec()) +
+                                        scaleIn(
+                                            animationSpec = motion.defaultSpatialSpec(),
+                                            initialScale = 0.92f,
+                                        )) togetherWith
+                                        fadeOut(snap())
                                 } else {
                                     val forward = nav.lastDirection >= 0
                                     if (forward) {

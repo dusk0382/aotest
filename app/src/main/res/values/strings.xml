@@ -17,6 +17,8 @@
     <string name="home_search_placeholder">Busca en AO3</string>
     <string name="home_chapter_cap">Cap. %1$d</string>
     <string name="home_continue">Continuar leyendo</string>
+    <string name="home_empty_title">Empieza tu biblioteca</string>
+    <string name="home_empty_desc">Busca en AO3 y abre una obra: aparecerá aquí para continuar donde la dejaste.</string>
     <string name="library_explore">Explorar obras</string>
     <string name="home_nothing">Nada que continuar</string>
     <string name="home_remove_continue">Quitar de Continuar leyendo</string>
@@ -47,12 +49,14 @@
 
     <!-- Settings -->
     <string name="settings_appearance">Apariencia</string>
+    <string name="settings_appearance_desc">Tema claro, oscuro y colores dinámicos</string>
     <string name="settings_app_theme">Tema de la app</string>
     <string name="settings_on">Activado</string>
     <string name="settings_off">Desactivado</string>
     <string name="settings_dynamic_colors">Colores dinámicos</string>
     <string name="settings_dynamic_colors_off">Requiere Android 12 o superior.</string>
     <string name="settings_reader_defaults">Ajustes del Lector</string>
+    <string name="settings_reader_defaults_desc">Tipografía, márgenes y modo de lectura</string>
     <string name="settings_reading_mode">Modo de lectura</string>
     <string name="settings_scroll">Scroll continuo</string>
     <string name="settings_paged">Paginado</string>
@@ -67,13 +71,16 @@
     <string name="settings_serif">Serif</string>
     <string name="settings_sans">Sans serif</string>
     <string name="settings_comments">Comentarios</string>
+    <string name="settings_comments_desc">Nombre y correo de invitado</string>
     <string name="settings_name">Nombre</string>
     <string name="settings_email">Email</string>
     <string name="settings_translation">Traducciones</string>
+    <string name="settings_translation_desc">Google o API compatible con OpenAI</string>
     <string name="settings_not_set">Sin configurar</string>
     <string name="settings_test">Probar</string>
     <string name="settings_save">Guardar</string>
     <string name="settings_backup">Copia de seguridad</string>
+    <string name="settings_backup_desc">Exportar e importar tu biblioteca</string>
     <string name="settings_export">Exportar</string>
     <string name="settings_import">Importar</string>
     <string name="settings_restore_title">¿Restaurar biblioteca?</string>

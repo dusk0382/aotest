@@ -6,14 +6,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationItemIconPosition
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
@@ -22,7 +26,10 @@ import androidx.compose.material3.WideNavigationRail
 import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,8 +45,9 @@ interface BottomBarDestination {
 }
 
 /**
- * Barra inferior Expressive: `ShortNavigationBar` con icono encima y etiqueta
- * debajo (lo que evita que «Biblioteca» se corte). La firma se conserva.
+ * Barra inferior Expressive flotante: píldora separada del borde (patrón
+ * «wrap» sobre `ShortNavigationBar`, icono encima y etiqueta debajo). La
+ * firma se conserva.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -49,21 +57,34 @@ fun <T : BottomBarDestination> CapsuleBottomBar(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ShortNavigationBar(modifier = modifier) {
-        items.forEach { destination ->
-            ShortNavigationBarItem(
-                selected = destination == selected,
-                onClick = { onSelect(destination) },
-                icon = { Icon(destination.icon, contentDescription = null) },
-                label = {
-                    Text(
-                        stringResource(destination.labelRes),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                iconPosition = NavigationItemIconPosition.Top,
-            )
+    Surface(
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(bottom = 12.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        ShortNavigationBar(
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            windowInsets = WindowInsets(0, 0, 0, 0),
+        ) {
+            items.forEach { destination ->
+                ShortNavigationBarItem(
+                    selected = destination == selected,
+                    onClick = { onSelect(destination) },
+                    icon = { Icon(destination.icon, contentDescription = null) },
+                    label = {
+                        Text(
+                            stringResource(destination.labelRes),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    iconPosition = NavigationItemIconPosition.Top,
+                )
+            }
         }
     }
 }

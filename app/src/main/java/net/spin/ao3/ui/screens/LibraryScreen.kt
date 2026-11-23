@@ -35,13 +35,15 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -66,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
@@ -146,36 +149,18 @@ fun LibraryScreen(
         }
     }
 
-    val count = when (tab) {
-        0 -> favorites.size
-        1 -> history.size
-        else -> downloads.size
-    }
-    val countLabel = when (tab) {
-        0 -> stringResource(R.string.library_favorites)
-        1 -> stringResource(R.string.library_history)
-        else -> stringResource(R.string.library_downloads)
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets.statusBars,
         topBar = {
-            MediumFlexibleTopAppBar(
+            TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            stringResource(R.string.tab_library),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.semantics { heading() },
-                        )
-                        Text(
-                            "$count $countLabel",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        stringResource(R.string.tab_library),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 },
             )
         },
@@ -232,29 +217,38 @@ fun LibraryScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LibraryTabSelector(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf(
-        stringResource(R.string.library_favorites),
-        stringResource(R.string.library_history),
-        stringResource(R.string.library_downloads),
+    val tabs = listOf(
+        Pair(stringResource(R.string.library_favorites), Icons.Filled.Star),
+        Pair(stringResource(R.string.library_history), Icons.Filled.History),
+        Pair(stringResource(R.string.library_downloads), Icons.Filled.Download),
     )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        labels.forEachIndexed { index, label ->
-            val shapes = connectedToggleShapes(index, labels.size)
+        tabs.forEachIndexed { index, (label, icon) ->
+            val shapes = connectedToggleShapes(index, tabs.size)
             ToggleButton(
                 checked = selected == index,
                 onCheckedChange = { if (it) onSelect(index) },
                 shapes = shapes,
-                modifier = Modifier.semantics { role = Role.Tab },
-            ) { Text(label, maxLines = 1) }
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { role = Role.Tab },
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(label, maxLines = 1)
+            }
         }
     }
 }
@@ -300,9 +294,9 @@ private fun LibraryRowCard(
                 )
                 if (progress != null) {
                     Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(
+                    LinearWavyProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -467,6 +461,7 @@ private fun HistoryTab(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DownloadsTab(
     downloads: List<Store.Download>,
@@ -527,9 +522,9 @@ private fun DownloadsTab(
                             )
                         }
                         Spacer(Modifier.height(10.dp))
-                        LinearProgressIndicator(
+                        LinearWavyProgressIndicator(
                             progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
-                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(

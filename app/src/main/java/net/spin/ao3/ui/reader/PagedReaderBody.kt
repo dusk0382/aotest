@@ -174,8 +174,8 @@ internal fun ReaderProgressBar(
     LinearProgressIndicator(
         progress = { visible.coerceIn(0f, 1f) },
         modifier = Modifier.fillMaxWidth().height(2.dp),
-        color = color.copy(alpha = 0.8f),
-        trackColor = trackColor.copy(alpha = 0.12f),
+        color = color,
+        trackColor = trackColor,
     )
 }
 
@@ -283,7 +283,7 @@ internal fun PagedReaderBody(
                     .padding(horizontal = horizontalPad, vertical = 16.dp),
             ) {
                 Text(
-                    text = linesToAnnotated(pages[page], fontSize, fg, accent, highlights, ttsWord),
+                    text = linesToAnnotated(pages[page], fontSize, fg, accent, readerBgColor(theme), highlights, ttsWord),
                     style = TextStyle(
                         color = fg,
                         fontSize = fontSize.sp,
@@ -295,7 +295,7 @@ internal fun PagedReaderBody(
                 Text(
                     "· ${page + 1} de ${pages.size} ·",
                     fontSize = (fontSize * 0.8f).sp,
-                    color = fg.copy(alpha = 0.5f),
+                    color = readerMuted(readerBgColor(theme), fg, 0.5f),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
                 )

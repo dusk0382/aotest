@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +54,7 @@ import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
 import net.spin.ao3.data.model.SortOption
+import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.PrimaryCtaButton
 import net.spin.ao3.ui.components.standaloneSearchFieldColors
 
@@ -109,6 +111,15 @@ fun HomeScreen(
                         },
                         online = online,
                     )
+                }
+                if (history.isEmpty()) {
+                    item(key = "empty") {
+                        EmptyState(
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            title = stringResource(R.string.home_empty_title),
+                            description = stringResource(R.string.home_empty_desc),
+                        )
+                    }
                 }
                 if (history.isNotEmpty()) {
                     if (wide) {

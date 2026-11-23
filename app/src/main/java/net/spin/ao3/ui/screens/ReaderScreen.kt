@@ -159,6 +159,7 @@ import net.spin.ao3.util.escapeHtml
 import net.spin.ao3.util.findInPages
 import net.spin.ao3.util.htmlToLines
 import net.spin.ao3.ui.reader.ReaderProgressBar
+import net.spin.ao3.ui.reader.readerMuted
 import net.spin.ao3.ui.reader.ReaderProgressLabel
 import net.spin.ao3.ui.reader.goToSearchMatch
 import net.spin.ao3.ui.reader.nextSearchIndex
@@ -1311,8 +1312,8 @@ fun ReaderScreen(
                         paged = paged,
                         pageCount = measuredPages.size,
                         currentPage = pagerState.currentPage,
-                        color = readerAccentColor(theme),
-                        trackColor = readerFgColor(theme),
+                        color = readerMuted(readerBgColor(theme), readerAccentColor(theme), 0.8f),
+                        trackColor = readerMuted(readerBgColor(theme), readerFgColor(theme), 0.12f),
                     )
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1605,7 +1606,6 @@ fun ReaderScreen(
                                     progress = { prog },
                                     modifier = Modifier.fillMaxWidth(0.5f).height(2.dp),
                                     color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                                 )
                             }
                         }
@@ -1627,7 +1627,7 @@ fun ReaderScreen(
                             )
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -1744,6 +1744,3 @@ private enum class TranslationLang(val code: String, val label: String) {
     HI("hi", "हिन्दी"),
 }
 
-
-/** Color sólido del lector derivado por mezcla opaca (sin transparencias). */
-private fun readerMuted(bg: Color, fg: Color, factor: Float): Color = lerp(bg, fg, factor)

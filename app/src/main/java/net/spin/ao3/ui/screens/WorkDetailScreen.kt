@@ -49,17 +49,16 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -84,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -472,7 +472,7 @@ fun WorkDetailScreen(
 
     Scaffold(
         topBar = {
-            MediumFlexibleTopAppBar(
+            TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
@@ -681,7 +681,7 @@ fun WorkDetailScreen(
                                 modifier = Modifier.weight(1f),
                             ) {
                                 if (kudosSending) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    LoadingIndicator(Modifier.size(16.dp))
                                 } else {
                                     Icon(
                                         if (kudoed) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -786,7 +786,7 @@ fun WorkDetailScreen(
                                 )
                                 TextButton(onClick = { checkUpdates() }, enabled = !checkingUpdates) {
                                     if (checkingUpdates) {
-                                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                        LoadingIndicator(Modifier.size(14.dp))
                                         Spacer(Modifier.width(6.dp))
                                     }
                                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -936,7 +936,7 @@ fun WorkDetailScreen(
                     },
                 ) {
                     if (posting) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        LoadingIndicator(Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                     }
                     Text("Enviar")
@@ -949,6 +949,7 @@ fun WorkDetailScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CommentSection(
     chapters: List<ChapterInfo>,
@@ -983,7 +984,7 @@ private fun CommentSection(
 
     when {
         loading -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            LoadingIndicator(Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Text("Cargando comentarios…", style = MaterialTheme.typography.bodySmall)
         }
@@ -1027,7 +1028,11 @@ private fun CommentItem(comment: Ao3Comment, onReply: (Long) -> Unit, onOpenAuth
         Surface(
             shape = MaterialTheme.shapes.medium,
             color = if (isReply) {
-                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.65f)
+                lerp(
+                    MaterialTheme.colorScheme.surface,
+                    MaterialTheme.colorScheme.surfaceContainerLow,
+                    0.65f,
+                )
             } else {
                 MaterialTheme.colorScheme.surfaceContainerLow
             },
@@ -1218,7 +1223,7 @@ private fun ChapterRow(
     onRemoveDownload: () -> Unit,
 ) {
     val semantic = LocalSemanticColors.current
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1247,11 +1252,9 @@ private fun ChapterRow(
             )
             if (progress != null && progress < 0.97f && progress > 0.01f) {
                 Spacer(Modifier.height(4.dp))
-                LinearProgressIndicator(
+                LinearWavyProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.fillMaxWidth(0.55f).height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth(0.55f),
                 )
             }
         }
@@ -1332,6 +1335,7 @@ private fun QueueCompletionEffect(
  * The save/delete/resume row + export menu + queue progress. Reads the queue
  * state here so progress ticks only recompose this row.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DownloadActionsRow(
     workId: Long,
@@ -1392,9 +1396,8 @@ private fun DownloadActionsRow(
                     modifier = Modifier.width(52.dp),
                 ) {
                     if (exportingWork) {
-                        CircularProgressIndicator(
+                        LoadingIndicator(
                             modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
                         )
                     } else {
                         Icon(Icons.Default.MoreVert, contentDescription = "Más opciones de descarga", modifier = Modifier.size(18.dp))
@@ -1421,7 +1424,7 @@ private fun DownloadActionsRow(
                 }
             }
             if (exportingWork) {
-                LinearProgressIndicator(
+                LinearWavyProgressIndicator(
                     progress = {
                         if (exportProgress.second > 0) exportProgress.first / exportProgress.second.toFloat() else 0f
                     },
@@ -1430,7 +1433,7 @@ private fun DownloadActionsRow(
             }
         }
         if (queueState.workId == workId && (queueState.active || queueState.paused)) {
-            LinearProgressIndicator(
+            LinearWavyProgressIndicator(
                 progress = { if (queueState.total > 0) queueState.done / queueState.total.toFloat() else 0f },
                 modifier = Modifier.fillMaxWidth(),
             )

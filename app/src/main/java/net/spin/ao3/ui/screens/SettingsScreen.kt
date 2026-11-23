@@ -5,63 +5,60 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Brightness6
-import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.FormatLineSpacing
-import androidx.compose.material.icons.filled.Margin
-import androidx.compose.material.icons.filled.FontDownload
+import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedSecureTextField
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MediumFlexibleTopAppBar
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -69,8 +66,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,15 +79,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.TextObfuscationMode
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,11 +98,11 @@ import net.spin.ao3.BuildConfig
 import net.spin.ao3.R
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.Store
+import net.spin.ao3.ui.reader.readerColors
 import net.spin.ao3.ui.theme.AppThemeMode
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.PrimaryCtaButton
 import net.spin.ao3.ui.components.SecondaryOutlinedButton
-import net.spin.ao3.ui.components.SecondaryTonalButton
 
 /** Las categorías del índice de Ajustes. Cada una abre su propia pantalla. */
 private enum class SettingsPage(@get:StringRes val titleRes: Int) {
@@ -212,11 +213,13 @@ private fun SettingsHub(onOpen: (SettingsPage) -> Unit) {
     Scaffold(
         contentWindowInsets = WindowInsets.statusBars,
         topBar = {
-            MediumFlexibleTopAppBar(
+            TopAppBar(
                 title = {
-                    Column {
-                        Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.titleLarge)
-                    }
+                    Text(
+                        stringResource(R.string.tab_settings),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 },
             )
         },
@@ -229,12 +232,18 @@ private fun SettingsHub(onOpen: (SettingsPage) -> Unit) {
 
 @Composable
 private fun HubList(onOpen: (SettingsPage) -> Unit) {
+    data class Entry(
+        @StringRes val titleRes: Int,
+        @StringRes val descRes: Int,
+        val icon: ImageVector,
+        val target: SettingsPage,
+    )
     val entries = listOf(
-        Triple(R.string.settings_appearance, Icons.Default.Palette, SettingsPage.APPEARANCE),
-        Triple(R.string.settings_reader_defaults, Icons.AutoMirrored.Filled.MenuBook, SettingsPage.READER),
-        Triple(R.string.settings_comments, Icons.AutoMirrored.Filled.Chat, SettingsPage.COMMENTS),
-        Triple(R.string.settings_translation, Icons.Default.Translate, SettingsPage.TRANSLATION),
-        Triple(R.string.settings_backup, Icons.Default.CloudUpload, SettingsPage.BACKUP),
+        Entry(R.string.settings_appearance, R.string.settings_appearance_desc, Icons.Default.Palette, SettingsPage.APPEARANCE),
+        Entry(R.string.settings_reader_defaults, R.string.settings_reader_defaults_desc, Icons.AutoMirrored.Filled.MenuBook, SettingsPage.READER),
+        Entry(R.string.settings_comments, R.string.settings_comments_desc, Icons.Default.Comment, SettingsPage.COMMENTS),
+        Entry(R.string.settings_translation, R.string.settings_translation_desc, Icons.Default.Translate, SettingsPage.TRANSLATION),
+        Entry(R.string.settings_backup, R.string.settings_backup_desc, Icons.Default.SettingsBackupRestore, SettingsPage.BACKUP),
     )
     Column(
         Modifier
@@ -242,47 +251,29 @@ private fun HubList(onOpen: (SettingsPage) -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        entries.forEachIndexed { index, (titleRes, icon, target) ->
+        entries.forEachIndexed { index, entry ->
             SegmentedListItem(
-                onClick = { onOpen(target) },
+                onClick = { onOpen(entry.target) },
                 shapes = ListItemDefaults.segmentedShapes(index, entries.size),
-                content = { Text(stringResource(titleRes)) },
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                leadingContent = {
+                    TonalIconCircle(entry.icon, circle = 40.dp, glyph = 22.dp)
+                },
+                supportingContent = { Text(stringResource(entry.descRes)) },
+                content = {
+                    Text(
+                        stringResource(entry.titleRes),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
             )
             if (index < entries.lastIndex) Spacer(Modifier.height(ListItemDefaults.SegmentedGap))
         }
     }
 }
 
-/** Fila del índice: icono, título y toda la superficie como toque. */
-@Composable
-private fun HubRow(@StringRes titleRes: Int, icon: ImageVector, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        onClick = onClick,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(14.dp))
-            Text(
-                stringResource(titleRes),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-/** Marco común de una categoría: barra con «volver» y contenido desplazable. */
+/** Marco común de una categoría: barra compacta con «volver» y contenido desplazable. */
 @Composable
 private fun navIcon(showBack: Boolean, onBack: () -> Unit): @Composable () -> Unit = {
     if (showBack) {
@@ -302,7 +293,7 @@ private fun SettingsPageScaffold(
 ) {
     Scaffold(
         topBar = {
-            MediumFlexibleTopAppBar(
+            TopAppBar(
                 title = { Text(stringResource(titleRes), style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = navIcon(showBack, onBack),
             )
@@ -314,36 +305,165 @@ private fun SettingsPageScaffold(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             content = content,
         )
     }
 }
 
+// ---- Bloques de composición del nuevo diseño -------------------------------
+
+/** Círculo tonal con un icono: la firma del patrón «Segmented settings». */
+@Composable
+private fun TonalIconCircle(icon: ImageVector, circle: Dp = 36.dp, glyph: Dp = 20.dp) {
+    Box(
+        modifier = Modifier
+            .size(circle)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(glyph),
+        )
+    }
+}
+
+/**
+ * Grupo de opciones dentro de una tarjeta: cabecera opcional + superficie
+ * sólida `surfaceContainerLow` con esquina `medium` (12 dp, token de tarjeta).
+ */
 @Composable
 private fun SettingsSection(
     title: String? = null,
-    icon: ImageVector? = null,
-    content: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 720.dp)
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .widthIn(max = 720.dp),
     ) {
-            if (title != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-        content()
+        if (title != null) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(Modifier.fillMaxWidth(), content = content)
+        }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Fila de ajuste: círculo tonal + título + descripción opcional + control a la
+ * derecha. Con `onClick` toda la fila es pulsable (filas de acción).
+ */
+@Composable
+private fun SettingsRow(
+    icon: ImageVector?,
+    title: String,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            TonalIconCircle(icon)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        trailing?.invoke()
+    }
+}
+
+/** Divisor con sangría alineado tras el círculo del icono (16 + 36 + 12 = 64 dp). */
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 64.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
+/**
+ * Control segmentado a ancho completo: cada opción pesa lo mismo, el grupo
+ * ocupa toda la tarjeta. Es el patrón favorito para opciones mutuamente
+ * excluyentes de 2 a 4 valores.
+ */
+@Composable
+private fun <T> SegmentedOptions(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, option ->
+            SegmentedButton(
+                selected = selected == option.first,
+                onClick = { onSelect(option.first) },
+                shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                modifier = Modifier.weight(1f),
+                label = { Text(option.second, maxLines = 1) },
+            )
+        }
+    }
+}
+
+/** Fila de deslizador dentro de tarjeta: título + valor actual en primario. */
+@Composable
+private fun SliderRow(
+    title: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onChange: (Float) -> Unit,
+    onCommit: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                valueLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            onValueChangeFinished = onCommit,
+            valueRange = valueRange,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 @Composable
 private fun AppearancePage(
     store: Store,
@@ -357,53 +477,48 @@ private fun AppearancePage(
     var dynamicColor by remember { mutableStateOf(prefs.dynamicColor) }
 
     SettingsPageScaffold(R.string.settings_appearance, onBack, showBack) {
-        SettingsSection(stringResource(R.string.settings_app_theme), Icons.Default.DarkMode) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppThemeMode.entries.forEach { option ->
-                    FilterChip(
-                        selected = mode == option,
-                        onClick = {
-                            mode = option
-                            prefs.appThemeMode = option.name
-                            store.savePrefs()
-                            onThemeModeChanged(option)
-                        },
-                        label = { Text(option.label) },
-                    )
-                }
+        SettingsSection(title = stringResource(R.string.settings_app_theme)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedOptions(
+                    options = AppThemeMode.entries.map { it to it.label },
+                    selected = mode,
+                    onSelect = { option ->
+                        mode = option
+                        prefs.appThemeMode = option.name
+                        store.savePrefs()
+                        onThemeModeChanged(option)
+                    },
+                )
             }
         }
-        SettingsSection(stringResource(R.string.settings_dynamic_colors), Icons.Default.Palette) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        stringResource(if (dynamicColor) R.string.settings_on else R.string.settings_off)
-                    } else {
-                        stringResource(R.string.settings_dynamic_colors_off)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = dynamicColor,
-                    enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-                    onCheckedChange = {
-                        dynamicColor = it
-                        prefs.dynamicColor = it
-                        store.savePrefs()
-                        onDynamicColorChanged(it)
-                    },
-                )
-            }
+        SettingsSection {
+            val canDynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            SettingsRow(
+                icon = Icons.Default.Palette,
+                title = stringResource(R.string.settings_dynamic_colors),
+                subtitle = when {
+                    canDynamic -> stringResource(
+                        if (dynamicColor) R.string.settings_on else R.string.settings_off,
+                    )
+                    else -> stringResource(R.string.settings_dynamic_colors_off)
+                },
+                trailing = {
+                    Switch(
+                        checked = dynamicColor,
+                        enabled = canDynamic,
+                        onCheckedChange = {
+                            dynamicColor = it
+                            prefs.dynamicColor = it
+                            store.savePrefs()
+                            onDynamicColorChanged(it)
+                        },
+                    )
+                },
+            )
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReaderPage(store: Store, onBack: () -> Unit, showBack: Boolean = true) {
     val prefs = store.prefs
@@ -415,130 +530,126 @@ private fun ReaderPage(store: Store, onBack: () -> Unit, showBack: Boolean = tru
     var paged by remember { mutableStateOf(prefs.paged) }
 
     SettingsPageScaffold(R.string.settings_reader_defaults, onBack, showBack) {
-        SettingsSection(stringResource(R.string.settings_reading_mode), Icons.AutoMirrored.Filled.MenuBook) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = !paged,
-                    onClick = {
-                        paged = false
-                        prefs.paged = false
-                        store.savePrefs()
-                    },
-                    label = { Text(stringResource(R.string.settings_scroll)) },
-                )
-                FilterChip(
+        SettingsSection(title = stringResource(R.string.settings_reading_mode)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedOptions(
+                    options = listOf(
+                        false to stringResource(R.string.settings_scroll),
+                        true to stringResource(R.string.settings_paged),
+                    ),
                     selected = paged,
-                    onClick = {
-                        paged = true
-                        prefs.paged = true
+                    onSelect = { option ->
+                        paged = option
+                        prefs.paged = option
                         store.savePrefs()
                     },
-                    label = { Text(stringResource(R.string.settings_paged)) },
                 )
             }
         }
 
-        SettingsSection(stringResource(R.string.settings_reading_theme), Icons.Default.Brightness6) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Muestras reales: cada tesela pinta su propio fondo y texto, así la
+        // elección se ve antes de abrir el lector.
+        SettingsSection(title = stringResource(R.string.settings_reading_theme)) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Store.ReaderTheme.entries.forEach { option ->
-                    FilterChip(
-                        selected = theme == option,
-                        onClick = {
-                            theme = option
-                            prefs.theme = option
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(option.labelRes)) },
-                    )
+                    val (bg, fg, _) = readerColors.getValue(option)
+                    val tileShape = MaterialTheme.shapes.small
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(tileShape)
+                            .background(bg)
+                            .then(
+                                if (theme == option) {
+                                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, tileShape)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clickable {
+                                theme = option
+                                prefs.theme = option
+                                store.savePrefs()
+                            }
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "Aa",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = fg,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            stringResource(option.labelRes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = fg,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
 
-        SettingsSection(stringResource(R.string.settings_font_size), Icons.Default.FormatSize) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(
-                    value = fontSize.toFloat(),
-                    onValueChange = { fontSize = it.toInt() },
-                    onValueChangeFinished = {
-                        prefs.fontSizeSp = fontSize
-                        store.savePrefs()
-                    },
-                    valueRange = 13f..28f,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                )
-                Text("A", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text(
-                "$fontSize sp",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-        }
-
-        SettingsSection(stringResource(R.string.settings_line_height), Icons.Default.FormatLineSpacing) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("1.2", style = MaterialTheme.typography.labelSmall)
-                Slider(
-                    value = lineHeight,
-                    onValueChange = { lineHeight = it },
-                    onValueChangeFinished = {
-                        prefs.lineHeight = lineHeight
-                        store.savePrefs()
-                    },
-                    valueRange = 1.2f..2.4f,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                )
-                Text("2.4", style = MaterialTheme.typography.labelSmall)
-            }
-            Text(
-                "%.2f".format(lineHeight),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-        }
-
-        SettingsSection(stringResource(R.string.settings_margins), Icons.Default.Margin) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    0 to R.string.settings_margins_narrow,
-                    1 to R.string.settings_margins_normal,
-                    2 to R.string.settings_margins_wide,
-                ).forEach { (value, labelRes) ->
-                    FilterChip(
-                        selected = margins == value,
-                        onClick = {
-                            margins = value
-                            prefs.margins = value
-                            store.savePrefs()
-                        },
-                        label = { Text(stringResource(labelRes)) },
-                    )
-                }
-            }
-        }
-
-        SettingsSection(stringResource(R.string.settings_typography), Icons.Default.FontDownload) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
+        SettingsSection(title = stringResource(R.string.settings_typography)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedOptions(
+                    options = listOf(
+                        true to stringResource(R.string.settings_serif),
+                        false to stringResource(R.string.settings_sans),
+                    ),
                     selected = serif,
-                    onClick = {
-                        serif = true
-                        prefs.serif = true
+                    onSelect = { option ->
+                        serif = option
+                        prefs.serif = option
                         store.savePrefs()
                     },
-                    label = { Text(stringResource(R.string.settings_serif)) },
                 )
-                FilterChip(
-                    selected = !serif,
-                    onClick = {
-                        serif = false
-                        prefs.serif = false
+            }
+            RowDivider()
+            SliderRow(
+                title = stringResource(R.string.settings_font_size),
+                valueLabel = "$fontSize sp",
+                value = fontSize.toFloat(),
+                valueRange = 13f..28f,
+                onChange = { fontSize = it.toInt() },
+                onCommit = {
+                    prefs.fontSizeSp = fontSize
+                    store.savePrefs()
+                },
+            )
+            RowDivider()
+            SliderRow(
+                title = stringResource(R.string.settings_line_height),
+                valueLabel = "%.2f".format(lineHeight),
+                value = lineHeight,
+                valueRange = 1.2f..2.4f,
+                onChange = { lineHeight = it },
+                onCommit = {
+                    prefs.lineHeight = lineHeight
+                    store.savePrefs()
+                },
+            )
+        }
+
+        SettingsSection(title = stringResource(R.string.settings_margins)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedOptions(
+                    options = listOf(
+                        0 to stringResource(R.string.settings_margins_narrow),
+                        1 to stringResource(R.string.settings_margins_normal),
+                        2 to stringResource(R.string.settings_margins_wide),
+                    ),
+                    selected = margins,
+                    onSelect = { option ->
+                        margins = option
+                        prefs.margins = option
                         store.savePrefs()
                     },
-                    label = { Text(stringResource(R.string.settings_sans)) },
                 )
             }
         }
@@ -553,22 +664,27 @@ private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -
     var commentEmail by remember { mutableStateOf(prefs.commentEmail) }
 
     SettingsPageScaffold(R.string.settings_comments, onBack, showBack) {
-        OutlinedTextField(
-            value = commentName,
-            onValueChange = { commentName = it },
-            label = { Text(stringResource(R.string.settings_name)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = commentEmail,
-            onValueChange = { commentEmail = it },
-            label = { Text(stringResource(R.string.settings_email)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
+        SettingsSection {
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = commentName,
+                    onValueChange = { commentName = it },
+                    label = { Text(stringResource(R.string.settings_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = commentEmail,
+                    onValueChange = { commentEmail = it },
+                    label = { Text(stringResource(R.string.settings_email)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         PrimaryCtaButton(
             onClick = {
                 prefs.commentName = commentName.trim()
@@ -576,14 +692,14 @@ private fun CommentsPage(store: Store, snackbar: SnackbarHostState, onBack: () -
                 store.savePrefs()
                 scope.launch { snackbar.showSnackbar("Datos guardados") }
             },
-            modifier = Modifier.widthIn(max = 320.dp),
+            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
         ) {
             Text(stringResource(R.string.settings_save))
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState, onBack: () -> Unit, showBack: Boolean = true) {
     val store = container.store
@@ -614,54 +730,57 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
     }
 
     SettingsPageScaffold(R.string.settings_translation, onBack, showBack) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = provider != "ai",
-                onClick = { provider = "google" },
-                label = { Text("Google") },
-            )
-            FilterChip(
-                selected = provider == "ai",
-                onClick = { provider = "ai" },
-                label = { Text("IA (OpenAI)") },
-            )
+        SettingsSection(title = stringResource(R.string.settings_translation)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedOptions(
+                    options = listOf(
+                        "google" to "Google",
+                        "ai" to "IA (OpenAI)",
+                    ),
+                    selected = provider,
+                    onSelect = { provider = it },
+                )
+            }
         }
         if (provider == "ai") {
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
-                label = { Text("Base URL") },
-                placeholder = { Text("https://api.openai.com/v1") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedSecureTextField(
-                state = apiKeyState,
-                label = { Text("API key") },
-                textObfuscationMode = if (showKey) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
-                trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
-                        Icon(
-                            if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (showKey) "Ocultar API key" else "Mostrar API key",
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = model,
-                onValueChange = { model = it },
-                label = { Text("Modelo") },
-                placeholder = { Text("gpt-4o-mini") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsSection {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { baseUrl = it },
+                        label = { Text("Base URL") },
+                        placeholder = { Text("https://api.openai.com/v1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedSecureTextField(
+                        state = apiKeyState,
+                        label = { Text("API key") },
+                        textObfuscationMode = if (showKey) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
+                        trailingIcon = {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (showKey) "Ocultar API key" else "Mostrar API key",
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = { model = it },
+                        label = { Text("Modelo") },
+                        placeholder = { Text("gpt-4o-mini") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
         }
-        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SecondaryOutlinedButton(
                 onClick = {
@@ -691,7 +810,7 @@ private fun TranslationPage(container: AppContainer, snackbar: SnackbarHostState
                 modifier = Modifier.weight(1f),
             ) {
                 if (testing) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    LoadingIndicator(modifier = Modifier.size(16.dp))
                 } else {
                     Text(stringResource(R.string.settings_test), maxLines = 1)
                 }
@@ -769,22 +888,18 @@ private fun BackupPage(store: Store, snackbar: SnackbarHostState, onBack: () -> 
     }
 
     SettingsPageScaffold(R.string.settings_backup, onBack, showBack) {
-        SecondaryOutlinedButton(
-            onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.settings_export))
-        }
-        Spacer(Modifier.height(8.dp))
-        SecondaryOutlinedButton(
-            onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.settings_import))
+        SettingsSection {
+            SettingsRow(
+                icon = Icons.Default.FileDownload,
+                title = stringResource(R.string.settings_export),
+                onClick = { exportLauncher.launch("ao3-lector-copia-${System.currentTimeMillis()}.json") },
+            )
+            RowDivider()
+            SettingsRow(
+                icon = Icons.Default.Upload,
+                title = stringResource(R.string.settings_import),
+                onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+            )
         }
     }
 

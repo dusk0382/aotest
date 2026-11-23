@@ -17,6 +17,8 @@
     <string name="home_search_placeholder">Search AO3</string>
     <string name="home_chapter_cap">Ch. %1$d</string>
     <string name="home_continue">Continue reading</string>
+    <string name="home_empty_title">Start your library</string>
+    <string name="home_empty_desc">Search AO3 and open a work: it will appear here to continue where you left off.</string>
     <string name="library_explore">Browse works</string>
     <string name="home_nothing">Nothing to continue</string>
     <string name="home_remove_continue">Remove from Continue reading</string>
@@ -46,12 +48,14 @@
     <string name="library_nothing_downloaded">No downloads</string>
 
     <!-- Settings -->
+    <string name="settings_appearance_desc">Light, dark theme and dynamic colors</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_app_theme">App theme</string>
     <string name="settings_on">On</string>
     <string name="settings_off">Off</string>
     <string name="settings_dynamic_colors">Dynamic colors</string>
     <string name="settings_dynamic_colors_off">Requires Android 12 or later.</string>
+    <string name="settings_reader_defaults_desc">Typography, margins and reading mode</string>
     <string name="settings_reader_defaults">Reader settings</string>
     <string name="settings_reading_mode">Reading mode</string>
     <string name="settings_scroll">Continuous scroll</string>
@@ -66,13 +70,16 @@
     <string name="settings_typography">Typography</string>
     <string name="settings_serif">Serif</string>
     <string name="settings_sans">Sans serif</string>
+    <string name="settings_comments_desc">Guest name and email</string>
     <string name="settings_comments">Comments</string>
     <string name="settings_name">Name</string>
     <string name="settings_email">Email</string>
+    <string name="settings_translation_desc">Google or OpenAI-compatible API</string>
     <string name="settings_translation">Translations</string>
     <string name="settings_not_set">Not set</string>
     <string name="settings_test">Test</string>
     <string name="settings_save">Save</string>
+    <string name="settings_backup_desc">Export and import your library</string>
     <string name="settings_backup">Backup</string>
     <string name="settings_export">Export</string>
     <string name="settings_import">Import</string>
