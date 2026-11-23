@@ -78,7 +78,7 @@ fun WorkCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.surfaceContainerLow,
+        color = colors.surfaceContainer,
         onClick = onClick,
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
