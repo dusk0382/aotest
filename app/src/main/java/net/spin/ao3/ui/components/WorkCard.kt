@@ -148,11 +148,10 @@ fun WorkCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     tagLinks.forEachIndexed { i, tag ->
-                        if (i > 0) {
-                            Text("·", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                        }
+                        // El separador viaja con su tag: nunca queda colgando
+                        // al final de una línea al envolver.
                         Text(
-                            text = tag,
+                            text = if (i == 0) tag else "· $tag",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -161,11 +160,12 @@ fun WorkCard(
                         )
                     }
                     if (hiddenCount > tagLinks.size) {
-                        if (tagLinks.isNotEmpty()) {
-                            Text("·", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                        }
                         Text(
-                            text = "+${hiddenCount - tagLinks.size} más",
+                            text = if (tagLinks.isEmpty()) {
+                                "+${hiddenCount - tagLinks.size} más"
+                            } else {
+                                "· +${hiddenCount - tagLinks.size} más"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.onSurfaceVariant,
                             modifier = Modifier.clickable { showAllTags = true },
