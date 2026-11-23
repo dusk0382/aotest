@@ -103,11 +103,7 @@ import net.spin.ao3.data.model.Ao3Comment
 import net.spin.ao3.data.model.ChapterInfo
 import net.spin.ao3.data.model.WorkDetail
 import net.spin.ao3.data.model.WorkSummary
-import net.spin.ao3.ui.components.AdditionalColor
-import net.spin.ao3.ui.components.CategoryColor
-import net.spin.ao3.ui.components.CharacterColor
-import net.spin.ao3.ui.components.FandomColor
-import net.spin.ao3.ui.components.RelationshipColor
+import net.spin.ao3.ui.components.WorkStatsBlock
 import net.spin.ao3.ui.components.TagChip
 import net.spin.ao3.ui.components.TagChipSolid
 import net.spin.ao3.ui.components.TagChipVariant
@@ -478,13 +474,7 @@ fun WorkDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 },
-                title = {
-                    Text(
-                        detail?.summary?.title ?: "Obra",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                },
+                title = {},
                 actions = {
                     IconButton(onClick = { toggleSaved() }) {
                         Icon(
@@ -608,6 +598,15 @@ fun WorkDetailScreen(
                     }
                     item {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            // El título vive en el contenido: la barra solo lleva
+                            // volver + acciones, y título/autor scrollean juntos.
+                            Text(
+                                d.summary.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            Spacer(Modifier.height(6.dp))
                             val authorUser = usernameFromAuthorUrl(d.summary.authorUrl)
                             Text(
                                 d.summary.author,
@@ -630,32 +629,19 @@ fun WorkDetailScreen(
                                     val (bg, fg) = warningSolidColors()
                                     TagChipSolid(it, bg, fg)
                                 }
-                                d.summary.categories.forEach { TagChip(it, CategoryColor, variant = TagChipVariant.OUTLINED) }
+                                d.summary.categories.forEach { TagChip(it, MaterialTheme.colorScheme.onSurfaceVariant, variant = TagChipVariant.OUTLINED) }
                             }
                             Spacer(Modifier.height(14.dp))
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    StatBig("${formatCount(d.summary.words)}", "palabras", Modifier.weight(1f))
-                                    StatBig(
-                                        if (d.summary.chapterTotal != null) {
-                                            "${d.summary.chapterCount}/${d.summary.chapterTotal}"
-                                        } else {
-                                            "${d.summary.chapterCount}+"
-                                        },
-                                        "capítulos",
-                                        Modifier.weight(1f),
-                                    )
-                                    StatBig("${formatCount(d.summary.hits)}", "visitas", Modifier.weight(1f))
-                                    StatBig("${formatCount(d.summary.kudos)}", "kudos", Modifier.weight(1f))
-                                }
-                            }
+                            WorkStatsBlock(
+                                words = formatCount(d.summary.words),
+                                chapters = if (d.summary.chapterTotal != null) {
+                                    "${d.summary.chapterCount}/${d.summary.chapterTotal}"
+                                } else {
+                                    "${d.summary.chapterCount}+"
+                                },
+                                hits = formatCount(d.summary.hits),
+                                kudos = formatCount(d.summary.kudos),
+                            )
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 listOfNotNull(
@@ -759,16 +745,16 @@ fun WorkDetailScreen(
                     }
 
                     if (d.relationships.isNotEmpty()) {
-                        item { TagSection("Relaciones", d.relationships, RelationshipColor, TagChipVariant.OUTLINED, onOpenTag) }
+                        item { TagSection("Relaciones", d.relationships, MaterialTheme.colorScheme.primary, TagChipVariant.OUTLINED, onOpenTag) }
                     }
                     if (d.characters.isNotEmpty()) {
-                        item { TagSection("Personajes", d.characters, CharacterColor, TagChipVariant.FILLED_TERTIARY, onOpenTag) }
+                        item { TagSection("Personajes", d.characters, MaterialTheme.colorScheme.tertiary, TagChipVariant.FILLED_TERTIARY, onOpenTag) }
                     }
                     if (d.additionalTags.isNotEmpty()) {
-                        item { TagSection("Etiquetas adicionales", d.additionalTags, AdditionalColor, TagChipVariant.OUTLINED, onOpenTag) }
+                        item { TagSection("Etiquetas adicionales", d.additionalTags, MaterialTheme.colorScheme.onSurfaceVariant, TagChipVariant.OUTLINED, onOpenTag) }
                     }
                     if (d.summary.fandoms.isNotEmpty()) {
-                        item { TagSection("Fandoms", d.summary.fandoms, FandomColor, TagChipVariant.FILLED_SECONDARY, onOpenTag) }
+                        item { TagSection("Fandoms", d.summary.fandoms, MaterialTheme.colorScheme.secondary, TagChipVariant.FILLED_SECONDARY, onOpenTag) }
                     }
 
                     item {
@@ -1198,14 +1184,6 @@ private fun TagSection(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun StatBig(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

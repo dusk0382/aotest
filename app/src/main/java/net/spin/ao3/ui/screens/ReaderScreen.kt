@@ -78,6 +78,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -960,11 +961,21 @@ fun ReaderScreen(
                     .windowInsetsPadding(WindowInsets.statusBars),
             ) {
                 Column {
+                    // Contenedor tonal SÓLIDO (mezcla opaca bg/fg, nunca alpha)
+                    // para los botones de la barra: visibles en los 4 temas del
+                    // lector, sin depender del fondo que haya detrás.
+                    val chromeButtonColors = IconButtonDefaults.iconButtonColors(
+                        containerColor = lerp(readerBgColor(theme), readerFgColor(theme), 0.16f),
+                        contentColor = readerFgColor(theme),
+                    )
                     Row(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = { saveProgressNow(); onBack() }) {
+                        IconButton(
+                            onClick = { saveProgressNow(); onBack() },
+                            colors = chromeButtonColors,
+                        ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Volver",
@@ -999,10 +1010,13 @@ fun ReaderScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = {
-                            searchOpen = !searchOpen
-                            if (!searchOpen) clearSearch()
-                        }) {
+                        IconButton(
+                            onClick = {
+                                searchOpen = !searchOpen
+                                if (!searchOpen) clearSearch()
+                            },
+                            colors = chromeButtonColors,
+                        ) {
                             Icon(
                                 Icons.Default.Search,
                                 contentDescription = "Buscar en el capítulo",
@@ -1012,7 +1026,10 @@ fun ReaderScreen(
                         // Overflow menu keeps the reading surface focused: only
                         // search stays visible; secondary actions live here.
                         Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
+                            IconButton(
+                                onClick = { showMoreMenu = true },
+                                colors = chromeButtonColors,
+                            ) {
                                 Icon(
                                     Icons.Default.MoreVert,
                                     contentDescription = "Más opciones",

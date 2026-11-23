@@ -143,17 +143,23 @@ fun TagChip(
     }
 }
 
-// ---- Tag accent colors (one per category; drive the dot or tinted fill) ------
-// Identidad azul tinta + hielo. SOLID variant: texto, puntos y bordes, nunca un
-// lavado translúcido. Los nombres y usos se conservan; cambian los valores.
-
-val FandomColor = Color(0xFF315DA8)
-val RatingColor = Color(0xFF9B6400)
-val WarningColor = Color(0xFFB3263C)
-val CategoryColor = Color(0xFF243B6B)
-val RelationshipColor = Color(0xFFB83B5E)
-val CharacterColor = Color(0xFF237A57)
-val AdditionalColor = Color(0xFF65717B)
+// ---- Paleta de chips (skill android-design: roles, no hex sueltos) ---------
+// Cada categoría de metadato AO3 se pinta con un ROL del esquema, no con hex
+// hechos a mano: se adapta solo a claro/oscuro/contraste/Material You y los
+// pares contenedor/contenido garantizan el contraste. El reparto por rango:
+//
+//  - Relaciones   → OUTLINED  + punto `primary` (el tag principal de AO3)
+//  - Fandoms      → FILLED_SECONDARY (secondaryContainer = familia hielo)
+//  - Personajes   → FILLED_TERTIARY  (tertiaryContainer)
+//  - Libres       → OUTLINED  + punto `onSurfaceVariant` (sabor, se retira)
+//  - Categorías   → OUTLINED  + punto `onSurfaceVariant` (estructural, callado)
+//  - Valoración   → TagChipSolid con su escala semántica (ancla de seguridad)
+//  - Advertencias → TagChipSolid rojo (peligro, semántica fija)
+//  - Estado       → TINTED success (semántica de la app)
+//  - Filtros      → NEUTRAL   + punto `primary`
+//
+// Los hex sueltos anteriores (7 tonos discordantes con la marca) se eliminan:
+// la consistencia viene de usar SIEMPRE el mismo rol para la misma categoría.
 
 /**
  * Rating accent color. Returns the dark-mode pastel variant on dark themes
@@ -231,11 +237,11 @@ private fun TagChipPreview() {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TagChip("Fandom · Harry Potter", FandomColor, variant = TagChipVariant.FILLED_SECONDARY, onClick = {})
-            TagChip("Personaje · Hermione", CharacterColor, variant = TagChipVariant.FILLED_TERTIARY, onClick = {})
-            TagChip("Relación · Draco/Hermione", RelationshipColor, variant = TagChipVariant.OUTLINED, onClick = {})
-            TagChip("Advertencia · Muerte", WarningColor, variant = TagChipVariant.TINTED)
-            TagChip("Etiqueta libre", AdditionalColor)
+            TagChip("Fandom · Harry Potter", MaterialTheme.colorScheme.secondary, variant = TagChipVariant.FILLED_SECONDARY, onClick = {})
+            TagChip("Personaje · Hermione", MaterialTheme.colorScheme.tertiary, variant = TagChipVariant.FILLED_TERTIARY, onClick = {})
+            TagChip("Relación · Draco/Hermione", MaterialTheme.colorScheme.primary, variant = TagChipVariant.OUTLINED, onClick = {})
+            TagChip("Advertencia · Muerte", MaterialTheme.colorScheme.error, variant = TagChipVariant.TINTED)
+            TagChip("Etiqueta libre", MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

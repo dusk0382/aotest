@@ -117,18 +117,14 @@ import net.spin.ao3.data.model.SearchFilters
 import net.spin.ao3.data.model.SortOption
 import net.spin.ao3.data.model.WARNING_OPTIONS
 import net.spin.ao3.data.model.WorkSummary
-import net.spin.ao3.ui.components.AdditionalColor
 import net.spin.ao3.ui.components.AutocompleteTagField
 import net.spin.ao3.ui.components.activeTagSegment
 import net.spin.ao3.ui.components.appendCommittedTag
-import net.spin.ao3.ui.components.CharacterColor
 import net.spin.ao3.ui.components.committedTagSegments
 import net.spin.ao3.ui.components.EmptyState
 import net.spin.ao3.ui.components.AdaptiveSheet
 import net.spin.ao3.ui.components.PrimaryCtaButton
 import net.spin.ao3.ui.components.SecondaryTonalButton
-import net.spin.ao3.ui.components.FandomColor
-import net.spin.ao3.ui.components.RelationshipColor
 import net.spin.ao3.ui.components.removeCommittedTag
 import net.spin.ao3.ui.components.replaceActiveSegment
 import net.spin.ao3.ui.components.TagChip
@@ -433,12 +429,12 @@ fun SearchScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item {
-                    ActiveFilterSummary(
-                        currentFilters,
-                        currentSort,
-                        totalResults?.let { "${formatCount(it.toLong())} obras" } ?: "${results.size} resultados",
-                    )
+                // Cabecera solo cuando aporta: filtros activos u orden distinto
+                // del default. El recuento «N resultados» no ayuda a elegir.
+                if (activeFilterCount(currentFilters) > 0 || currentSort != SortOption.BEST_MATCH) {
+                    item {
+                        ActiveFilterSummary(currentFilters, currentSort)
+                    }
                 }
                 if (filtersNotApplied) {
                     item {
@@ -566,7 +562,7 @@ private fun activeFilterCount(f: SearchFilters): Int {
 }
 
 @Composable
-private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption, countText: String) {
+private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption) {
     val parts = mutableListOf<String>()
     f.tag?.let { parts.add(it) }
     f.rating?.let { r -> RATING_OPTIONS.firstOrNull { it.id == r }?.let { parts.add("Rating: ${it.label}") } }
@@ -584,18 +580,18 @@ private fun ActiveFilterSummary(f: SearchFilters, sort: SortOption, countText: S
     f.excludeRating?.let { r -> RATING_OPTIONS.firstOrNull { it.id == r }?.let { parts.add("Sin: ${it.label}") } }
     f.excludeWarnings.forEach { w -> WARNING_OPTIONS.firstOrNull { it.id == w }?.let { parts.add("Sin ⚠: ${it.label}") } }
     f.excludeCategories.forEach { c -> CATEGORY_OPTIONS.firstOrNull { it.id == c }?.let { parts.add("Sin: ${it.label}") } }
-    // Una sola línea callada: recuento + orden. Los filtros activos, si los
-    // hay, van debajo como chips (tienen trabajo: recordar qué se pidió).
-    Text(
-        "$countText · Ordenadas por ${sort.label}",
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    // Filtros activos como chips (tienen trabajo: recordar qué se pidió);
+    // si no hay, solo el orden cuando no es el default.
     if (parts.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             parts.forEach { TagChip(it, MaterialTheme.colorScheme.primary) }
         }
+    } else if (sort != SortOption.BEST_MATCH) {
+        Text(
+            "Ordenadas por ${sort.label}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -807,7 +803,7 @@ private fun FilterSheet(
             CategoryTagField(
                 label = "Fandoms",
                 type = AutocompleteType.FANDOM,
-                accent = FandomColor,
+                accent = MaterialTheme.colorScheme.secondary,
                 selected = f.fandomNames,
                 onSelectedChange = { f = f.copy(fandomNames = it) },
                 container = container,
@@ -816,7 +812,7 @@ private fun FilterSheet(
             CategoryTagField(
                 label = "Personajes",
                 type = AutocompleteType.CHARACTER,
-                accent = CharacterColor,
+                accent = MaterialTheme.colorScheme.tertiary,
                 selected = f.characterNames,
                 onSelectedChange = { f = f.copy(characterNames = it) },
                 container = container,
@@ -825,7 +821,7 @@ private fun FilterSheet(
             CategoryTagField(
                 label = "Relaciones",
                 type = AutocompleteType.RELATIONSHIP,
-                accent = RelationshipColor,
+                accent = MaterialTheme.colorScheme.primary,
                 selected = f.relationshipNames,
                 onSelectedChange = { f = f.copy(relationshipNames = it) },
                 container = container,
@@ -834,7 +830,7 @@ private fun FilterSheet(
             CategoryTagField(
                 label = "Tags adicionales",
                 type = AutocompleteType.FREEFORM,
-                accent = AdditionalColor,
+                accent = MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = f.freeformNames,
                 onSelectedChange = { f = f.copy(freeformNames = it) },
                 container = container,
