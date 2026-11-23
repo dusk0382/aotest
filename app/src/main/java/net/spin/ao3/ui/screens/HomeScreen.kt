@@ -287,18 +287,21 @@ private fun ContinueReadingHero(
                 Column(Modifier.weight(1f)) {
                     // Ráfaga Expressive: el porcentaje vive dentro de una forma
                     // de la librería MaterialShapes (tinta sólida + cifra clara).
+                    // La forma abraza al texto (padding, no tamaño fijo): con
+                    // fuente al 200% la ráfaga crece con él en vez de recortarlo.
                     Box(contentAlignment = Alignment.Center) {
                         Box(
                             Modifier
-                                .size(84.dp)
                                 .clip(MaterialShapes.Sunny.toShape())
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                        Text(
-                            "${(progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleLargeEmphasized,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
+                                .background(MaterialTheme.colorScheme.primary)
+                                .padding(horizontal = 24.dp, vertical = 20.dp),
+                        ) {
+                            Text(
+                                "${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(

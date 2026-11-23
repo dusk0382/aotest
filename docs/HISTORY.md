@@ -1715,3 +1715,27 @@ tumbó: «feo y con poca jerarquía», luego «chips gigantes, compacta»):
   veces hoy): para iterar en el dispositivo se instala el artefacto RELEASE
   (firma de secrets, estable). Ojo: release no es debuggable → `run-as`
   imposible → los datos de prueba se pierden al cambiar debug↔release.
+
+## Ronda 2026-11-23 (madrugada) — capa Expressive visible
+
+El usuario pidió más vida («faltan shapes, decoraciones») con la skill al
+máximo. La base ya estaba (MotionScheme.expressive, wavy progress, botones
+que morphean, sellos en vacíos); lo que faltaba era que se VIERA:
+
+- **Héroe de Inicio**: el % de progreso vive dentro de una ráfaga
+  `MaterialShapes.Sunny` en tinta (primary) con cifra en onPrimary; la forma
+  abraza al texto (padding, no tamaño fijo) para sobrevivir a fuente 200%.
+- **Portada editorial**: «AO3 Lector» sube a displaySmall (Fraunces) en el
+  header de Inicio — la app arranca con voz, no con una etiqueta de barra.
+- **Sello de marca recurrente**: los círculos de icono de Ajustes pasan a
+  sellos Cookie9Sided (misma forma que los estados vacíos): un sistema de
+  sellos, no decoración suelta.
+- **Micro-motion con significado**: el corazón de favoritos de la ficha
+  morphea al marcar (AnimatedContent, fadeIn+scaleIn 0.6 con specs
+  fastEffects/fastSpatial del motionScheme, fadeOut snap). Verificado el
+  toggle en dispositivo.
+- **Estados vacíos**: el sello entra con escala 0.7→1 + fade del motionScheme.
+- Notas de API alpha23: las specs de MotionScheme son GENÉRICAS
+  (`<T> FiniteAnimationSpec<T>`) — sin contexto no infieren; resolverlas en
+  un `val` exige tipo explícito (`defaultSpatialSpec<Float>()`) y fuera de
+  lambdas no-composable (transitionSpec, animateTo).
