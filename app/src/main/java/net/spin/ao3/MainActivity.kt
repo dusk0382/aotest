@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
         val style = if (dark) {
             SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         } else {
-            SystemBarStyle.light(AndroidColor.TRANSPARENT)
+            SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
         }
         enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
         setContent { AppRoot() }

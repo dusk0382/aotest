@@ -1101,7 +1101,7 @@ fun ReaderScreen(
                                         },
                                     )
                                 }
-                                Spacer(Modifier.height(MenuDefaults.groupSpacing))
+                                Spacer(Modifier.height(MenuDefaults.GroupSpacing))
                                 DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
                                     DropdownMenuItem(
                                         text = {
