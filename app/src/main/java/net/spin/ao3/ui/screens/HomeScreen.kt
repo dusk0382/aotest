@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -278,7 +279,11 @@ private fun ContinueReadingHero(
     val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLargeIncreased,
+        // Esquinas expresivas asimétricas: tres grandes y una cuadrada — la
+        // tensión redondo/cuadrado marca el héroe de la pantalla.
+        shape = RoundedCornerShape(
+            topStart = 32.dp, topEnd = 32.dp, bottomStart = 32.dp, bottomEnd = 4.dp,
+        ),
         color = colors.primaryContainer,
         contentColor = colors.onPrimaryContainer,
     ) {

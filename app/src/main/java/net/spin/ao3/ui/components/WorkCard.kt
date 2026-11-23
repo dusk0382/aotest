@@ -78,7 +78,7 @@ fun WorkCard(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.largeIncreased,
         color = colors.surfaceContainer,
         onClick = onClick,
     ) {

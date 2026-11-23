@@ -4,12 +4,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -18,7 +20,12 @@ import androidx.compose.ui.unit.dp
  * y las tarjetas de resultado: una sola voz numérica en toda la app.
  */
 @Composable
-fun StatBig(value: String, label: String, modifier: Modifier = Modifier) {
+fun StatBig(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             value,
@@ -28,7 +35,7 @@ fun StatBig(value: String, label: String, modifier: Modifier = Modifier) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = labelColor,
         )
     }
 }
@@ -47,9 +54,14 @@ fun WorkStatsBlock(
     modifier: Modifier = Modifier,
     dense: Boolean = false,
 ) {
+    // En la ficha (no dense) el bloque lleva color propio: los números clave
+    // son el segundo acento de la pantalla (secondaryContainer). En las
+    // tarjetas de búsqueda se queda en superficie para no competir.
+    val container = if (dense) MaterialTheme.colorScheme.surfaceContainerHighest
+    else MaterialTheme.colorScheme.secondaryContainer
     Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = MaterialTheme.shapes.largeIncreased,
+        color = container,
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
@@ -62,10 +74,11 @@ fun WorkStatsBlock(
                 StatBigDense(hits, "visitas", Modifier.weight(1f))
                 StatBigDense(kudos, "kudos", Modifier.weight(1f))
             } else {
-                StatBig(words, "palabras", Modifier.weight(1f))
-                StatBig(chapters, "capítulos", Modifier.weight(1f))
-                StatBig(hits, "visitas", Modifier.weight(1f))
-                StatBig(kudos, "kudos", Modifier.weight(1f))
+                val labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                StatBig(words, "palabras", Modifier.weight(1f), labelColor)
+                StatBig(chapters, "capítulos", Modifier.weight(1f), labelColor)
+                StatBig(hits, "visitas", Modifier.weight(1f), labelColor)
+                StatBig(kudos, "kudos", Modifier.weight(1f), labelColor)
             }
         }
     }

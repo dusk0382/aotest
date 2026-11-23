@@ -68,7 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
@@ -80,6 +80,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.spin.ao3.R
 import net.spin.ao3.ui.components.LocalBottomBarClearance
+import net.spin.ao3.ui.components.ShapeStamp
+import net.spin.ao3.ui.components.StampShapes
 import net.spin.ao3.data.AppContainer
 import net.spin.ao3.data.DownloadQueueService
 import net.spin.ao3.data.Store
@@ -267,6 +269,7 @@ private fun LibraryRowCard(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    stamp: RoundedPolygon = StampShapes.Historial,
     progress: Float? = null,
     trailing: @Composable () -> Unit = {},
 ) {
@@ -280,6 +283,15 @@ private fun LibraryRowCard(
             modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Sello del estado (favorito/historial/descarga): misma pieza que
+            // en Ajustes y los vacíos, con su rol tonal propio.
+            ShapeStamp(
+                icon = icon,
+                shape = stamp,
+                container = iconContainer,
+                content = iconTint,
+            )
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     title,
@@ -372,8 +384,9 @@ private fun FavoritesTab(
         gridItems(favorites, columns, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
-                iconTint = MaterialTheme.colorScheme.primary,
+                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                 iconContainer = MaterialTheme.colorScheme.primaryContainer,
+                stamp = StampShapes.Favorito,
                 title = sw.title,
                 subtitle = "${sw.author} · ${sw.chapters} ${if (sw.chapters == 1) "cap" else "caps"}",
                 onClick = { onOpen(sw.id) },
@@ -429,8 +442,9 @@ private fun HistoryTab(
             val finished = progress >= 0.97f
             LibraryRowCard(
                 icon = Icons.Default.History,
-                iconTint = MaterialTheme.colorScheme.secondary,
+                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
                 iconContainer = MaterialTheme.colorScheme.secondaryContainer,
+                stamp = StampShapes.Historial,
                 title = entry.title,
                 subtitle = buildString {
                     append("${entry.author} · Cap. ${entry.chapterIndex + 1}")
@@ -559,8 +573,9 @@ private fun DownloadsTab(
                 Column {
                     LibraryRowCard(
                         icon = Icons.Default.Download,
-                        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        iconContainer = MaterialTheme.colorScheme.surfaceVariant,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        iconContainer = MaterialTheme.colorScheme.tertiaryContainer,
+                        stamp = StampShapes.Descarga,
                         title = dl.title,
                         subtitle = "${dl.chapters.size} ${if (dl.chapters.size == 1) "capítulo" else "capítulos"}",
                         onClick = { onOpenDetail(dl.id) },
