@@ -289,6 +289,9 @@ fun SearchScreen(
     val activeFilterCount = activeFilterCount(currentFilters)
 
     Scaffold(
+        // Fondo un paso por debajo de las tarjetas (surfaceContainerLow):
+        // cada resultado se lee como un objeto, no como texto flotando.
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
         topBar = {
             val searchBarState = rememberSearchBarState()
             val queryState = rememberTextFieldState(queryDraft)
@@ -428,7 +431,7 @@ fun SearchScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
                     ActiveFilterSummary(

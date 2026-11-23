@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -188,6 +189,8 @@ fun warningSolidColors(): Pair<Color, Color> {
 /**
  * A chip with an explicit SOLID container/text pair — for the metadata that
  * must stay recognizable at a glance (ratings, warnings, completion state).
+ * [compact] reduce la píldora a 24 dp con labelSmall: para dentro de tarjetas
+ * donde la valoración es un ancla discreta, no un titular.
  */
 @Composable
 fun TagChipSolid(
@@ -195,8 +198,9 @@ fun TagChipSolid(
     container: Color,
     content: Color,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
-    val shape = MaterialTheme.shapes.small
+    val shape = if (compact) RoundedCornerShape(50) else MaterialTheme.shapes.small
     Surface(
         modifier = modifier,
         shape = shape,
@@ -205,13 +209,13 @@ fun TagChipSolid(
     ) {
         Row(
             modifier = Modifier
-                .height(32.dp)
-                .padding(horizontal = 12.dp),
+                .height(if (compact) 24.dp else 32.dp)
+                .padding(horizontal = if (compact) 8.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelMedium,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

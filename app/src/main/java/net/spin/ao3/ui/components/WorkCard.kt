@@ -39,11 +39,12 @@ import net.spin.ao3.ui.theme.Ao3Theme
 import net.spin.ao3.util.formatCount
 
 /**
- * Tarjeta de obra: catálogo editorial en calma. El título serif manda, la
- * valoración es el ÚNICO acento (ancla de seguridad) y todo lo demás es texto
- * discreto: una línea de metadatos (fandom · estado), dos tags como enlaces y
- * una línea tabular de estadísticas sin iconos. Los tags completos viven en la
- * hoja "Todos los tags" y en la ficha, no aquí.
+ * Tarjeta de obra: catálogo editorial con escalera de jerarquía de cuatro
+ * niveles — título Fraunces oscuro; enlaces en `primary` (autor y tags, una
+ * sola voz de enlace); metadatos grises callados; y la valoración como píldora
+ * compacta, el ÚNICO relleno de color de la tarjeta (ancla de seguridad). La
+ * tarjeta vive un paso por encima del fondo (`surfaceContainerLow`) para que
+ * cada resultado se lea como un objeto.
  */
 @Composable
 fun WorkCard(
@@ -76,42 +77,39 @@ fun WorkCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.surface,
+        color = colors.surfaceContainerLow,
         onClick = onClick,
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = work.title,
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = work.author,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = if (onAuthorClick != null) Modifier.clickable(onClick = onAuthorClick) else Modifier,
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    // Único acento de la tarjeta: la valoración (ancla cognitiva
-                    // de seguridad). Las advertencias quedan para la ficha.
-                    work.rating?.let {
-                        val (bg, fg) = ratingSolidColors(work.ratingKey)
-                        TagChipSolid(it, bg, fg)
-                    }
+                // Único relleno de la tarjeta: la valoración, compacta.
+                work.rating?.let {
+                    val (bg, fg) = ratingSolidColors(work.ratingKey)
+                    TagChipSolid(it, bg, fg, compact = true)
                 }
             }
 
-            // Línea de metadatos: fandom dominante + estado, texto callado.
+            // Metadatos: fandom dominante + estado, texto callado.
             val meta = buildString {
                 work.fandoms.firstOrNull()?.let { append(it) }
                 if (work.isCompleted) {
@@ -120,7 +118,7 @@ fun WorkCard(
                 }
             }
             if (meta.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = meta,
                     style = MaterialTheme.typography.labelMedium,
@@ -130,49 +128,54 @@ fun WorkCard(
                 )
             }
 
-            // Máximo dos tags como enlaces (primero las relaciones, que es lo
-            // que la gente busca), sin puntos de colores: el color se reserva
-            // para la valoración. El resto va tras "+N más".
-            val chips = remember(work, onTagClick) {
-                buildList {
-                    val rels = work.relationships
-                    val extras = work.otherTags.filterNot { it in work.relationships || it in work.characters }
-                    val picked = when {
-                        rels.isNotEmpty() -> rels.take(2)
-                        extras.isNotEmpty() -> extras.take(2)
-                        else -> work.characters.take(2)
-                    }
-                    addAll(picked)
+            // Línea editorial de enlaces: dos tags (primero las relaciones, que
+            // es lo que la gente busca) y «+N más» para abrir la hoja completa.
+            // Sin contenedores ni puntos: la misma voz de enlace que el autor.
+            val tagLinks = remember(work) {
+                val rels = work.relationships
+                val extras = work.otherTags.filterNot { it in work.relationships || it in work.characters }
+                when {
+                    rels.isNotEmpty() -> rels.take(2)
+                    extras.isNotEmpty() -> extras.take(2)
+                    else -> work.characters.take(2)
                 }
             }
-            if (chips.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
+            val hiddenCount = tagGroups.sumOf { it.tags.size }
+            if (tagLinks.isNotEmpty() || hiddenCount > 0) {
+                Spacer(Modifier.height(6.dp))
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    chips.forEach { text ->
-                        TagChip(
-                            text = text,
-                            color = colors.onSurfaceVariant,
-                            variant = TagChipVariant.NEUTRAL,
-                            onClick = onTagClick?.let { cb -> { cb(text) } },
+                    tagLinks.forEachIndexed { i, tag ->
+                        if (i > 0) {
+                            Text("·", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                        }
+                        Text(
+                            text = tag,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = onTagClick?.let { cb -> Modifier.clickable { cb(tag) } } ?: Modifier,
                         )
                     }
-                    val hidden = tagGroups.sumOf { it.tags.size }
-                    if (hidden > chips.size) {
-                        TagChip(
-                            text = "+${hidden - chips.size} más",
+                    if (hiddenCount > tagLinks.size) {
+                        if (tagLinks.isNotEmpty()) {
+                            Text("·", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                        }
+                        Text(
+                            text = "+${hiddenCount - tagLinks.size} más",
+                            style = MaterialTheme.typography.bodySmall,
                             color = colors.onSurfaceVariant,
-                            variant = TagChipVariant.OUTLINED,
-                            onClick = { showAllTags = true },
+                            modifier = Modifier.clickable { showAllTags = true },
                         )
                     }
                 }
             }
 
             if (work.summary.isNotBlank()) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = work.summary,
                     style = MaterialTheme.typography.bodyMedium,
@@ -182,7 +185,7 @@ fun WorkCard(
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             // Estadísticas: una sola línea tabular, sin iconos.
             val chapters = if (work.chapterTotal == null) {
                 "${work.chapterCount}+ cap."
