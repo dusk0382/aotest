@@ -52,7 +52,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.DropdownMenuPopup
+import net.spin.ao3.ui.components.Ao3MenuPopup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -981,7 +981,7 @@ private fun CommentSection(
                 Text("${selectedIndex + 1}${chapters.getOrNull(selectedIndex)?.title?.let { " · $it" }?.take(40) ?: ""}")
                 Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp))
             }
-            DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
+            Ao3MenuPopup(expanded = open, onDismissRequest = { open = false }) {
                 chapters.forEachIndexed { i, ch ->
                     DropdownMenuItem(
                         text = { Text("${i + 1}. ${ch.title.ifBlank { "Sin título" }}") },
@@ -1289,7 +1289,7 @@ private fun ChapterRow(
                 Icon(Icons.Default.MoreVert, contentDescription = "Acciones del capítulo")
             }
         }
-        DropdownMenuPopup(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+        Ao3MenuPopup(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
             DropdownMenuItem(
                 text = { Text("Exportar TXT") },
                 leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
@@ -1405,7 +1405,7 @@ private fun DownloadActionsRow(
                         Icon(Icons.Default.MoreVert, contentDescription = "Más opciones de descarga", modifier = Modifier.size(18.dp))
                     }
                 }
-                DropdownMenuPopup(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                Ao3MenuPopup(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                     DropdownMenuItem(
                         text = {
                             Text(

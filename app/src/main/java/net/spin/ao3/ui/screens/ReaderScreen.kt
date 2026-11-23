@@ -68,7 +68,9 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuPopup
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -80,6 +82,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -1040,92 +1043,98 @@ fun ReaderScreen(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
                             ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            "Traducir capítulo",
-                                            color = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Translate,
-                                            contentDescription = null,
-                                            tint = if (translationOn || translating) readerAccentColor(theme) else readerFgColor(theme),
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showLangPicker = true
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "Tema oscuro" else "Tema claro",
-                                            color = readerFgColor(theme),
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.DarkMode,
-                                            contentDescription = null,
-                                            tint = readerFgColor(theme),
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
-                                            Store.ReaderTheme.BLACK
-                                        } else {
-                                            Store.ReaderTheme.LIGHT
-                                        }
-                                        applyPrefs { theme = target }
-                                        store.prefs.theme = target
-                                        store.savePrefs()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
+                                // Menú agrupado Expressive: dos grupos con
+                                // contenedor y sombra propios. Los colores son
+                                // los del TEMA (no los del tema de lectura):
+                                // el menú flota sobre la app, no sobre el papel.
+                                // Estado activo = primary.
+                                val active = MaterialTheme.colorScheme.primary
+                                DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "Traducir capítulo",
+                                                color = if (translationOn || translating) active else Color.Unspecified,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Translate,
+                                                contentDescription = null,
+                                                tint = if (translationOn || translating) active else LocalContentColor.current,
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            showLangPicker = true
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                when {
+                                                    tts.speaking -> "Pausar lectura en voz alta"
+                                                    tts.paused -> "Reanudar lectura en voz alta"
+                                                    else -> "Leer en voz alta"
+                                                },
+                                                color = if (tts.speaking || tts.paused) active else Color.Unspecified,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                when {
+                                                    tts.speaking -> Icons.Default.Pause
+                                                    tts.paused -> Icons.Default.PlayArrow
+                                                    else -> Icons.Default.VolumeUp
+                                                },
+                                                contentDescription = null,
+                                                tint = if (tts.speaking || tts.paused) active else LocalContentColor.current,
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
                                             when {
-                                                tts.speaking -> "Pausar lectura en voz alta"
-                                                tts.paused -> "Reanudar lectura en voz alta"
-                                                else -> "Leer en voz alta"
-                                            },
-                                            color = if (tts.speaking || tts.paused) readerAccentColor(theme) else readerFgColor(theme),
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            when {
-                                                tts.speaking -> Icons.Default.Pause
-                                                tts.paused -> Icons.Default.PlayArrow
-                                                else -> Icons.Default.VolumeUp
-                                            },
-                                            contentDescription = null,
-                                            tint = if (tts.speaking || tts.paused) readerAccentColor(theme) else readerFgColor(theme),
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        when {
-                                            tts.speaking -> tts.pause()
-                                            tts.paused -> tts.resume()
-                                            else -> startTts()
-                                        }
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Ajustes del lector", color = readerFgColor(theme)) },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Settings, contentDescription = null, tint = readerFgColor(theme))
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showSettings = true
-                                    },
-                                )
+                                                tts.speaking -> tts.pause()
+                                                tts.paused -> tts.resume()
+                                                else -> startTts()
+                                            }
+                                        },
+                                    )
+                                }
+                                Spacer(Modifier.height(MenuDefaults.groupSpacing))
+                                DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) "Tema oscuro" else "Tema claro",
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.DarkMode, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            val target = if (theme == Store.ReaderTheme.LIGHT || theme == Store.ReaderTheme.SEPIA) {
+                                                Store.ReaderTheme.BLACK
+                                            } else {
+                                                Store.ReaderTheme.LIGHT
+                                            }
+                                            applyPrefs { theme = target }
+                                            store.prefs.theme = target
+                                            store.savePrefs()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Ajustes del lector") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Settings, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            showSettings = true
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

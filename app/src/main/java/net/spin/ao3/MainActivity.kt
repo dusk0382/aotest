@@ -2,8 +2,11 @@ package net.spin.ao3
 
 import androidx.annotation.StringRes
 import android.app.Activity
+import android.content.res.Configuration
+import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -63,7 +66,26 @@ import net.spin.ao3.ui.theme.AppThemeMode
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // La barra de estado sigue al TEMA DE LA APP, no al del sistema: con
+        // «Claro» forzado sobre un sistema en oscuro, enableEdgeToEdge() por
+        // defecto dejaba iconos claros sobre fondo blanco (invisibles).
+        // reloadTheme() recrea la actividad al cambiar de tema, así que esto
+        // se reevalúa siempre.
+        val app = application as Ao3App
+        val sysDark =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val dark = when (AppThemeMode.from(app.container.store.prefs.appThemeMode)) {
+            AppThemeMode.DARK -> true
+            AppThemeMode.LIGHT -> false
+            AppThemeMode.SYSTEM -> sysDark
+        }
+        val style = if (dark) {
+            SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(AndroidColor.TRANSPARENT)
+        }
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
         setContent { AppRoot() }
     }
 }
