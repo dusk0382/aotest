@@ -1754,3 +1754,25 @@ que morphean, sellos en vacíos); lo que faltaba era que se VIERA:
 - **Pestañas de Biblioteca recortadas** («Favorito…», «Descarga…» con
   fuentes grandes): ToggleButton con `contentPadding` propio (6 dp),
   icono 14 dp y `labelMedium`. Verificado: las tres etiquetas completas.
+
+## Ronda 2026-11-23 (madrugada III) — segunda capa Expressive
+
+El usuario pidió MÁS vida: colores, shapes, decoraciones. Respuesta con la
+skill al máximo (las 7 preguntas) y una idea unificadora: **sistema de
+sellos** — la misma pieza (icono dentro de una forma de MaterialShapes con
+rol tonal propio) repetida con significado en toda la app:
+
+- **ShapeStamp** (componente nuevo): icono + forma + par de roles tonales.
+  Ajustes ya usaba sellos Cookie9; ahora es un sistema, no un adorno.
+- **Biblioteca**: los sellos por estado se DIBUJAN (el parámetro icon existía
+  pero nunca se pintaba): Favoritos = Heart en primaryContainer, Historial =
+  Cookie9Sided en secondaryContainer, Descargas = Pill en tertiaryContainer.
+  Un rol tonal por estado: color con significado, no decoración.
+- **Héroe de Inicio**: esquinas asimétricas 32/32/32/4 — la tensión
+  redondo/cuadrado marca el héroe (táctica Expressive de forma).
+- **Ficha**: el bloque de estadísticas pasa a secondaryContainer en la ficha
+  (los números clave son el segundo acento de la pantalla); en las tarjetas
+  de búsqueda se queda en superficie para no competir. Esquinas 20dp.
+- **Tarjetas de obra** (búsqueda/autor): 16→20dp (largeIncreased).
+- API note: el tipo de MaterialShapes es `androidx.graphics.shapes.RoundedPolygon`
+  (graphics-shapes), NO `androidx.compose.ui.graphics.shapes`.
