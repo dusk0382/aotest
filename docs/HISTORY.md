@@ -1603,3 +1603,39 @@ Con `android-design` y `unslop-ui` sobre las capturas reales del dispositivo:
   de Ajustes ni en los encabezados de sección. Contador sin centros: 0 → 0.
 - Los botones de Comentarios y Copia de seguridad dejaron de estirarse a todo
   el ancho (tope 320 dp); «Exportar» e «Importar» perdieron el icono duplicado.
+
+### Expressive integral con verificación en dispositivo (2026-11-22, tercera ronda)
+
+Con el dispositivo `DAWSAICMVKAQGQS8` conectado, cada decisión se midió con
+`android layout` (720 px = 360 dp) y se revisó con capturas:
+
+- **Motion**: cero `tween()` en la app; todo `MaterialTheme.motionScheme`
+  (`fastSpatialSpec`/`fastEffectsSpec`). Cambio de pestañas: entrada con
+  `fadeIn` + `scaleIn` desde 92 % y salida `snap()` — nunca dos pantallas a
+  alfa intermedio (el fallo del crossfade: títulos grises sobre claro).
+- **Indicadores**: 7 `CircularProgressIndicator` → `LoadingIndicator`; 5
+  `LinearProgressIndicator` → `LinearWavyProgressIndicator` (descargas y
+  exportación; el progreso de lectura sigue lineal a propósito).
+- **Sin alfas**: los `copy(alpha=…)` sobre fondos se sustituyeron por mezclas
+  sólidas con `lerp()` (`readerMuted` vive en `ReaderTheme.kt`).
+- **Shell**: píldora flotante para la barra inferior (`Surface` circular sobre
+  `surfaceContainer`); estados vacíos con sello orgánico `Cookie9Sided`;
+  chips de Biblioteca a ancho completo con icono (16 dp, verificado que
+  «Favoritos/Historial/Descargas» caben sin recortarse).
+- **Top bars: lección aprendida dos veces**. El patrón flexible
+  (`MediumFlexibleTopAppBar`) ancla el título al pie de la cabecera por
+  diseño: el usuario lo rechazó dos veces («muy abajo», «fuera de lugar»).
+  Decisión final: TODAS las barras son `TopAppBar` compactas con el título
+  alineado a la flecha (y=92 px ≈ 46 dp). No reintroducir barras flexibles.
+- **Ajustes rediseñado por completo**: tarjetas `surfaceContainerLow` con
+  esquina `medium`, filas con círculo tonal + título + descripción + control,
+  controles segmentados a ancho completo (tema, modo de lectura, tipografía,
+  márgenes, proveedor de traducción), muestras reales de los 4 temas del
+  lector (teselas que pintan su fondo y texto), deslizadores con valor en
+  primario, y Exportar/Importar como filas de acción con divisor con sangría.
+- **Gates**: `testDebugUnitTest` + `assembleDebug` en verde; verificación
+  geométrica y visual en dispositivo de Inicio, Biblioteca, Ajustes (hub,
+  Apariencia y Lector).
+- **Pendiente**: recorrido con búsqueda real (ficha de obra y lector con
+  contenido); Comentarios/Traducción/Copias usan los mismos bloques verificados
+  pero sin inspección pantalla a pantalla.
