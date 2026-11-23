@@ -487,11 +487,15 @@ fun WorkDetailScreen(
                     IconButton(onClick = { toggleSaved() }) {
                         // Micro-motion con significado: el corazón crece y se
                         // rellena con las specs del motionScheme al marcar.
+                        // Las specs se resuelven aquí (contexto composable): el
+                        // lambda transitionSpec no lo es.
+                        val fillSpec = MaterialTheme.motionScheme.fastEffectsSpec()
+                        val growSpec = MaterialTheme.motionScheme.fastSpatialSpec()
                         AnimatedContent(
                             targetState = saved,
                             transitionSpec = {
-                                (fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
-                                    scaleIn(initialScale = 0.6f, animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()))
+                                (fadeIn(fillSpec) +
+                                    scaleIn(initialScale = 0.6f, animationSpec = growSpec))
                                     .togetherWith(fadeOut(snap()))
                             },
                             label = "favorito",

@@ -321,6 +321,7 @@ private fun SettingsPageScaffold(
 
 /** Círculo tonal con un icono: la firma del patrón «Segmented settings». */
 @Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun TonalIconCircle(icon: ImageVector, circle: Dp = 36.dp, glyph: Dp = 20.dp) {
     // Sello de marca: la misma forma Cookie9Sided que los estados vacíos —
     // un sistema de sellos recurrente, no círculos genéricos.
