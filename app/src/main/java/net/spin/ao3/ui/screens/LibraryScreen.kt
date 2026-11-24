@@ -322,16 +322,14 @@ private fun LibraryRowCard(
     }
 }
 
-/** Filas de [columns] celdas dentro del LazyColumn existente. */
+/** Filas ya partidas de [columns] celdas dentro del LazyColumn existente.
+ *  El chunked se hace en composición (remember) en cada llamada. */
 private fun <T> LazyListScope.gridItems(
-    values: List<T>,
-    columns: Int,
+    rows: List<List<T>>,
     key: (T) -> Long,
     content: @Composable (T) -> Unit,
 ) {
-    val rows = (values.size + columns - 1) / columns
-    val chunked = remember(values, columns) { values.chunked(columns) }
-    items(chunked, key = { key(it.first()) }) { row ->
+    items(rows, key = { key(it.first()) }) { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { value ->
                 Box(Modifier.weight(1f)) { content(value) }
@@ -381,7 +379,7 @@ private fun FavoritesTab(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        gridItems(favorites, columns, key = { it.id }) { sw ->
+        gridItems(remember(favorites, columns) { favorites.chunked(columns) }, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
                 iconTint = MaterialTheme.colorScheme.onPrimary,
@@ -438,7 +436,7 @@ private fun HistoryTab(
                 }
             }
         }
-        gridItems(history, columns, key = { it.id }) { entry ->
+        gridItems(remember(history, columns) { history.chunked(columns) }, key = { it.id }) { entry ->
             val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
             val finished = progress >= 0.97f
             LibraryRowCard(
@@ -567,7 +565,7 @@ private fun DownloadsTab(
                 }
             }
         }
-        gridItems(downloads, columns, key = { it.id }) { dl ->
+        gridItems(remember(downloads, columns) { downloads.chunked(columns) }, key = { it.id }) { dl ->
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,

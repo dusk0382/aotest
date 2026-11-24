@@ -108,6 +108,10 @@ fun HomeScreen(
     ) { padding ->
         BoxWithConstraints {
             val wide = maxWidth >= 840.dp
+            // «Continuar leyendo» sin la entrada del hero, ya partido en filas
+            // de 2 en composición (antes se re-chunkeaba en cada recomposición).
+            val rest = remember(history) { history.drop(1) }
+            val restPairs = remember(rest) { rest.chunked(2) }
             LazyColumn(
                 state = homeScroll,
                 modifier = Modifier
@@ -168,12 +172,8 @@ fun HomeScreen(
                             modifier = Modifier.semantics { heading() },
                         )
                     }
-                    val rest = history.drop(1)
                     if (wide) {
-                        // chunked en remember: sin esto se re-partía la lista
-                        // en cada recomposición del bloque.
-                        val pairs = remember(history) { rest.chunked(2) }
-                        items(pairs, key = { it.first().id }) { pair ->
+                        items(restPairs, key = { it.first().id }) { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 for (entry in pair) {
                                     Box(Modifier.weight(1f)) {

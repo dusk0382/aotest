@@ -423,6 +423,9 @@ fun SearchScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize()) {
             val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+            // Filas de la cuadrícula pre-partidas en composición (antes se
+            // re-chunkeaba la lista en cada recomposición del builder).
+            val gridRows = remember(results, columns) { results.chunked(columns) }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -463,8 +466,7 @@ fun SearchScreen(
                         )
                     }
                 } else {
-                    val rows = remember(results, columns) { results.chunked(columns) }
-                    items(rows, key = { it.first().id }) { row ->
+                    items(gridRows, key = { it.first().id }) { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             row.forEach { work ->
                                 Box(Modifier.weight(1f)) {

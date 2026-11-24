@@ -228,6 +228,8 @@ fun AuthorScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize()) {
             val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+            // Filas de la cuadrícula pre-partidas en composición.
+            val gridRows = remember(works, columns) { works.chunked(columns) }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -363,8 +365,7 @@ fun AuthorScreen(
                                 )
                             }
                         } else {
-                            val rows = remember(works, columns) { works.chunked(columns) }
-                            items(rows, key = { it.first().id }) { row ->
+                            items(gridRows, key = { it.first().id }) { row ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
