@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AO3 Reader</string>
+    <string name="app_name">A03 Reader</string>
 
     <!-- Bottom tabs -->
     <string name="tab_home">Home</string>

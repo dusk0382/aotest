@@ -3,5 +3,5 @@
     <!-- Fondo del splash y del icono: surface oscuro de la identidad azul tinta
          + hielo (#111820). El icono de libro ámbar se conserva tal cual. -->
     <color name="splash_background">#111820</color>
-    <color name="ic_launcher_background">#111820</color>
+    <color name="ic_launcher_background">#243B6B</color>
 </resources>

@@ -224,7 +224,7 @@ object ChapterExporter {
             appendLine()
             appendLine()
             appendLine("—".repeat(40))
-            append("Exportado con AO3 Lector · archiveofourown.org")
+            append("Exportado con A03 Reader · archiveofourown.org")
         }
     }
 
@@ -240,7 +240,7 @@ object ChapterExporter {
         if (p.workUrl.isNotBlank()) appendLine(p.workUrl)
         appendLine(
             "Exportado el ${SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())} " +
-                "con AO3 Lector · archiveofourown.org",
+                "con A03 Reader · archiveofourown.org",
         )
         appendLine()
         val ordered = p.chapters.sortedBy { it.index }
@@ -266,7 +266,7 @@ object ChapterExporter {
             onProgress(i + 1, ordered.size)
         }
         appendLine("—".repeat(40))
-        append("Fin de la obra · Exportado con AO3 Lector")
+        append("Fin de la obra · Exportado con A03 Reader")
     }
 
     /** Writes through MediaStore so the file appears in the Downloads app. Returns null on rejection. */
