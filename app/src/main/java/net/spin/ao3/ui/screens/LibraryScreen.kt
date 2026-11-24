@@ -326,6 +326,7 @@ private fun LibraryRowCard(
  *  El chunked se hace en composición (remember) en cada llamada. */
 private fun <T> LazyListScope.gridItems(
     rows: List<List<T>>,
+    columns: Int,
     key: (T) -> Long,
     content: @Composable (T) -> Unit,
 ) {
@@ -374,12 +375,13 @@ private fun FavoritesTab(
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+    val favRows = remember(favorites, columns) { favorites.chunked(columns) }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        gridItems(remember(favorites, columns) { favorites.chunked(columns) }, key = { it.id }) { sw ->
+        gridItems(favRows, columns, key = { it.id }) { sw ->
             LibraryRowCard(
                 icon = Icons.Default.Star,
                 iconTint = MaterialTheme.colorScheme.onPrimary,
@@ -424,6 +426,7 @@ private fun HistoryTab(
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+    val historyRows = remember(history, columns) { history.chunked(columns) }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
@@ -436,7 +439,7 @@ private fun HistoryTab(
                 }
             }
         }
-        gridItems(remember(history, columns) { history.chunked(columns) }, key = { it.id }) { entry ->
+        gridItems(historyRows, columns, key = { it.id }) { entry ->
             val progress = (entry.chapterProgress[entry.chapterIndex] ?: entry.scrollRatio).coerceIn(0f, 1f)
             val finished = progress >= 0.97f
             LibraryRowCard(
@@ -510,6 +513,7 @@ private fun DownloadsTab(
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val columns = when { maxWidth >= 1200.dp -> 3; maxWidth >= 840.dp -> 2; else -> 1 }
+    val downloadRows = remember(downloads, columns) { downloads.chunked(columns) }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomBarClearance.current + 16.dp),
@@ -565,7 +569,7 @@ private fun DownloadsTab(
                 }
             }
         }
-        gridItems(remember(downloads, columns) { downloads.chunked(columns) }, key = { it.id }) { dl ->
+        gridItems(downloadRows, columns, key = { it.id }) { dl ->
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
