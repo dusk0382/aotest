@@ -59,6 +59,19 @@ class Ao3Client(private val cacheDir: File? = null) {
 
     /** Hard cap on any single logical request (all retries + backoff included). */
     private companion object {
+
+        // Regex precompiladas (antes se compilaban dentro de la función en
+        // cada llamada). Mismos patrones ⇒ mismo comportamiento.
+        private val RE_CF_5XX = Regex("error code: 5\\d\\d")
+        private val RE_TAG_ID_A = Regex("""<input[^>]*name="tag_id"[^>]*value="([^"]*)"""")
+        private val RE_TAG_ID_B = Regex("""<input[^>]*value="([^"]*)"[^>]*name="tag_id"""")
+        private val RE_COMMENT_FORM = Regex("""<form[^>]*action="(/chapters/\d+/comments|/works/\d+/comments)"""")
+        private val RE_COMMENT_ERROR = Regex("""(?:class="error"|error explanation|We couldn't submit|can't be blank|is invalid|are required)""")
+        private val RE_ERROR_DIV = Regex("<div[^>]*class=\"error[^\"]*\"[^>]*>(.*?)</div>", RegexOption.DOT_MATCHES_ALL)
+        private val RE_ERROR_DIV_PLAIN = Regex("""<div[^>]*class="error[^"]*"""")
+        private val RE_AUTH_TOKEN_A = Regex("""name="authenticity_token"\s+value="([^"]+)"""")
+        private val RE_AUTH_TOKEN_B = Regex("""value="([^"]+)"\s+name="authenticity_token"""")
+
         const val TAG = "Ao3Client"
         const val GLOBAL_DEADLINE_MS = 45_000L
         const val POST_DEADLINE_MS = 30_000L
@@ -388,7 +401,7 @@ class Ao3Client(private val cacheDir: File? = null) {
             body.contains("challenge-running") ||
             body.contains("cf-chl") ||
             body.contains("jschl") ||
-            Regex("error code: 5\\d\\d").containsMatchIn(body)
+            RE_CF_5XX.containsMatchIn(body)
 
     /**
      * Detects AO3's real adult-content interstitial (a full-page notice that
@@ -618,9 +631,9 @@ class Ao3Client(private val cacheDir: File? = null) {
     private suspend fun resolveCanonicalTag(name: String): String? {
         canonicalTagCache[name]?.let { return it }
         val resolved = tagWorksPage(name)?.let { html ->
-            Regex("""<input[^>]*name="tag_id"[^>]*value="([^"]*)"""").find(html)
+            RE_TAG_ID_A.find(html)
                 ?.groupValues?.get(1)
-                ?: Regex("""<input[^>]*value="([^"]*)"[^>]*name="tag_id"""").find(html)?.groupValues?.get(1)
+                ?: RE_TAG_ID_B.find(html)?.groupValues?.get(1)
         }
         canonicalTagCache[name] = resolved
         return resolved
@@ -933,7 +946,7 @@ class Ao3Client(private val cacheDir: File? = null) {
         // actual → rechazo intermitente e inexplicable del comentario.
         val page = get(pageUrl, disk = null)
         val token = extractAuthToken(page)
-        val action = Regex("""<form[^>]*action="(/chapters/\d+/comments|/works/\d+/comments)"""").find(page)
+        val action = RE_COMMENT_FORM.find(page)
             ?.groupValues?.get(1)
             ?: "/works/$workId/comments"
 
@@ -948,11 +961,11 @@ class Ao3Client(private val cacheDir: File? = null) {
 
         val body = post("https://archiveofourown.org$action", fields)
         // A new comment invalidates the cached thread for that chapter.
-        val error = Regex("""(?:class="error"|error explanation|We couldn't submit|can't be blank|is invalid|are required)""")
+        val error = RE_COMMENT_ERROR
             .find(body)
         if (error == null && chapterId != null) commentsCache.invalidate(chapterId)
         return error?.let {
-            Regex("<div[^>]*class=\"error[^\"]*\"[^>]*>(.*?)</div>", RegexOption.DOT_MATCHES_ALL)
+            RE_ERROR_DIV
                 .find(body)?.groupValues?.get(1)?.let { m -> JsoupText(m) }
                 ?: "AO3 rechazó el comentario. Revisa que nombre y email sean válidos."
         }
@@ -987,8 +1000,8 @@ class Ao3Client(private val cacheDir: File? = null) {
         return when {
             body.contains("You have already left kudos") -> "Ya habías dejado kudos en esta obra ❤"
             body.contains("doesn't exist") -> "La obra ya no existe"
-            Regex("""<div[^>]*class="error[^"]*"""").containsMatchIn(body) ->
-                Regex("""<div[^>]*class="error[^"]*"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
+            RE_ERROR_DIV_PLAIN.containsMatchIn(body) ->
+                RE_ERROR_DIV
                     .find(body)?.groupValues?.get(1)?.let { JsoupText(it) }
                     ?: "AO3 no pudo registrar el kudo"
             else -> null
@@ -996,8 +1009,8 @@ class Ao3Client(private val cacheDir: File? = null) {
     }
 
     private fun extractAuthToken(page: String): String =
-        Regex("""name="authenticity_token"\s+value="([^"]+)"""").find(page)?.groupValues?.get(1)
-            ?: Regex("""value="([^"]+)"\s+name="authenticity_token"""").find(page)?.groupValues?.get(1)
+        RE_AUTH_TOKEN_A.find(page)?.groupValues?.get(1)
+            ?: RE_AUTH_TOKEN_B.find(page)?.groupValues?.get(1)
             ?: throw IOException("No se pudo obtener el token de sesión de AO3")
 }
 

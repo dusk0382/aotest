@@ -330,7 +330,8 @@ private fun <T> LazyListScope.gridItems(
     content: @Composable (T) -> Unit,
 ) {
     val rows = (values.size + columns - 1) / columns
-    items(values.chunked(columns), key = { key(it.first()) }) { row ->
+    val chunked = remember(values, columns) { values.chunked(columns) }
+    items(chunked, key = { key(it.first()) }) { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { value ->
                 Box(Modifier.weight(1f)) { content(value) }

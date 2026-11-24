@@ -363,7 +363,8 @@ fun AuthorScreen(
                                 )
                             }
                         } else {
-                            items(works.chunked(columns), key = { it.first().id }) { row ->
+                            val rows = remember(works, columns) { works.chunked(columns) }
+                            items(rows, key = { it.first().id }) { row ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -28,6 +28,17 @@ object Ao3Parser {
 
     private const val BASE = "https://archiveofourown.org"
 
+    // Regex precompiladas: compilarlas dentro de la función costaba por cada
+    // llamada, y varias corren dentro de bucles (por capítulo, por span de
+    // facets). Mismos patrones ⇒ mismo comportamiento.
+    private val RE_WORKS_FOUND = Regex("""(\d[\d,]*)\s+Works?""")
+    private val RE_CHAPTER_ID = Regex("/chapters/(\\d+)")
+    private val RE_PSEUD_SEP = Regex("\\s+(?:and|&)\\s+")
+    private val RE_FACET_COUNT = Regex("""\((\d[\d,]*)\)\s*$""")
+    private val RE_FACET_COUNT_STRIP = Regex("""\s*\(\d[\d,]*\)\s*$""")
+    private val RE_CHAPTERS = Regex("""(\d+)\s*/\s*(\d+|\?)""")
+    private val RE_BLANK_LINES = Regex("\n{3,}")
+
     // ---- Search results -----------------------------------------------------
 
     fun parseSearchResults(html: String): List<WorkSummary> {
@@ -38,7 +49,7 @@ object Ao3Parser {
     /** "2,304 Works found" / "19,997 Works in Naruto" → total match count. */
     private fun resultCount(doc: Document): Int? {
         val heading = doc.selectFirst("h2.heading")?.text() ?: return null
-        return Regex("""(\d[\d,]*)\s+Works?""").find(heading)
+        return RE_WORKS_FOUND.find(heading)
             ?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull()
     }
 
@@ -241,7 +252,7 @@ object Ao3Parser {
                     index = i,
                     title = a.text().trim(),
                     url = href,
-                    chapterId = Regex("/chapters/(\\d+)").find(href)?.groupValues?.get(1)?.toLongOrNull(),
+                    chapterId = RE_CHAPTER_ID.find(href)?.groupValues?.get(1)?.toLongOrNull(),
                 )
             }
         }
@@ -315,7 +326,7 @@ object Ao3Parser {
             // Older layout: plain dd text.
             metaDl?.select("dt")?.forEach { dt ->
                 if (dt.text().lowercase().contains("pseud")) {
-                    dt.nextElementSibling()?.text()?.split(Regex("\\s+(?:and|&)\\s+"))
+                    dt.nextElementSibling()?.text()?.split(RE_PSEUD_SEP)
                         ?.map { it.trim() }?.filter { it.isNotBlank() }?.let { pseuds += it }
                 }
             }
@@ -340,7 +351,7 @@ object Ao3Parser {
     fun parseAuthorWorks(html: String): Pair<Int?, List<WorkSummary>> {
         val doc = Jsoup.parse(html, BASE)
         val works = doc.select("ol.work.index.group > li.work.blurb").mapNotNull { parseBlurb(it) }
-        val count = Regex("""(\d+)\s+Works?""")
+        val count = RE_WORKS_FOUND
             .find(doc.selectFirst("h2.heading")?.text() ?: "")
             ?.groupValues?.get(1)?.toIntOrNull()
         return count to works
@@ -385,9 +396,9 @@ object Ao3Parser {
                     val input = li.selectFirst("input[value]") ?: return@mapNotNull null
                     val id = input.attr("value").toLongOrNull() ?: return@mapNotNull null
                     val span = li.select("span").lastOrNull()?.text() ?: return@mapNotNull null
-                    val count = Regex("""\((\d[\d,]*)\)\s*$""").find(span)
+                    val count = RE_FACET_COUNT.find(span)
                         ?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
-                    val label = span.replace(Regex("""\s*\(\d[\d,]*\)\s*$"""), "").trim()
+                    val label = span.replace(RE_FACET_COUNT_STRIP, "").trim()
                     FacetItem(id, label, count)
                 }
             }
@@ -550,7 +561,7 @@ object Ao3Parser {
     /** "4/?", "12/12" -> (4, 12), "1/1" -> (1, 1). */
     private fun parseChapters(text: String?): Pair<Int, Int?> {
         if (text.isNullOrBlank()) return 1 to 1
-        val m = Regex("""(\d+)\s*/\s*(\d+|\?)""").find(text)
+        val m = RE_CHAPTERS.find(text)
         if (m == null) {
             val n = text.toIntOrNull()
             return (n ?: 1) to (n ?: 1)
@@ -582,7 +593,7 @@ object Ao3Parser {
         val doc = Jsoup.parseBodyFragment(html)
         val sb = StringBuilder()
         walkText(doc.body(), sb)
-        return sb.toString().replace(Regex("\n{3,}"), "\n\n").trim()
+        return sb.toString().replace(RE_BLANK_LINES, "\n\n").trim()
     }
 
     private val blockTags = setOf(

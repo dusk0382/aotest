@@ -463,7 +463,8 @@ fun SearchScreen(
                         )
                     }
                 } else {
-                    items(results.chunked(columns), key = { it.first().id }) { row ->
+                    val rows = remember(results, columns) { results.chunked(columns) }
+                    items(rows, key = { it.first().id }) { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             row.forEach { work ->
                                 Box(Modifier.weight(1f)) {

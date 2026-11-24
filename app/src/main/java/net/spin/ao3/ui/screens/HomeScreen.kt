@@ -170,7 +170,10 @@ fun HomeScreen(
                     }
                     val rest = history.drop(1)
                     if (wide) {
-                        items(rest.chunked(2), key = { it.first().id }) { pair ->
+                        // chunked en remember: sin esto se re-partía la lista
+                        // en cada recomposición del bloque.
+                        val pairs = remember(history) { rest.chunked(2) }
+                        items(pairs, key = { it.first().id }) { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 for (entry in pair) {
                                     Box(Modifier.weight(1f)) {
